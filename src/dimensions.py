@@ -124,7 +124,11 @@ TERMINAL_ROT_DEG     = 90.0
 # lips at z 2.6..5.0, body onward to z 18.3, and the wire-blade tail pokes
 # ~4 mm out the dock's back — through the housing's terminal window, where
 # the wiring happens. The housing wall it mounts against closes the back.
-TERMINAL_PLACE       = (0.0, 47.0, 3.0)   # translate after rotation
+TERMINAL_PLACE       = (0.0, 47.0, 3.2)   # translate after rotation; z=3.2
+                                          # seats the connector's body-step
+                                          # face flush with the dock cavity
+                                          # floor (dock z = CHANNEL_TOTAL_H = 7;
+                                          # was z=3.0, leaving a 0.2 mm gap)
 TERMINAL_POCKET_CLR  = 0.20    # clearance per ~face for the conformal pocket
 
 
