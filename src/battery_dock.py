@@ -467,22 +467,22 @@ def _dovetail_mortises() -> cq.Workplane:
 
 
 def _terminal_t_cutter() -> cq.Workplane:
-    """The central T opening, sized to the CONNECTOR's (643852-2) plan
-    extents and cut straight through Z (back face to plate top). Two
-    rectangular prisms:
+    """The central T opening as a lowercase 't', sized to the CONNECTOR's
+    (643852-2) plan extents and cut straight through the plate thickness
+    (dock Z = back face to plate top; this is the housing X axis in the
+    seated/slicer view). Three rectangular prisms, zero clearance:
 
-      • crossbar (wide body): x ±23.90, y 23.63..61.33
-      • stem (narrow back)   : x ±12.50, y 60.00..73.33  — x ±12.5 spans
-                               the flange's rounded corner lobes (to
-                               x 12.45) so the stem clears the connector
-                               in X with no residual interference.
+      • top nub (narrow front): x -9.60..+5.40, y 21.54..23.63 — the flange
+                                tip is OFFSET (centred at x=-2.1, not 0), so
+                                its +x edge is +5.40, not +9.6.
+      • crossbar (wide body)  : x ±23.90, y 23.63..61.33
+      • stem (narrow back)    : x ±12.00, y 60.00..73.33 — flush to the
+                                connector's back band (x ±12.0).
 
-    The boxes overlap in Y (y60..61.33) for a clean union. No clearance.
-
-    The crossbar front edge is at y=23.63 (the connector's crossbar top
-    edge); the narrow top-nub region y<23.63 is left solid. The battery
-    rail also runs through the front of this opening — reconciling that
-    with the connector slot is handled when the battery side is rebuilt."""
+    The boxes overlap in Y (nub↔crossbar at y23.63, crossbar↔stem at
+    y60..61.33) for clean unions. The battery rail also runs through the
+    front of this opening — reconciling that with the connector slot is
+    handled when the battery side is rebuilt."""
     OV = BOOL_OVERSHOOT
 
     def thru(x0, x1, y0, y1):
@@ -491,9 +491,10 @@ def _terminal_t_cutter() -> cq.Workplane:
                      centered=(False, False, False))
                 .translate((x0, y0, -OV)))
 
+    nub      = thru(-9.60, 5.40, 21.54, 23.63)
     crossbar = thru(-23.90, 23.90, 23.63, 61.33)
-    stem     = thru(-12.50, 12.50, 60.00, 73.33)
-    return crossbar.union(stem)
+    stem     = thru(-12.00, 12.00, 60.00, 73.33)
+    return nub.union(crossbar).union(stem)
 
 
 battery_dock = (_slot
