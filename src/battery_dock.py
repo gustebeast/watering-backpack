@@ -512,6 +512,12 @@ CONN_FLANGE_SHOULDER_Y = 61.33  # +y flange shoulder (wide→narrow step) (measu
 CONN_STEM_HALF_X      = 12.00   # ±x stem flange-lip edge (measured)
 CONN_STEM_END_Y       = 73.33   # +y stem-end flange edge (connector back) (measured)
 STEM_HALF_X           = 12.20   # stem opening +x wall (= flange ±12 + clearance)
+# Front nub (the connector's offset front tab) flange edges (measured):
+CONN_NUB_FRONT_Y      = 21.54   # nub front edge
+CONN_NUB_PLUS_X       = 5.40    # nub +x edge
+CONN_NUB_MINUS_X      = -9.60   # nub −x edge
+CONN_NUB_TOP_DZ       = 1.80    # nub flange-lip top above TERMINAL_PLACE z
+                                # (the nub tab is ~0.1 lower than the body flange)
 
 
 def _crossbar_chamfer(side_sign: int) -> cq.Workplane:
@@ -631,6 +637,56 @@ def _stem_end_lip() -> cq.Workplane:
             .extrude(x1 - x0).translate((x0, 0, 0)))
 
 
+def _nub_lips() -> cq.Workplane:
+    """Front nub lips — faces 1 (front), 2 (−x side), 12 (+x side). The nub
+    is the connector's small offset front tab; above its flange the space is
+    clear (the body sits further back), so lips fit here. The nub opening is
+    a concave pocket, so its front corners (1/2 and 1/12) are INNER: cut each
+    lip's 45° on its OWN prism, then union -> valley (and the +y-ramping
+    front cut doesn't eat the side lips). Faces 11 & 13 (the body-blocked
+    crossbar-front shoulders) get no lip. Parametric in TERMINAL_PLACE."""
+    OV     = BOOL_OVERSHOOT
+    z_lip  = TERMINAL_PLACE[2] + CONN_NUB_TOP_DZ        # 5.0 (nub flange top)
+    z_top  = CHANNEL_TOTAL_H                            # 7.0
+    dz     = z_top - z_lip                              # 2.0
+    fy, fxp, fxn = CONN_NUB_FRONT_Y, CONN_NUB_PLUS_X, CONN_NUB_MINUS_X  # 21.54, 5.40, -9.60
+    wy   = fy - TERM_CLR                                # 21.34 front wall
+    wxp  = fxp + TERM_CLR                               # 5.60  +x wall
+    wxn  = fxn - TERM_CLR                               # -9.80 −x wall
+    z_wall = z_lip - abs(wxp - fxp)                     # 4.8 (graze-flush, from gap)
+    pz   = z_top - z_wall
+    nub_y1 = 23.50                                      # nub back (before the body)
+    y_in = fy + dz                                      # 23.54 (front inner @ z_top)
+    xp_in = fxp - dz                                    # 3.40
+    xn_in = fxn + dz                                    # -7.60
+
+    def xybox(xa, xb, ya, yb):
+        x0, x1 = sorted((xa, xb)); y0, y1 = sorted((ya, yb))
+        return (cq.Workplane("XY").box(x1 - x0, y1 - y0, pz, centered=(False, False, False))
+                .translate((x0, y0, z_wall)))
+
+    front = xybox(wxn, wxp, wy - OV, y_in)
+    sidep = xybox(xp_in, wxp + OV, wy, nub_y1)
+    siden = xybox(wxn - OV, xn_in, wy, nub_y1)
+
+    # 45° cut wedges (each anchored flush at its wall, grazing its edge)
+    triF = [(wy, z_wall), (y_in + OV, z_top + OV),
+            (y_in + OV, z_wall - OV), (wy, z_wall - OV)]           # front, +y ramp
+    cutF = (cq.Workplane("YZ").polyline(triF).close()
+            .extrude(wxp + OV - (wxn - OV)).translate((wxn - OV, 0, 0)))
+    triP = [(wxp, z_wall), (xp_in - OV, z_top + OV),
+            (xp_in - OV, z_wall - OV), (wxp, z_wall - OV)]         # +x side, -x ramp
+    cutP = (cq.Workplane("XZ").polyline(triP).close()
+            .extrude(-(nub_y1 + OV - (wy - OV))).translate((0, wy - OV, 0)))
+    triN = [(wxn, z_wall), (xn_in + OV, z_top + OV),
+            (xn_in + OV, z_wall - OV), (wxn, z_wall - OV)]         # −x side, +x ramp
+    cutN = (cq.Workplane("XZ").polyline(triN).close()
+            .extrude(-(nub_y1 + OV - (wy - OV))).translate((0, wy - OV, 0)))
+
+    # INNER corners: cut each lip on its OWN prism, then union (cuts isolated)
+    return front.cut(cutF).union(sidep.cut(cutP)).union(siden.cut(cutN))
+
+
 battery_dock = (_slot
                 .cut(_lightening_cutter())
                 .cut(_front_pocket_cutter())
@@ -647,4 +703,5 @@ battery_dock = (_slot
                 .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
                 .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
                 .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
+                .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
                 .union(_ribs))
