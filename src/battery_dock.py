@@ -655,8 +655,11 @@ def _nub_lips() -> cq.Workplane:
     wxn  = fxn - TERM_CLR                               # -9.80 −x wall
     z_wall = z_lip - abs(wxp - fxp)                     # 4.8 (graze-flush, from gap)
     pz   = z_top - z_wall
-    nub_y1 = 23.50                                      # nub back (before the body)
-    y_in = fy + dz                                      # 23.54 (front inner @ z_top)
+    # cap the nub lips at the crossbar-opening front: the nub side walls only
+    # exist for y < here. Beyond it the opening widens to the crossbar, so a
+    # lip there would float in the void instead of sitting flush on a wall.
+    nub_y1 = 23.63 - TERM_CLR                           # 23.43 (crossbar-opening front)
+    y_in = fy + dz                                      # 23.54 (front 45° endpoint only)
     xp_in = fxp - dz                                    # 3.40
     xn_in = fxn + dz                                    # -7.60
 
@@ -665,7 +668,7 @@ def _nub_lips() -> cq.Workplane:
         return (cq.Workplane("XY").box(x1 - x0, y1 - y0, pz, centered=(False, False, False))
                 .translate((x0, y0, z_wall)))
 
-    front = xybox(wxn, wxp, wy - OV, y_in)
+    front = xybox(wxn, wxp, wy - OV, nub_y1)
     sidep = xybox(xp_in, wxp + OV, wy, nub_y1)
     siden = xybox(wxn - OV, xn_in, wy, nub_y1)
 
