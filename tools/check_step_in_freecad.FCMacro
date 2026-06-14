@@ -1,0 +1,62 @@
+"""Headless STEP import smoke-test. Minimal version - just import + print."""
+import glob, os, sys, traceback
+import FreeCAD as App
+import Import
+
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print("REPO:", repo_root, flush=True)
+steps = sorted(glob.glob(os.path.join(repo_root, "*.step")))
+print(f"FOUND {len(steps)} STEPS:", flush=True)
+for s in steps:
+    print(f"  - {os.path.basename(s)}", flush=True)
+
+
+class _Cap:
+    def __init__(self, kind):
+        self.kind = kind
+        self.lines = []
+
+    def write(self, s):
+        if s.strip():
+            self.lines.append(s.rstrip())
+
+    def flush(self):
+        pass
+
+
+for step in steps:
+    print(f"\n=== {os.path.basename(step)} ===", flush=True)
+    cap_err = _Cap("err")
+    cap_out = _Cap("out")
+    old_err, old_out = sys.stderr, sys.stdout
+    sys.stderr, sys.stdout = cap_err, cap_out
+    err = None
+    try:
+        doc = App.newDocument("check")
+        try:
+            Import.insert(step, doc.Name)
+            doc.recompute()
+            shapes = sum(1 for o in doc.Objects if hasattr(o, "Shape"))
+        except Exception:
+            shapes = 0
+            err = traceback.format_exc()
+        App.closeDocument(doc.Name)
+    finally:
+        sys.stderr, sys.stdout = old_err, old_out
+    print(f"  shapes loaded: {shapes}", flush=True)
+    if err:
+        print("  IMPORT ERROR:", flush=True)
+        for ln in err.splitlines():
+            print(f"    {ln}", flush=True)
+    if cap_out.lines:
+        print("  stdout during import:", flush=True)
+        for ln in cap_out.lines:
+            print(f"    {ln}", flush=True)
+    if cap_err.lines:
+        print("  stderr during import:", flush=True)
+        for ln in cap_err.lines:
+            print(f"    {ln}", flush=True)
+    if not cap_out.lines and not cap_err.lines and not err:
+        print("  (no messages - clean import)", flush=True)
+
+print("\nDONE", flush=True)
