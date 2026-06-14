@@ -52,15 +52,6 @@ def _xz_prism(pts, y0: float, y1: float) -> "cq.Workplane":
             .translate((0.0, y0, 0.0)))
 
 
-def _yz_prism(pts, x0: float, x1: float) -> "cq.Workplane":
-    """Triangular prism: a Y-Z section `pts` (lists of (y, z)) extruded along
-    X to span [x0, x1]. YZ extrude(+L) lands at X in [0, L]."""
-    length = x1 - x0
-    return (cq.Workplane("YZ").polyline(pts).close()
-            .extrude(length)
-            .translate((x0, 0.0, 0.0)))
-
-
 # ── Plate envelope ───────────────────────────────────────────────────────────
 # Outer block size, picked to match the V4 mount's bounding box. The
 # backpack-integration extension (mounting flange, pump-side wrap, etc.)
@@ -261,24 +252,6 @@ def _top_recess_cutter() -> cq.Workplane:
             .translate((0.0, TOP_RECESS_Y_START, 0.0)))
 
 
-# ── Back-end top recess (parked) ────────────────────────────────────────────
-# V4 hollows the upper-back region too — the "back wall" between Y=71..87
-# is recessed from the top (z=22) down to z=16.5. Likely so the dock can
-# bolt against a wall without a tall plate hanging behind it.
-BACK_RECESS_Y_START   = PLATE_Y - POCKET_WALL_FAR     # 71
-BACK_RECESS_Y_LENGTH  = 16.0
-BACK_RECESS_Z_FLOOR   = 16.5
-
-
-def _back_recess_cutter() -> cq.Workplane:
-    return (cq.Workplane("XY")
-            .workplane(offset=BACK_RECESS_Z_FLOOR)
-            .box(POCKET_X, BACK_RECESS_Y_LENGTH,
-                 PLATE_Z - BACK_RECESS_Z_FLOOR + 2 * BOOL_OVERSHOOT,
-                 centered=(True, False, False))
-            .translate((0.0, BACK_RECESS_Y_START, 0.0)))
-
-
 # ── Front clearance pocket ─────────────────────────────────────────────────
 # V4 has a shallow pocket at the front (low-Y end), below the rail
 # channel floor — sized like a clearance pocket for the battery's
@@ -298,24 +271,6 @@ def _front_pocket_cutter() -> cq.Workplane:
             .box(FRONT_POCKET_X, FRONT_POCKET_Y_LENGTH, FRONT_POCKET_Z_DEPTH,
                  centered=(True, False, False))
             .translate((0.0, FRONT_POCKET_Y_START, 0.0)))
-
-
-# ── Back-of-stem extension ──────────────────────────────────────────────────
-# V4's stem cavity extends a little further in Y than its top-of-stem
-# wall — at Y=58..70.7, V4 has a cavity at Z=5..6.5 (between the stem
-# walls X[14..58]) but the top z=6.5..7 is solid. Looks like a chamfered
-# back of the stem; we approximate as a shallower stem extension.
-STEM_BACK_EXT_Y_LENGTH = 12.7
-STEM_BACK_EXT_Z_TOP    = 6.5
-
-
-def _stem_back_ext_cutter() -> cq.Workplane:
-    return (cq.Workplane("XY")
-            .workplane(offset=CHANNEL_HAT_H)        # z=5
-            .box(STEM_WIDTH, STEM_BACK_EXT_Y_LENGTH,
-                 STEM_BACK_EXT_Z_TOP - CHANNEL_HAT_H + BOOL_OVERSHOOT,
-                 centered=(True, False, False))
-            .translate((0.0, STEM_Y_FAR, 0.0)))
 
 
 # ── Front-corner cutouts ────────────────────────────────────────────────────
@@ -376,121 +331,6 @@ def _front_corner_cutter(side_sign: int) -> cq.Workplane:
     else:
         # Land cutter at X[-PLATE_X/2 - δ .. -PLATE_X/2 + FRONT_CORNER_X]
         return cutter.translate((-PLATE_X / 2 - BOOL_OVERSHOOT, 0, 0))
-
-
-# ── Outer-edge 45° chamfers ─────────────────────────────────────────────────
-# V4 has rounded edges along its outer perimeter at the top — modeled as
-# 1.5 mm 45° chamfers here. Reduces a large amount of "thin shell" BLUE
-# along the +X, -X, and -Y edges that comes from V4's rounded corners.
-TOP_CHAMFER = 1.5
-
-
-def _top_x_chamfer(side_sign: int) -> cq.Workplane:
-    """45° chamfer along the top X edge. side_sign +1 for +X, -1 for -X.
-
-    Build a triangular wedge: in XZ it has vertices at the chamfer line
-    endpoints + the outer corner. Then extrude along Y for the full plate
-    length. Workplane("XZ") extrudes in -Y in CadQuery's convention, so
-    we translate by +PLATE_Y afterward to land it on the plate.
-    """
-    x_outer = side_sign * (PLATE_X / 2 + BOOL_OVERSHOOT)
-    x_inner = side_sign * (PLATE_X / 2 - TOP_CHAMFER)
-    z_top   = PLATE_Z + BOOL_OVERSHOOT
-    z_bot   = PLATE_Z - TOP_CHAMFER
-    if side_sign > 0:
-        pts = [(x_inner, z_top), (x_outer, z_top), (x_outer, z_bot)]
-    else:
-        pts = [(x_inner, z_top), (x_outer, z_bot), (x_outer, z_top)]
-    cutter = (cq.Workplane("XZ")
-              .polyline(pts).close()
-              .extrude(PLATE_Y + 2 * BOOL_OVERSHOOT))
-    return cutter.translate((0, PLATE_Y + BOOL_OVERSHOOT, 0))
-
-
-def _top_y_neg_chamfer() -> cq.Workplane:
-    """45° chamfer along the top -Y edge (front-top edge of the plate).
-    Similar trick: Workplane("YZ") extrudes in -X, translate back."""
-    y_outer = -BOOL_OVERSHOOT
-    y_inner = TOP_CHAMFER
-    z_top   = PLATE_Z + BOOL_OVERSHOOT
-    z_bot   = PLATE_Z - TOP_CHAMFER
-    pts = [(y_inner, z_top), (y_outer, z_top), (y_outer, z_bot)]
-    cutter = (cq.Workplane("YZ")
-              .polyline(pts).close()
-              .extrude(PLATE_X + 2 * BOOL_OVERSHOOT))
-    # Pre-translate cutter sits at X[0..73]; want it centered at X[-36.5..+36.5].
-    return cutter.translate((-PLATE_X / 2 - BOOL_OVERSHOOT, 0, 0))
-
-
-# ── Mount holes (4 corners) ─────────────────────────────────────────────────
-# V4 has four mount holes — BLIND in the back (12 mm deep), and effectively
-# blind in the front (the upper cavity already hollows the column above z=6
-# at the front-corner X/Y). Inferred from the residual diff bumps.
-MOUNT_HOLE_D            = 3.2
-MOUNT_HOLE_INSET_X      = 5.0   # corner inset from each outer X edge
-MOUNT_HOLE_INSET_Y      = 5.0   # corner inset from each outer Y edge
-MOUNT_HOLE_DEPTH_BACK   = 12.0  # blind hole depth at the back corners
-
-
-def _mount_holes_cutter() -> cq.Workplane:
-    """Four mount holes — through at the front, blind at the back."""
-    x_edge = PLATE_X / 2 - MOUNT_HOLE_INSET_X
-    y_near = MOUNT_HOLE_INSET_Y                      # 5
-    y_far  = PLATE_Y - MOUNT_HOLE_INSET_Y            # 85
-
-    through = (cq.Workplane("XY")
-               .workplane(offset=-BOOL_OVERSHOOT)
-               .circle(MOUNT_HOLE_D / 2)
-               .extrude(PLATE_Z + 2 * BOOL_OVERSHOOT))
-    # Back holes are THROUGH (V4 has them blind-12mm, but the housing mounts
-    # the dock against a wall — M3 screws pass from inside the housing through
-    # the wall into all four dock holes, so all four must be through).
-    # Printability unchanged: holes run along the print (Z) axis.
-    blind = through
-
-    # Front corners: through-hole (overlaps the upper cavity above).
-    out = through.translate((-x_edge, y_near, 0.0))
-    out = out.union(through.translate(( x_edge, y_near, 0.0)))
-    # Back corners: blind hole (back region is otherwise solid).
-    out = out.union(blind.translate((-x_edge, y_far, 0.0)))
-    out = out.union(blind.translate(( x_edge, y_far, 0.0)))
-    return out
-
-
-# ── Back-top recess (full width) + mount-hole bosses ────────────────────────
-# V4 has a full-width recess from the top down to z=16.5 in the BACK area
-# (Y=71..87), but with raised bosses around the two back mount holes that
-# extend back up to z=22. The bosses radiate inward from the corners.
-# We model this as: (1) cut a full-width recess, (2) union two cylindrical
-# bosses around the back hole positions, then (3) cut the mount holes.
-BACK_RECESS_Y_START  = PLATE_Y - POCKET_WALL_FAR     # 71
-BACK_RECESS_Y_LENGTH = 16.0
-BACK_RECESS_Z_FLOOR  = 16.5
-BACK_BOSS_R          = 10.0    # boss radius around each back mount hole
-
-
-def _back_recess_cutter() -> cq.Workplane:
-    """Full pocket-width recess in the back upper region."""
-    return (cq.Workplane("XY")
-            .workplane(offset=BACK_RECESS_Z_FLOOR)
-            .box(POCKET_X, BACK_RECESS_Y_LENGTH,
-                 PLATE_Z - BACK_RECESS_Z_FLOOR + 2 * BOOL_OVERSHOOT,
-                 centered=(True, False, False))
-            .translate((0.0, BACK_RECESS_Y_START, 0.0)))
-
-
-def _back_bosses() -> cq.Workplane:
-    """Two cylindrical bosses rising from the recess floor up to the plate
-    top, centred on each back mount-hole position. Union'd back in after
-    the recess cut; mount-hole cut runs through them last."""
-    x_edge = PLATE_X / 2 - MOUNT_HOLE_INSET_X        # 31 (centred frame)
-    y      = PLATE_Y - MOUNT_HOLE_INSET_Y            # 85
-    boss = (cq.Workplane("XY")
-            .workplane(offset=BACK_RECESS_Z_FLOOR)
-            .circle(BACK_BOSS_R)
-            .extrude(PLATE_Z - BACK_RECESS_Z_FLOOR))
-    return (boss.translate((-x_edge, y, 0.0))
-            .union(boss.translate(( x_edge, y, 0.0))))
 
 
 # ── Side ribs inside the upper cavity ───────────────────────────────────────
@@ -665,13 +505,8 @@ battery_dock = (_slot
                 .cut(_front_corner_cutter(-1))
                 .cut(_back_corner_cutter(+1))
                 .cut(_back_corner_cutter(-1))
-                # Top-edge chamfers were creating ~140 mm³ over-cut along the
-                # side strips (V4 doesn't have a uniform edge chamfer there);
-                # skipping until we have better measurements of V4's actual
-                # edge profile.
-                # Mount holes removed — the dock mounts to the backpack
-                # housing via the dovetail grooves below, no screws
-                # (_mount_holes_cutter retained for reference).
+                # The dock mounts to the backpack housing via the dovetail
+                # grooves below — no mount-hole screws.
                 .cut(_dovetail_mortises())
                 .cut(_terminal_t_cutter())
                 .union(_ribs))
