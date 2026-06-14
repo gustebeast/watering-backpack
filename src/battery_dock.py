@@ -509,6 +509,7 @@ def _terminal_t_cutter() -> cq.Workplane:
 CONN_FLANGE_HALF_X    = 23.90   # ±x flange-lip extent (measured; z-move-invariant)
 CONN_FLANGE_TOP_DZ    = 1.90    # flange-lip top above TERMINAL_PLACE z (measured)
 CONN_FLANGE_SHOULDER_Y = 61.33  # +y flange shoulder (wide→narrow step) (measured)
+CONN_STEM_HALF_X      = 12.00   # ±x stem flange-lip edge (measured)
 STEM_HALF_X           = 12.20   # stem opening +x wall (= flange ±12 + clearance)
 
 
@@ -546,56 +547,67 @@ def _crossbar_chamfer(side_sign: int) -> cq.Workplane:
             .extrude(-(y1 - y0)).translate((0, y0, 0)))
 
 
-def _plus_x_step_corner() -> cq.Workplane:
-    """Side-10 (+x crossbar wall) and side-9 (+x step shoulder) retaining
-    lips, meeting at their shared INNER corner near dock (23.9, 61.33).
+def _plus_x_lips() -> cq.Workplane:
+    """+x flange-lip system — faces 10 (crossbar wall), 9 (step shoulder),
+    8 (stem wall) — with both step corners mitered to their type:
 
-    Inner-corner rule (user): draw each lip as a prism and cut its OWN 45°
-    SEPARATELY, with each cut isolated to its lip, THEN union. Because the
-    cuts don't reach into the other lip, the concave corner stays full — the
-    two 45° faces meet at a valley (not a hip, which is what union-then-cut
-    would give). Replaces _crossbar_chamfer(+1) (it includes the side-10
-    lip). Parametric in TERMINAL_PLACE + cavity floor."""
+      • 9/10 corner (x≈24, +x crossbar wall meets shoulder): INNER (concave,
+        solid wraps it). Cut each lip's 45° SEPARATELY, then union -> the two
+        faces meet at a VALLEY, corner stays full.
+      • 8/9 corner (x≈12, shoulder meets +x stem wall): OUTER (convex, solid
+        juts out). Union the two lips, then cut BOTH 45°s through both ->
+        the two faces meet at a HIP.
+
+    Every 45° starts flush at its wall (z_wall = z_lip − gap, no flat) and
+    grazes the connector flange edge. Parametric in TERMINAL_PLACE + floor."""
     OV       = BOOL_OVERSHOOT
-    flange_x = CONN_FLANGE_HALF_X                       # 23.90
-    flange_y = CONN_FLANGE_SHOULDER_Y                   # 61.33
-    wall_x   = flange_x + TERM_CLR                      # 24.10
-    wall_y   = flange_y + TERM_CLR                      # 61.53
     z_lip    = TERMINAL_PLACE[2] + CONN_FLANGE_TOP_DZ   # 5.10
     z_top    = CHANNEL_TOTAL_H                          # 7.0
     dz       = z_top - z_lip                            # 1.90
-    # 45° through the flange edge drops in z by the flange→wall gap (45°), so
-    # it meets the wall at z_wall: flush at the wall AND grazes the flange.
-    # Computed from positions (x and y flange→wall gaps are equal here).
-    z_wall   = z_lip - abs(wall_x - flange_x)
-    pz       = z_top - z_wall                           # prism height
-    x_in     = flange_x - dz                            # 22.0 (45° inner @ z_top)
-    y_in     = flange_y - dz                            # 59.43
     cb_y0    = 23.43                                    # crossbar front (lip start)
+    stem_y1  = 73.53                                    # stem opening back wall
 
-    # each lip as a plain rectangular prism
+    # face 10 (+x crossbar wall), 9 (+y step shoulder), 8 (+x stem wall):
+    fx10, wx10 = CONN_FLANGE_HALF_X,     CONN_FLANGE_HALF_X + TERM_CLR     # 23.90 / 24.10
+    fy9,  wy9  = CONN_FLANGE_SHOULDER_Y, CONN_FLANGE_SHOULDER_Y + TERM_CLR # 61.33 / 61.53
+    fx8,  wx8  = CONN_STEM_HALF_X,       STEM_HALF_X                       # 12.00 / 12.20
+    z_wall   = z_lip - abs(wx10 - fx10)                 # 4.90 (= flange→wall gap, 45°)
+    pz       = z_top - z_wall                           # 2.10
+    x_in10   = fx10 - dz                                # 22.00 (45° inner @ z_top)
+    y_in9    = fy9 - dz                                 # 59.43
+    x_in8    = fx8 - dz                                 # 10.10
+
+    # ── lip prisms ───────────────────────────────────────────────────────
     lip10 = (cq.Workplane("XY")
-             .box(wall_x + OV - x_in, wall_y - cb_y0, pz, centered=(False, False, False))
-             .translate((x_in, cb_y0, z_wall)))
+             .box(wx10 + OV - x_in10, wy9 - cb_y0, pz, centered=(False, False, False))
+             .translate((x_in10, cb_y0, z_wall)))
     lip9  = (cq.Workplane("XY")
-             .box(wall_x - STEM_HALF_X, wall_y + OV - y_in, pz, centered=(False, False, False))
-             .translate((STEM_HALF_X, y_in, z_wall)))
+             .box(wx10 + OV - wx8, wy9 + OV - y_in9, pz, centered=(False, False, False))
+             .translate((wx8, y_in9, z_wall)))
+    lip8  = (cq.Workplane("XY")
+             .box(wx8 + OV - x_in8, stem_y1 + OV - y_in9, pz, centered=(False, False, False))
+             .translate((x_in8, y_in9, z_wall)))
 
-    # each lip's 45° cut — flush at its wall (z_wall), grazing the flange.
-    # cut A spans only lip10's y-range, cut B only lip9's x-range; each is
-    # applied to its OWN lip before the union, so neither reaches the other.
-    triA = [(wall_x, z_wall), (x_in - OV, z_top + OV),
-            (x_in - OV, z_wall - OV), (wall_x, z_wall - OV)]      # x-z, from wall
+    # ── 45° cut wedges (each anchored flush at its wall, grazing the flange) ─
+    triA = [(wx10, z_wall), (x_in10 - OV, z_top + OV),
+            (x_in10 - OV, z_wall - OV), (wx10, z_wall - OV)]     # face10 x-slope
     cutA = (cq.Workplane("XZ").polyline(triA).close()
-            .extrude(-(wall_y + OV - cb_y0)).translate((0, cb_y0, 0)))
-    triB = [(wall_y, z_wall), (y_in - OV, z_top + OV),
-            (y_in - OV, z_wall - OV), (wall_y, z_wall - OV)]      # y-z, from wall
+            .extrude(-(wy9 + OV - cb_y0)).translate((0, cb_y0, 0)))
+    triB = [(wy9, z_wall), (y_in9 - OV, z_top + OV),
+            (y_in9 - OV, z_wall - OV), (wy9, z_wall - OV)]       # face9 y-slope
     cutB = (cq.Workplane("YZ").polyline(triB).close()
-            .extrude(wall_x + OV - STEM_HALF_X).translate((STEM_HALF_X, 0, 0)))
+            .extrude(wx10 + OV - (x_in8 - OV)).translate((x_in8 - OV, 0, 0)))
+    triC = [(wx8, z_wall), (x_in8 - OV, z_top + OV),
+            (x_in8 - OV, z_wall - OV), (wx8, z_wall - OV)]       # face8 x-slope
+    cutC = (cq.Workplane("XZ").polyline(triC).close()
+            .extrude(-(stem_y1 + OV - (y_in9 - OV))).translate((0, y_in9 - OV, 0)))
 
-    # INNER corner: cut each separately, THEN union (cuts isolated -> the
-    # concave corner stays full, the two 45° faces meet at a valley).
-    return lip10.cut(cutA).union(lip9.cut(cutB))
+    # 9/10 INNER: cutA isolated to lip10 (so it doesn't reach lip9 -> valley)
+    lip10p = lip10.cut(cutA)
+    # 8/9 OUTER: union shoulder + stem, cut BOTH 45°s through both -> hip.
+    # (cutB also grazes lip9 along its length; cutC grazes lip8 along its.)
+    shoulder_stem = lip9.union(lip8).cut(cutB).cut(cutC)
+    return lip10p.union(shoulder_stem)
 
 
 battery_dock = (_slot
@@ -611,6 +623,6 @@ battery_dock = (_slot
                 # grooves below — no mount-hole screws.
                 .cut(_dovetail_mortises())
                 .cut(_terminal_t_cutter())
-                .union(_plus_x_step_corner())      # sides 10 + 9 (mitered outer corner)
+                .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
                 .union(_crossbar_chamfer(-1))      # side 4  (−x wall)
                 .union(_ribs))
