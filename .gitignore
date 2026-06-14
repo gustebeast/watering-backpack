@@ -1,0 +1,12 @@
+# Generated CAD output — regenerate with:
+#   py -3.12 -m src.build
+#   py -3.12 -m src.backpack_housing
+# (root-level .step only; reference inputs in references/ are tracked)
+/*.step
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Mutable build counter (floated as 3D text on each assembly)
+tools/build_counter.txt
