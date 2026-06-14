@@ -510,6 +510,7 @@ CONN_FLANGE_HALF_X    = 23.90   # ±x flange-lip extent (measured; z-move-invari
 CONN_FLANGE_TOP_DZ    = 1.90    # flange-lip top above TERMINAL_PLACE z (measured)
 CONN_FLANGE_SHOULDER_Y = 61.33  # +y flange shoulder (wide→narrow step) (measured)
 CONN_STEM_HALF_X      = 12.00   # ±x stem flange-lip edge (measured)
+CONN_STEM_END_Y       = 73.33   # +y stem-end flange edge (connector back) (measured)
 STEM_HALF_X           = 12.20   # stem opening +x wall (= flange ±12 + clearance)
 
 
@@ -610,6 +611,26 @@ def _plus_x_lips() -> cq.Workplane:
     return lip10p.union(shoulder_stem)
 
 
+def _stem_end_lip() -> cq.Workplane:
+    """Face 7 (stem-end wall, y≈73.53) retaining lip: a y-slope grazing the
+    connector's stem-end flange edge (y=73.33), flush at the wall, spanning
+    the stem width. Cut as its own shape and unioned, so the 6/7 and 7/8
+    corners (with the stem walls) come out INNER (valley)."""
+    OV       = BOOL_OVERSHOOT
+    z_lip    = TERMINAL_PLACE[2] + CONN_FLANGE_TOP_DZ   # 5.10
+    z_top    = CHANNEL_TOTAL_H                          # 7.0
+    dz       = z_top - z_lip
+    flange_y = CONN_STEM_END_Y                          # 73.33
+    wall_y   = flange_y + TERM_CLR                      # 73.53
+    z_wall   = z_lip - abs(wall_y - flange_y)           # 4.90
+    y_in     = flange_y - dz                            # 71.43
+    poly = [(wall_y, z_wall), (y_in, z_top),
+            (wall_y + OV, z_top), (wall_y + OV, z_wall)]   # y-z, from wall
+    x0, x1 = -STEM_HALF_X, STEM_HALF_X                  # -12.20 .. 12.20
+    return (cq.Workplane("YZ").polyline(poly).close()
+            .extrude(x1 - x0).translate((x0, 0, 0)))
+
+
 battery_dock = (_slot
                 .cut(_lightening_cutter())
                 .cut(_front_pocket_cutter())
@@ -624,5 +645,6 @@ battery_dock = (_slot
                 .cut(_dovetail_mortises())
                 .cut(_terminal_t_cutter())
                 .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
-                .union(_crossbar_chamfer(-1))      # side 4  (−x wall)
+                .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
+                .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
                 .union(_ribs))
