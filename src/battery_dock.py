@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import cadquery as cq
 
-from .dimensions import (BOOL_OVERSHOOT,
+from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP, DOVETAIL_CLR)
 
@@ -466,26 +466,33 @@ def _dovetail_mortises() -> cq.Workplane:
             .union(groove.translate((DOVETAIL_X_OFF, 0, 0))))
 
 
+TERM_CLR = 0.2     # install clearance per face around the connector (X-Y)
+
+
 def _terminal_t_cutter() -> cq.Workplane:
     """The central T opening as a lowercase 't', sized to the CONNECTOR's
     (643852-2) plan extents and cut straight through the plate thickness
     (dock Z = back face to plate top; this is the housing X axis in the
     seated/slicer view). Three rectangular prisms, zero clearance:
 
+    The flush (zero-clearance) connector extents are:
       • top nub (narrow front): x -9.60..+5.40, y 21.54..23.63 — the flange
-                                tip is OFFSET (centred at x=-2.1, not 0), so
-                                its +x edge is +5.40, not +9.6.
+                                tip is OFFSET (centred at x=-2.1, not 0).
       • crossbar (wide body)  : x ±23.90, y 23.63..61.33
-      • stem (narrow back)    : x ±12.00, y 60.00..73.33 — flush to the
-                                connector's back band (x ±12.0).
+      • stem (narrow back)    : x ±12.00, y 60.00..73.33
 
-    The boxes overlap in Y (nub↔crossbar at y23.63, crossbar↔stem at
-    y60..61.33) for clean unions. The battery rail also runs through the
-    front of this opening — reconciling that with the connector slot is
-    handled when the battery side is rebuilt."""
+    Each prism is then grown by TERM_CLR (0.2 mm) on all four X-Y sides for
+    install clearance all around. The cut passes fully through Z, so there
+    is no Z wall to clear. The boxes overlap in Y for clean unions. The
+    battery rail also runs through the front of this opening — reconciling
+    that with the connector slot is handled when the battery side is
+    rebuilt."""
     OV = BOOL_OVERSHOOT
+    C  = TERM_CLR
 
     def thru(x0, x1, y0, y1):
+        # grow the flush extents outward by C on every X-Y side
+        x0, x1, y0, y1 = x0 - C, x1 + C, y0 - C, y1 + C
         return (cq.Workplane("XY")
                 .box(x1 - x0, y1 - y0, PLATE_Z + 2 * OV,
                      centered=(False, False, False))
@@ -495,6 +502,100 @@ def _terminal_t_cutter() -> cq.Workplane:
     crossbar = thru(-23.90, 23.90, 23.63, 61.33)
     stem     = thru(-12.00, 12.00, 60.00, 73.33)
     return nub.union(crossbar).union(stem)
+
+
+# Connector (643852-2) geometry referenced by the chamfers so they track the
+# connector seat automatically (no hard-coded z values):
+CONN_FLANGE_HALF_X    = 23.90   # ±x flange-lip extent (measured; z-move-invariant)
+CONN_FLANGE_TOP_DZ    = 1.90    # flange-lip top above TERMINAL_PLACE z (measured)
+CONN_FLANGE_SHOULDER_Y = 61.33  # +y flange shoulder (wide→narrow step) (measured)
+STEM_HALF_X           = 12.20   # stem opening +x wall (= flange ±12 + clearance)
+
+
+def _crossbar_chamfer(side_sign: int) -> cq.Workplane:
+    """X-positioning chamfer/lip on a crossbar outer wall, above the
+    connector flange. side_sign +1 = side 10 (+x wall), −1 = side 4 (−x
+    wall); the connector flange/body are symmetric in x, so side 4 is the
+    mirror of side 10. A 45° inner face grazes the connector's flange-lip
+    edge and runs up-and-inward to the mount's cavity floor
+    (CHANNEL_TOTAL_H), just clearing the body. Fills the clearance gap,
+    growing in width from the flange edge (outboard) inward.
+
+    PARAMETRIC — the graze height tracks the connector seat (TERMINAL_PLACE)
+    and the top tracks the cavity floor, so moving the connector in z
+    auto-updates the chamfer."""
+    s        = side_sign
+    OV       = BOOL_OVERSHOOT
+    flange_x = s * CONN_FLANGE_HALF_X                   # connector flange edge
+    wall_x   = s * (CONN_FLANGE_HALF_X + TERM_CLR)      # the crossbar wall
+    z_lip    = TERMINAL_PLACE[2] + CONN_FLANGE_TOP_DZ   # flange-lip top (tracks seat)
+    z_top    = CHANNEL_TOTAL_H                          # mount cavity floor
+    # The 45° line through the flange edge (flange_x, z_lip) drops in z by
+    # exactly the flange→wall gap (it's 45°), so it meets the wall at z_wall.
+    # Computed from the connector + wall positions + the graze requirement —
+    # no hard-coded clearance, so it's correct even if the gap changes.
+    z_wall   = z_lip - abs(wall_x - flange_x)
+    x_top    = flange_x - s * (z_top - z_lip)           # 45° inner at z_top
+    # quad: the 45° underside is anchored at the ACTUAL wall (wall_x, z_wall)
+    # so it grazes the flange; only the back vertices overshoot into the solid
+    # wall (putting OV on the 45° anchor would shift the whole slope outward).
+    poly = [(wall_x, z_wall), (x_top, z_top),
+            (wall_x + s * OV, z_top), (wall_x + s * OV, z_wall)]
+    y0, y1 = 23.43, 61.53                               # crossbar wall span
+    return (cq.Workplane("XZ").polyline(poly).close()
+            .extrude(-(y1 - y0)).translate((0, y0, 0)))
+
+
+def _plus_x_step_corner() -> cq.Workplane:
+    """Side-10 (+x crossbar wall) and side-9 (+x step shoulder) retaining
+    lips, meeting at their shared INNER corner near dock (23.9, 61.33).
+
+    Inner-corner rule (user): draw each lip as a prism and cut its OWN 45°
+    SEPARATELY, with each cut isolated to its lip, THEN union. Because the
+    cuts don't reach into the other lip, the concave corner stays full — the
+    two 45° faces meet at a valley (not a hip, which is what union-then-cut
+    would give). Replaces _crossbar_chamfer(+1) (it includes the side-10
+    lip). Parametric in TERMINAL_PLACE + cavity floor."""
+    OV       = BOOL_OVERSHOOT
+    flange_x = CONN_FLANGE_HALF_X                       # 23.90
+    flange_y = CONN_FLANGE_SHOULDER_Y                   # 61.33
+    wall_x   = flange_x + TERM_CLR                      # 24.10
+    wall_y   = flange_y + TERM_CLR                      # 61.53
+    z_lip    = TERMINAL_PLACE[2] + CONN_FLANGE_TOP_DZ   # 5.10
+    z_top    = CHANNEL_TOTAL_H                          # 7.0
+    dz       = z_top - z_lip                            # 1.90
+    # 45° through the flange edge drops in z by the flange→wall gap (45°), so
+    # it meets the wall at z_wall: flush at the wall AND grazes the flange.
+    # Computed from positions (x and y flange→wall gaps are equal here).
+    z_wall   = z_lip - abs(wall_x - flange_x)
+    pz       = z_top - z_wall                           # prism height
+    x_in     = flange_x - dz                            # 22.0 (45° inner @ z_top)
+    y_in     = flange_y - dz                            # 59.43
+    cb_y0    = 23.43                                    # crossbar front (lip start)
+
+    # each lip as a plain rectangular prism
+    lip10 = (cq.Workplane("XY")
+             .box(wall_x + OV - x_in, wall_y - cb_y0, pz, centered=(False, False, False))
+             .translate((x_in, cb_y0, z_wall)))
+    lip9  = (cq.Workplane("XY")
+             .box(wall_x - STEM_HALF_X, wall_y + OV - y_in, pz, centered=(False, False, False))
+             .translate((STEM_HALF_X, y_in, z_wall)))
+
+    # each lip's 45° cut — flush at its wall (z_wall), grazing the flange.
+    # cut A spans only lip10's y-range, cut B only lip9's x-range; each is
+    # applied to its OWN lip before the union, so neither reaches the other.
+    triA = [(wall_x, z_wall), (x_in - OV, z_top + OV),
+            (x_in - OV, z_wall - OV), (wall_x, z_wall - OV)]      # x-z, from wall
+    cutA = (cq.Workplane("XZ").polyline(triA).close()
+            .extrude(-(wall_y + OV - cb_y0)).translate((0, cb_y0, 0)))
+    triB = [(wall_y, z_wall), (y_in - OV, z_top + OV),
+            (y_in - OV, z_wall - OV), (wall_y, z_wall - OV)]      # y-z, from wall
+    cutB = (cq.Workplane("YZ").polyline(triB).close()
+            .extrude(wall_x + OV - STEM_HALF_X).translate((STEM_HALF_X, 0, 0)))
+
+    # INNER corner: cut each separately, THEN union (cuts isolated -> the
+    # concave corner stays full, the two 45° faces meet at a valley).
+    return lip10.cut(cutA).union(lip9.cut(cutB))
 
 
 battery_dock = (_slot
@@ -510,4 +611,6 @@ battery_dock = (_slot
                 # grooves below — no mount-hole screws.
                 .cut(_dovetail_mortises())
                 .cut(_terminal_t_cutter())
+                .union(_plus_x_step_corner())      # sides 10 + 9 (mitered outer corner)
+                .union(_crossbar_chamfer(-1))      # side 4  (−x wall)
                 .union(_ribs))
