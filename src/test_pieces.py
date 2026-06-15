@@ -39,9 +39,8 @@ BACK = 5.0      # backing thickness behind a male feature
 WALL = 3.5      # minimum wall around a female recess
 
 DOVE_LEN  = bh.RAIL_Z_TOP + bh.FLOOR_T        # 90.0  (full dovetail slide)
-HOUSE_X0  = min(a for a, _ in bh.LIP_SEGS)    # joint −x extent (teeth/tongue cutoff)
-HOUSE_LEN = bh.ELEC_XOUT - HOUSE_X0           # the ENGAGED joint run (not the
-                                              # full shelf — tongue/teeth stop here)
+HOUSE_X0  = bh.JOINT_X0                        # joint −x extent (teeth/tongue/shelf cutoff)
+HOUSE_LEN = bh.ELEC_XOUT - HOUSE_X0           # the ENGAGED joint run
 
 
 def _extrude_x(profile, length, x0=0.0):
