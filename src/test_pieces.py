@@ -2,23 +2,26 @@
 slide length, for dialing in friction/clearance before committing to the big
 prints.
 
-Four parts (two joints × male/female):
+Four parts:
   test_dovetail_tenon  / test_dovetail_mortise  — battery dock ↔ housing
                                                    (arrowhead dovetail, 90 mm)
-  test_house_tongue    / test_house_channel     — electronics box ↔ pump
-                                                   housing (gabled house, 102 mm)
+  test_house_pump      / test_house_elec        — pump housing ↔ electronics
+                                                   box (full-profile joint
+                                                   slices, 102 mm)
 
-Each coupon is the real joint profile (shared with the production code, so they
-stay in sync) at full length, on just enough backing/wall for handling. Males
-have the feature pointing +z; females open −z (downward). All four print FLAT,
-feature-up / opening-down, which is self-supporting and matches the real print
-orientation for three of them.
+The dovetail coupons are built from the shared production profile
+(dovetail_arrowhead). The house coupons are full-cross-section SLICES of the
+real pump housing and electronics box at the joint region — so they carry the
+complete profile (pump: shelf + gabled tongue + retaining teeth; elec: floor
+flange + house channel + a bit of box wall), not just the tongue/channel.
 
-ORIENTATION NOTE — the only mismatch: the real housing dovetail RAIL is a
-*vertical* extrusion (smooth flanks). This flat coupon puts 45° layer lines on
-the rail flanks, so its felt friction may read slightly HIGH vs the real part.
-For the most representative dovetail friction, stand the tenon coupon on its
-end in the slicer before printing.
+ORIENTATION — the house slices print z-up (the real orientation: tongue/teeth
+and the channel are self-supporting; pump slice gets a flat foot for stability).
+The dovetail coupons print flat, feature-up / opening-down. The one caveat: the
+real housing dovetail RAIL is a *vertical* extrusion (smooth flanks); this flat
+coupon lays 45° layer lines on the rail flanks, so its friction may read
+slightly HIGH. For the truest dovetail feel, stand the tenon coupon on its end
+before slicing.
 
 Run:  py -3.12 -m src.test_pieces      → writes 4 STEPs + a combined layout.
 """
@@ -54,32 +57,6 @@ def _dovetail_profile(clr):
                                                      clr=clr, open_ov=OV)]
 
 
-def _house_tongue_profile():
-    """(y, z) gabled house tongue, centred & base at z=0 (same formula as
-    backpack_housing._shelf_and_lips)."""
-    t0, t1 = bh.HOUSE_T
-    tm = (t0 + t1) / 2
-    base = bh.SHELF_Z - 0.1
-    pts = [(t0, base), (t1, base), (t1, bh.HOUSE_WALL_Z),
-           (tm, bh.HOUSE_PEAK_Z), (t0, bh.HOUSE_WALL_Z)]
-    return [(y - tm, z - base) for y, z in pts]
-
-
-def _house_channel_profile():
-    """(y, z) matching channel = tongue offset HOUSE_CLR normally, centred &
-    base at z=0 (same formula as backpack_housing._build_elec_housing)."""
-    ht0, ht1 = bh.HOUSE_T
-    htm = (ht0 + ht1) / 2
-    g  = bh.HOUSE_CLR
-    gv = bh.HOUSE_CLR * 1.414
-    peak_c = bh.HOUSE_PEAK_Z + gv
-    eave_c = peak_c - (htm - (ht0 - g))
-    base = bh.TRAY_SEAT_Z
-    pts = [(ht0 - g, base), (ht1 + g, base), (ht1 + g, eave_c),
-           (htm, peak_c), (ht0 - g, eave_c)]
-    return [(y - htm, z - base) for y, z in pts]
-
-
 # ── Coupons ──────────────────────────────────────────────────────────────────
 def _male(profile, length, half_w):
     """Feature (profile, pointing +z, base at z≈0) on a backing slab."""
@@ -105,22 +82,45 @@ def test_dovetail_mortise():
                    DOVETAIL_TIP_W / 2 + DOVETAIL_CLR + WALL)
 
 
-def test_house_tongue():
-    half_w = (bh.HOUSE_T[1] - bh.HOUSE_T[0]) / 2 + 3.5
-    return _male(_house_tongue_profile(), HOUSE_LEN, half_w)
+# House-joint coupons are FULL-PROFILE slices of the real parts at the joint
+# region (the simplified tongue/channel missed the teeth and the wall). Both
+# parts live in the same assembly frame, so the same y-z-x window cuts the two
+# interlocking halves. Window: back-wall (y=0) joint, full shelf run in x.
+HOUSE_Y0, HOUSE_Y1 = -bh.WALL, 13.0     # wall outer face .. past the box wall
+HOUSE_Z0, HOUSE_Z1 = 113.0, 132.0       # below the shelf corbel .. above teeth
+FOOT_T = 4.0                            # flat stability foot under the pump slice
 
 
-def test_house_channel():
-    g = bh.HOUSE_CLR
-    half_w = (bh.HOUSE_T[1] - bh.HOUSE_T[0]) / 2 + g + WALL
-    return _female(_house_channel_profile(), HOUSE_LEN, half_w)
+def _join_region():
+    return (cq.Workplane("XY")
+            .box(HOUSE_LEN, HOUSE_Y1 - HOUSE_Y0, HOUSE_Z1 - HOUSE_Z0,
+                 centered=(False, False, False))
+            .translate((bh.SHELF_X0, HOUSE_Y0, HOUSE_Z0)))
+
+
+def test_house_pump():
+    """PUMP side, one piece: back-wall + shelf + gabled tongue (bottom tenon)
+    + retaining teeth (top retention), full joint length, on a flat foot for
+    print stability. Prints z-up (the real orientation; features self-support)."""
+    sl = bh.backpack_housing.intersect(_join_region())
+    foot = (cq.Workplane("XY")
+            .box(HOUSE_LEN, HOUSE_Y1 - HOUSE_Y0, FOOT_T, centered=(False, False, False))
+            .translate((bh.SHELF_X0, HOUSE_Y0, HOUSE_Z0 - FOOT_T)))
+    return sl.union(foot)
+
+
+def test_house_elec():
+    """ELEC side, one piece: floor flange + house CHANNEL (mortise) + a bit of
+    the box wall, full joint length. The box floor is the print base; the
+    channel opens downward (self-supporting), as in the real box."""
+    return bh.elec_housing_part.intersect(_join_region())
 
 
 PARTS = {
     "test_dovetail_tenon":   test_dovetail_tenon,
     "test_dovetail_mortise": test_dovetail_mortise,
-    "test_house_tongue":     test_house_tongue,
-    "test_house_channel":    test_house_channel,
+    "test_house_pump":       test_house_pump,
+    "test_house_elec":       test_house_elec,
 }
 
 
@@ -128,15 +128,17 @@ def main():
     import os
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     combined = None
-    y = 0.0
+    y_cursor = 0.0
     for name, fn in PARTS.items():
         part = fn()
-        cq.exporters.export(part.val(), os.path.join(root, f"{name}.step"))
         b = part.val().BoundingBox()
-        print(f"  {name:24s} {b.xlen:5.1f} × {b.ylen:5.1f} × {b.zlen:5.1f} mm")
-        spaced = part.translate((0.0, y, BACK + 1.0))   # lift females clear too
-        combined = spaced if combined is None else combined.union(spaced)
-        y += 35.0
+        # recenter each coupon's bbox-min to the origin (tidy, on the bed)
+        coupon = part.translate((-b.xmin, -b.ymin, -b.zmin))
+        cq.exporters.export(coupon.val(), os.path.join(root, f"{name}.step"))
+        print(f"  {name:22s} {b.xlen:6.1f} × {b.ylen:5.1f} × {b.zlen:5.1f} mm")
+        placed = coupon.translate((0.0, y_cursor, 0.0))
+        combined = placed if combined is None else combined.union(placed)
+        y_cursor += b.ylen + 15.0
     cq.exporters.export(combined.val(), os.path.join(root, "test_pieces.step"))
     print("Wrote test_pieces.step (combined) + 4 individual STEPs")
 
