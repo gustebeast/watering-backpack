@@ -39,7 +39,9 @@ BACK = 5.0      # backing thickness behind a male feature
 WALL = 3.5      # minimum wall around a female recess
 
 DOVE_LEN  = bh.RAIL_Z_TOP + bh.FLOOR_T        # 90.0  (full dovetail slide)
-HOUSE_LEN = bh.ELEC_XOUT - bh.SHELF_X0        # 102.05 (full shelf run)
+HOUSE_X0  = min(a for a, _ in bh.LIP_SEGS)    # joint −x extent (teeth/tongue cutoff)
+HOUSE_LEN = bh.ELEC_XOUT - HOUSE_X0           # the ENGAGED joint run (not the
+                                              # full shelf — tongue/teeth stop here)
 
 
 def _extrude_x(profile, length, x0=0.0):
@@ -95,7 +97,7 @@ def _join_region():
     return (cq.Workplane("XY")
             .box(HOUSE_LEN, HOUSE_Y1 - HOUSE_Y0, HOUSE_Z1 - HOUSE_Z0,
                  centered=(False, False, False))
-            .translate((bh.SHELF_X0, HOUSE_Y0, HOUSE_Z0)))
+            .translate((HOUSE_X0, HOUSE_Y0, HOUSE_Z0)))
 
 
 def test_house_pump():
@@ -105,7 +107,7 @@ def test_house_pump():
     sl = bh.backpack_housing.intersect(_join_region())
     foot = (cq.Workplane("XY")
             .box(HOUSE_LEN, HOUSE_Y1 - HOUSE_Y0, FOOT_T, centered=(False, False, False))
-            .translate((bh.SHELF_X0, HOUSE_Y0, HOUSE_Z0 - FOOT_T)))
+            .translate((HOUSE_X0, HOUSE_Y0, HOUSE_Z0 - FOOT_T)))
     return sl.union(foot)
 
 
