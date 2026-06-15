@@ -493,17 +493,20 @@ def _shelf_and_lips() -> cq.Workplane:
             .translate((0, STRING_BORE + STRING_STRIP + 0.6, 0)))
     out = y_wall_shelf(0.0, +1).union(y_wall_shelf(BAY_D, -1)).union(left)
     # The gabled 'house' tongue on each shelf (see SHELF HOUSE block).
-    # Ends at the box's SEATED +x edge — the open-ended channel just feeds
-    # onto it during the slide, so no runway beyond the seat is needed.
+    # Ends at the box's SEATED +x edge (open-ended channel feeds onto it, no
+    # +x runway needed); STARTS at the teeth's −x extent — the box never
+    # installs past there, so tongue beyond that is wasted material (matches
+    # the top lip's −x cutoff exactly).
     t0, t1 = HOUSE_T
     tm = (t0 + t1) / 2
+    tongue_x0 = min(a for a, _ in LIP_SEGS)
     for wall_y, sgn in ((0.0, +1), (BAY_D, -1)):
         prof = [(t0, SHELF_Z - 0.1), (t1, SHELF_Z - 0.1),
                 (t1, HOUSE_WALL_Z), (tm, HOUSE_PEAK_Z), (t0, HOUSE_WALL_Z)]
         out = out.union(cq.Workplane("YZ")
                         .polyline([(wall_y + sgn * t, z) for t, z in prof])
                         .close()
-                        .extrude(ELEC_XOUT - x_lo).translate((x_lo, 0, 0)))
+                        .extrude(ELEC_XOUT - tongue_x0).translate((tongue_x0, 0, 0)))
     # Retaining teeth, mirrored on both walls: 45° underside rising away
     # from the wall, so retention bears at the wall-side corner.
     for wall_y, sgn in ((0.0, +1), (BAY_D, -1)):
