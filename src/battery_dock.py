@@ -34,7 +34,7 @@ from __future__ import annotations
 import cadquery as cq
 
 from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE, DOCK_BACK_TRIM,
-                         DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
+                         DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP, DOVETAIL_CLR)
 from .helpers import dovetail_arrowhead
 

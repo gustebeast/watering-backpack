@@ -36,7 +36,7 @@ import cadquery as cq
 
 from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP,
                          TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
-                         DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
+                         DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP)
 from .helpers import (bump_build_counter, import_step, place_terminal,
                       dovetail_arrowhead)
