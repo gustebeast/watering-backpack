@@ -179,8 +179,11 @@ STRING_BORE  = 5.6
 STRING_STRIP = 1.6
 ZDUCT_Z0     = 37.0             # corner ducts run from here to the rim
 YDUCT_Y      = (30.0, 100.0)    # floor ducts (gaps to the corners beyond)
-SHELF_X0     = -101.75          # ±y shelves/houses start past the −X
-                                # corner ducts (keeps the string path open)
+JOINT_X0     = min(a for a, _ in LIP_SEGS)   # elec↔pump joint −x extent: the
+                                # teeth, the house tongue AND the ±y shelf all
+                                # stop here — the box never installs past it, so
+                                # anything further −x is wasted (also well clear
+                                # of the −X corner ducts / string path)
 
 # SHELF HOUSE + RAMP (user design): per ±y wall, a 'little house' (gabled
 # tongue: rectangular base + 45° roof) runs the FULL LENGTH of the bottom
@@ -474,10 +477,10 @@ def _shelf_and_lips() -> cq.Workplane:
     front/back walls (lip undersides also 45°, rising away from the wall —
     retention happens at the wall-side corner)."""
     P = LIP_PROTRUDE
-    # Shelf + house span SHELF_X0 (clear of the −X string ducts) to the
-    # box's SEATED +x edge (no runway needed on either end — the box is
-    # hand-held during install and the channel is open-ended).
-    x_lo, x_hi = SHELF_X0, ELEC_XOUT
+    # Shelf + house span JOINT_X0 (the teeth's −x cutoff — the box never rests
+    # further −x than there) to the box's SEATED +x edge (no runway needed on
+    # either end — the box is hand-held during install, channel is open-ended).
+    x_lo, x_hi = JOINT_X0, ELEC_XOUT
     # Shelf corbels: continuous on back, front and −X walls (the pump's
     # feet ride the standoff bosses, clear of all of these).
     def y_wall_shelf(wall_y, sgn):
@@ -492,21 +495,18 @@ def _shelf_and_lips() -> cq.Workplane:
             .extrude(-(BAY_D - 2 * (STRING_BORE + STRING_STRIP + 0.6)))
             .translate((0, STRING_BORE + STRING_STRIP + 0.6, 0)))
     out = y_wall_shelf(0.0, +1).union(y_wall_shelf(BAY_D, -1)).union(left)
-    # The gabled 'house' tongue on each shelf (see SHELF HOUSE block).
-    # Ends at the box's SEATED +x edge (open-ended channel feeds onto it, no
-    # +x runway needed); STARTS at the teeth's −x extent — the box never
-    # installs past there, so tongue beyond that is wasted material (matches
-    # the top lip's −x cutoff exactly).
+    # The gabled 'house' tongue on each shelf (see SHELF HOUSE block) — spans
+    # the same JOINT_X0..+x range as the shelf, so it matches the teeth's −x
+    # cutoff and carries no material past where the box installs.
     t0, t1 = HOUSE_T
     tm = (t0 + t1) / 2
-    tongue_x0 = min(a for a, _ in LIP_SEGS)
     for wall_y, sgn in ((0.0, +1), (BAY_D, -1)):
         prof = [(t0, SHELF_Z - 0.1), (t1, SHELF_Z - 0.1),
                 (t1, HOUSE_WALL_Z), (tm, HOUSE_PEAK_Z), (t0, HOUSE_WALL_Z)]
         out = out.union(cq.Workplane("YZ")
                         .polyline([(wall_y + sgn * t, z) for t, z in prof])
                         .close()
-                        .extrude(ELEC_XOUT - tongue_x0).translate((tongue_x0, 0, 0)))
+                        .extrude(x_hi - x_lo).translate((x_lo, 0, 0)))
     # Retaining teeth, mirrored on both walls: 45° underside rising away
     # from the wall, so retention bears at the wall-side corner.
     for wall_y, sgn in ((0.0, +1), (BAY_D, -1)):
