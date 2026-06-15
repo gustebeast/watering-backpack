@@ -95,8 +95,10 @@ DOVETAIL_X_OFF    = 40.0   # groove centrelines at dock x = ±40 — moved
                            # outboard (was 30) of the battery rail (dock x∓32)
                            # and connector (±24), into the side ears the dock
                            # grows to host them (see _dovetail_ears)
-DOVETAIL_END_STOP = 10.0   # groove closed-end inset from the dock's entry-end
-                           # edge (dock y=10) — the seating stop
+DOVETAIL_END_STOP = 0.0    # 0 = mortise + rail run the dock's FULL slide
+                           # length (to the +z top, dock y0 / housing z86);
+                           # was 10 (stopped 10 mm short at z76). Seating is by
+                           # the dock bottoming flush on the housing floor.
 DOVETAIL_CLR      = 0.30   # per-side groove clearance — looser than KEY_CLR
                            # (0.20): this is a long (76 mm) engagement on big
                            # wall surfaces, so it needs the extra room to
