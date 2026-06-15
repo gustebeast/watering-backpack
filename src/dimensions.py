@@ -87,10 +87,10 @@ MAKITA_MOUNT_STEP     = REFERENCES_DIR / "makita_mount_v4.step"
 # x 25.3..34.7 — ≥1.3 mm wall to the channel AND to the edge. (A first cut at
 # 8/11/4 @ ±29 broke 0.7 mm into the battery channel walls and cost ~80 mm³
 # of battery contact surface.)
-DOVETAIL_ROOT_W   = 6.5    # tenon width at the wall (groove opening)
-DOVETAIL_TIP_W    = 9.0    # tenon width at the tip (groove at full depth)
-DOVETAIL_DEPTH    = 3.5    # tenon protrusion / groove depth (3.3 mm roof to
-                           # the lightening pocket at z=7)
+DOVETAIL_ROOT_W   = 6.5    # arrowhead width at the opening (narrow root)
+DOVETAIL_TIP_W    = 9.0    # arrowhead width at its widest (the undercut). The
+                           # depth is DERIVED (45° flanks → 2·tip/2 − root/2),
+                           # not a separate constant — see helpers.dovetail_arrowhead.
 DOVETAIL_X_OFF    = 40.0   # groove centrelines at dock x = ±40 — moved
                            # outboard (was 30) of the battery rail (dock x∓32)
                            # and connector (±24), into the side ears the dock

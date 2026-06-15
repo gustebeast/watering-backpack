@@ -23,7 +23,7 @@ coupon lays 45° layer lines on the rail flanks, so its friction may read
 slightly HIGH. For the truest dovetail feel, stand the tenon coupon on its end
 before slicing.
 
-Run:  py -3.12 -m src.test_pieces      → writes 4 STEPs + a combined layout.
+Run:  py -3.12 -m src.test_pieces      → writes the 4 coupon STEPs.
 """
 from __future__ import annotations
 
@@ -127,8 +127,6 @@ PARTS = {
 def main():
     import os
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    combined = None
-    y_cursor = 0.0
     for name, fn in PARTS.items():
         part = fn()
         b = part.val().BoundingBox()
@@ -136,11 +134,7 @@ def main():
         coupon = part.translate((-b.xmin, -b.ymin, -b.zmin))
         cq.exporters.export(coupon.val(), os.path.join(root, f"{name}.step"))
         print(f"  {name:22s} {b.xlen:6.1f} × {b.ylen:5.1f} × {b.zlen:5.1f} mm")
-        placed = coupon.translate((0.0, y_cursor, 0.0))
-        combined = placed if combined is None else combined.union(placed)
-        y_cursor += b.ylen + 15.0
-    cq.exporters.export(combined.val(), os.path.join(root, "test_pieces.step"))
-    print("Wrote test_pieces.step (combined) + 4 individual STEPs")
+    print("Wrote 4 individual test-piece STEPs")
 
 
 if __name__ == "__main__":
