@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import cadquery as cq
 
-from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE,
+from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP, DOVETAIL_CLR)
 
@@ -441,23 +441,40 @@ _slot = _chamfer_slot(_slot)            # no-op while the battery slot is off
 # bottom; the rail tip enters there as the dock slides down) and CLOSED at
 # y=DOVETAIL_END_STOP — the closed end hits the rail tip = seating stop.
 # Profile is undercut (wider deeper in) per dovetail; DOVETAIL_CLR per side.
+def _dovetail_ears() -> cq.Workplane:
+    """Side tabs that grow the dock's WIDTH at the dovetail x-positions so the
+    relocated mortises sit outboard of the battery rail (dock x∓32) and the
+    connector (±24). They run the groove's slide length and stand off the
+    (trimmed) back face. Unioned last, so the other cutters leave them clean."""
+    half_tip = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
+    x_in  = PLATE_X / 2 - 1.0                          # 35 — 1 mm into the plate
+    x_out = DOVETAIL_X_OFF + half_tip + 2.5            # 47.3 — 2.5 mm outboard wall
+    y0, y1 = DOVETAIL_END_STOP, PLATE_Y               # 10..90 (groove span)
+    z0, z1 = DOCK_BACK_TRIM, DOCK_BACK_TRIM + 8.0     # 3.2..11.2 (clears groove top)
+    ear = (cq.Workplane("XY").workplane(offset=z0)
+           .box(x_out - x_in, y1 - y0, z1 - z0, centered=(False, False, False))
+           .translate((x_in, y0, 0.0)))
+    return ear.union(ear.mirror("YZ"))
+
+
 def _dovetail_mortises() -> cq.Workplane:
     half_root = DOVETAIL_ROOT_W / 2 + DOVETAIL_CLR
     half_tip  = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
     depth     = DOVETAIL_DEPTH + DOVETAIL_CLR
     length    = PLATE_Y - DOVETAIL_END_STOP + BOOL_OVERSHOOT
-    # Trapezoid in the X-Z plane (opening at z=0 back face, wide at depth),
+    zb        = DOCK_BACK_TRIM                         # opens at trimmed back (3.2)
+    # Trapezoid in the X-Z plane (opening at the back face zb, wide at depth),
     # extruded along +Y from the closed end to past the open edge.
-    # The ceiling gets a TRUNCATED GABLE (45° shoulders + 4.8 flat): the
-    # dock prints back-face-down, and a flat 9.6 ceiling sliced as a long
-    # bridge; rise is capped at 2.4 because front-side features start at
-    # z=7 (probed) — the housing tenons (3.5 deep) never reach the gable.
+    # The ceiling gets a TRUNCATED GABLE (45° shoulders + 4.8 flat) so the
+    # dock prints back-face-down with the flat sliced as a short bridge; the
+    # grooves now live in solid side ears, so the rise just needs to clear
+    # the 3.5 mm-deep housing tenon.
     rise = 2.4
-    profile = [(-half_root, -BOOL_OVERSHOOT), (half_root, -BOOL_OVERSHOOT),
-               (half_tip, depth),
-               (half_tip - rise, depth + rise),
-               (-(half_tip - rise), depth + rise),
-               (-half_tip, depth)]
+    profile = [(-half_root, zb - BOOL_OVERSHOOT), (half_root, zb - BOOL_OVERSHOOT),
+               (half_tip, zb + depth),
+               (half_tip - rise, zb + depth + rise),
+               (-(half_tip - rise), zb + depth + rise),
+               (-half_tip, zb + depth)]
     groove = (cq.Workplane("XZ")
               .polyline(profile).close()
               .extrude(-length)                  # XZ extrude(-L) lands at +Y
@@ -690,6 +707,17 @@ def _nub_lips() -> cq.Workplane:
     return front.cut(cutF).union(sidep.cut(cutP)).union(siden.cut(cutN))
 
 
+def _dock_back_trim() -> cq.Workplane:
+    """Remove the dock's back (z < DOCK_BACK_TRIM = the connector's flange-back
+    plane), so the flange back becomes the dock's mounting face. The housing
+    then re-seats the dock by the same amount (DOCK_BACK_TRIM) so the flange
+    lands flush on the wall and the wall retains the connector."""
+    return (cq.Workplane("XY")
+            .box(2 * PLATE_X, 2 * PLATE_Y, DOCK_BACK_TRIM + 10,
+                 centered=(True, True, False))
+            .translate((0, PLATE_Y / 2, -10)))
+
+
 battery_dock = (_slot
                 .cut(_lightening_cutter())
                 .cut(_front_pocket_cutter())
@@ -699,12 +727,12 @@ battery_dock = (_slot
                 .cut(_front_corner_cutter(-1))
                 .cut(_back_corner_cutter(+1))
                 .cut(_back_corner_cutter(-1))
-                # The dock mounts to the backpack housing via the dovetail
-                # grooves below — no mount-hole screws.
-                .cut(_dovetail_mortises())
                 .cut(_terminal_t_cutter())
                 .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
                 .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
                 .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
                 .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
-                .union(_ribs))
+                .union(_ribs)
+                .union(_dovetail_ears())           # width tabs hosting the rails
+                .cut(_dovetail_mortises())         # grooves, outboard of battery
+                .cut(_dock_back_trim()))           # flange back -> dock mounting face
