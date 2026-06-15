@@ -91,7 +91,10 @@ DOVETAIL_ROOT_W   = 6.5    # tenon width at the wall (groove opening)
 DOVETAIL_TIP_W    = 9.0    # tenon width at the tip (groove at full depth)
 DOVETAIL_DEPTH    = 3.5    # tenon protrusion / groove depth (3.3 mm roof to
                            # the lightening pocket at z=7)
-DOVETAIL_X_OFF    = 30.0   # groove centrelines at dock x = ±30
+DOVETAIL_X_OFF    = 40.0   # groove centrelines at dock x = ±40 — moved
+                           # outboard (was 30) of the battery rail (dock x∓32)
+                           # and connector (±24), into the side ears the dock
+                           # grows to host them (see _dovetail_ears)
 DOVETAIL_END_STOP = 10.0   # groove closed-end inset from the dock's entry-end
                            # edge (dock y=10) — the seating stop
 DOVETAIL_CLR      = 0.30   # per-side groove clearance — looser than KEY_CLR
@@ -130,6 +133,12 @@ TERMINAL_PLACE       = (0.0, 47.0, 3.2)   # translate after rotation; z=3.2
                                           # floor (dock z = CHANNEL_TOTAL_H = 7;
                                           # was z=3.0, leaving a 0.2 mm gap)
 TERMINAL_POCKET_CLR  = 0.20    # clearance per ~face for the conformal pocket
+# The connector's flange back sits at dock z = TERMINAL_PLACE[2]. We trim the
+# dock's back off at that plane so the flange back becomes the dock's mounting
+# face, and shift the dock placement by the same amount so it lands flush on
+# the housing wall — the wall then retains the connector (no separate pads,
+# and nothing fixed in the slot to clip the dock during its slide).
+DOCK_BACK_TRIM       = TERMINAL_PLACE[2]   # 3.2 mm of dock back removed
 
 
 # ── Sanity checks (catch silent miscoordinations early) ──────────────────────

@@ -35,7 +35,7 @@ import sys
 import cadquery as cq
 
 from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP,
-                         TERMINAL_PLACE, TERMINAL_ROT_DEG,
+                         TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP)
 from .helpers import bump_build_counter, import_step, place_terminal
@@ -370,7 +370,10 @@ RAIL_Z_TOP      = DOCK_TOP_Z - DOVETAIL_END_STOP   # 76 — rail tip = stop
 # footprint (y 22.5..94.5, z −4..86), so the dock plate covers it from
 # outside and all four dock screws keep solid wall around them.
 TERM_WINDOW_W     = 44.0                      # y 36.5..80.5 (centred on dock)
-TERM_WINDOW_Z_BOT = 14.0
+TERM_WINDOW_Z_BOT = 16.0                      # raised from 14 → more bearing
+                                              # wall under the flange (better +x
+                                              # retention); blades clear (poke in
+                                              # at z16+, ~0.2 mm³ in z14-16)
 TERM_WINDOW_Z_TOP = 50.0                      # vertical sides end; gable above
                                               # (ridge at 50 + 22 = 72)
 
@@ -720,7 +723,7 @@ backpack_housing = (_base_shell()
                     .union(_shelf_and_lips())
                     .cut(_m4_wall_hole())
                     .union(_string_channels())
-                    .union(_dovetail_tenons())
+                    .union(_dovetail_tenons())     # rails now at y26/104 (x±40)
                     .cut(_lightening_cuts()))
 
 
@@ -1097,8 +1100,14 @@ def _dock_transform(wp: cq.Workplane) -> cq.Workplane:
     (dock z=22) points outboard (−X). The battery ENTERS at the dock's y=0
     end (the open 'front opening' end — the y=90 end is the solid stop), so
     a final 180° about X puts that entry end at the TOP: drop the battery
-    in from above, slide down to the latch."""
+    in from above, slide down to the latch.
+
+    The dock's back is trimmed at the connector flange-back plane (dock z =
+    DOCK_BACK_TRIM); we pre-shift the dock −DOCK_BACK_TRIM in dock z so that
+    trimmed back (the flange) lands on the wall, flush — the wall retains the
+    connector with no separate pads."""
     return (wp
+            .translate((0, 0, -DOCK_BACK_TRIM))   # flange back -> wall (see above)
             .rotate((0, 0, 0), (0, 1, 0), 180)    # flip about the slide axis
             .rotate((0, 0, 0), (1, 1, 1), 120)    # axis cycle x→y, y→z, z→x
             .translate((DOCK_WALL_X, DOCK_TY, DOCK_TZ))
