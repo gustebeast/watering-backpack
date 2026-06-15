@@ -38,7 +38,8 @@ from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP,
                          TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP)
-from .helpers import bump_build_counter, import_step, place_terminal
+from .helpers import (bump_build_counter, import_step, place_terminal,
+                      dovetail_arrowhead)
 
 # Shared Archive/3D tooling (same as build.py).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
@@ -692,24 +693,22 @@ def _string_channels() -> cq.Workplane:
 
 
 def _dovetail_tenons() -> cq.Workplane:
-    """Two vertical dovetail rails on the −X wall's outer face: trapezoid
-    cross-section in plan (root at the wall, wider tip outboard), extruded
-    from the bed (z=−FLOOR_T) up to RAIL_Z_TOP. Pure vertical prisms — zero
-    overhang in the floor-down print."""
-    half_root = DOVETAIL_ROOT_W / 2
-    half_tip  = DOVETAIL_TIP_W / 2
-    x_wall    = -OUTER_W / 2                   # rail root plane
-    x_tip     = x_wall - DOVETAIL_DEPTH
+    """Two vertical dovetail rails on the −X wall's outer face, ARROWHEAD
+    cross-section in plan — built from the SAME dovetail_arrowhead profile as
+    the dock mortise (clr=0 here, the nominal solid) so the pair always match.
+    Extruded from the bed (z=−FLOOR_T) up to RAIL_Z_TOP. Map (across, depth)
+    -> (x, y): depth = outboard (−x) from the wall, across = y about yc. The
+    opening overshoots INTO the wall so the union fuses; the pointy top
+    self-supports inside the matching groove."""
+    x_wall = -OUTER_W / 2                      # rail root plane
+    pts = dovetail_arrowhead(DOVETAIL_ROOT_W / 2, DOVETAIL_TIP_W / 2,
+                             clr=0.0, open_ov=BOOL_OVERSHOOT)
     rail = None
     for yc in RAIL_Y_CENTERS:
-        # small overshoot INTO the wall so the union fuses cleanly
+        poly = [(x_wall - depth, yc + across) for across, depth in pts]
         prism = (cq.Workplane("XY")
                  .workplane(offset=-FLOOR_T)
-                 .polyline([(x_wall + BOOL_OVERSHOOT, yc - half_root),
-                            (x_wall + BOOL_OVERSHOOT, yc + half_root),
-                            (x_tip, yc + half_tip),
-                            (x_tip, yc - half_tip)])
-                 .close()
+                 .polyline(poly).close()
                  .extrude(RAIL_Z_TOP + FLOOR_T))
         rail = prism if rail is None else rail.union(prism)
     return rail

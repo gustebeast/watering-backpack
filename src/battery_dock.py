@@ -36,6 +36,7 @@ import cadquery as cq
 from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W, DOVETAIL_DEPTH,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP, DOVETAIL_CLR)
+from .helpers import dovetail_arrowhead
 
 
 # ── Printability helper ──────────────────────────────────────────────────────
@@ -449,8 +450,8 @@ def _dovetail_ears() -> cq.Workplane:
     half_tip = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
     x_in  = PLATE_X / 2 - 1.0                          # 35 — 1 mm into the plate
     x_out = DOVETAIL_X_OFF + half_tip + 2.5            # 47.3 — 2.5 mm outboard wall
-    y0, y1 = DOVETAIL_END_STOP, PLATE_Y               # 10..90 (groove span)
-    z0, z1 = DOCK_BACK_TRIM, DOCK_BACK_TRIM + 8.0     # 3.2..11.2 (clears groove top)
+    y0, y1 = DOVETAIL_END_STOP, PLATE_Y               # 0..90 (full groove span)
+    z0, z1 = DOCK_BACK_TRIM, DOCK_BACK_TRIM + 9.0     # 3.2..12.2 (over arrowhead top)
     ear = (cq.Workplane("XY").workplane(offset=z0)
            .box(x_out - x_in, y1 - y0, z1 - z0, centered=(False, False, False))
            .translate((x_in, y0, 0.0)))
@@ -458,27 +459,18 @@ def _dovetail_ears() -> cq.Workplane:
 
 
 def _dovetail_mortises() -> cq.Workplane:
-    half_root = DOVETAIL_ROOT_W / 2 + DOVETAIL_CLR
-    half_tip  = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
-    depth     = DOVETAIL_DEPTH + DOVETAIL_CLR
-    length    = PLATE_Y - DOVETAIL_END_STOP + BOOL_OVERSHOOT
-    zb        = DOCK_BACK_TRIM                         # opens at trimmed back (3.2)
-    # Trapezoid in the X-Z plane (opening at the back face zb, wide at depth),
-    # extruded along +Y from the closed end to past the open edge.
-    # The ceiling gets a TRUNCATED GABLE (45° shoulders + 4.8 flat) so the
-    # dock prints back-face-down with the flat sliced as a short bridge; the
-    # grooves now live in solid side ears, so the rise just needs to clear
-    # the 3.5 mm-deep housing tenon.
-    rise = 2.4
-    profile = [(-half_root, zb - BOOL_OVERSHOOT), (half_root, zb - BOOL_OVERSHOOT),
-               (half_tip, zb + depth),
-               (half_tip - rise, zb + depth + rise),
-               (-(half_tip - rise), zb + depth + rise),
-               (-half_tip, zb + depth)]
+    # ARROWHEAD profile (shared with the housing tenon via dovetail_arrowhead so
+    # the two always match) — mortise is the void, so clr>0. Map (across, depth)
+    # -> (x, z): across = x, depth = +z into the dock from the back face zb.
+    zb  = DOCK_BACK_TRIM                               # opens at trimmed back (3.2)
+    pts = dovetail_arrowhead(DOVETAIL_ROOT_W / 2, DOVETAIL_TIP_W / 2,
+                             clr=DOVETAIL_CLR, open_ov=BOOL_OVERSHOOT)
+    profile = [(across, zb + depth) for across, depth in pts]
+    length  = PLATE_Y - DOVETAIL_END_STOP + 2 * BOOL_OVERSHOOT
     groove = (cq.Workplane("XZ")
               .polyline(profile).close()
               .extrude(-length)                  # XZ extrude(-L) lands at +Y
-              .translate((0.0, DOVETAIL_END_STOP, 0.0)))
+              .translate((0.0, DOVETAIL_END_STOP - BOOL_OVERSHOOT, 0.0)))
     return (groove.translate((-DOVETAIL_X_OFF, 0, 0))
             .union(groove.translate((DOVETAIL_X_OFF, 0, 0))))
 

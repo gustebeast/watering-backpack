@@ -83,6 +83,36 @@ def heal(wp: cq.Workplane) -> cq.Workplane:
         return wp
 
 
+def dovetail_arrowhead(half_root: float, half_tip: float,
+                       clr: float = 0.0, open_ov: float = 0.0) -> list[tuple]:
+    """Arrowhead dovetail cross-section as (across, depth) points.
+
+    Narrow opening at depth 0, 45° flanks flaring OUT to the widest point (the
+    undercut that traps the joint), then 45° flanks tapering IN to a single
+    POINTY top — no flat ridge, so it's fully self-supporting when printed with
+    the opening on the bed. SHARED by the dock mortise and the housing tenon so
+    the two always have the identical shape: tenon uses clr=0 (nominal solid),
+    mortise uses clr>0 (the void, offset out for slide clearance). `open_ov`
+    pushes the opening edge back past depth 0 (a boolean overshoot into the
+    parent wall / back face) so the union/cut fuses cleanly.
+
+        across↑        (0, d_peak)          <- pointy top (45° each side)
+              |        /\\
+              |   (ht,d_max)  (-ht,d_max)    <- widest (undercut)
+              |   /              \\
+              | (hr,0)        (-hr,0)        <- opening (on the bed)
+              +-------------------> depth
+    """
+    hr = half_root + clr
+    ht = half_tip + clr
+    d_max  = ht - hr                 # 45° flare from the opening to the widest
+    d_peak = d_max + ht              # 45° taper from the widest to the point
+    return [(-hr, -open_ov), (hr, -open_ov),
+            (ht, d_max),
+            (0.0, d_peak),
+            (-ht, d_max)]
+
+
 def place_terminal(wp: cq.Workplane, rot_deg: float, translate) -> cq.Workplane:
     """Seat the imported 643852-2 terminal in the dock frame: rotate about the
     +X axis (through the origin) by `rot_deg`, then translate. Shared by the
