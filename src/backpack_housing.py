@@ -34,7 +34,7 @@ import sys
 
 import cadquery as cq
 
-from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP,
+from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP, MAKITA_BATTERY_STEP,
                          TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_X_OFF, DOVETAIL_END_STOP)
@@ -1131,6 +1131,26 @@ def _terminal_placed():
     return _dock_transform(place_terminal(t, TERMINAL_ROT_DEG, TERMINAL_PLACE))
 
 
+# Rough seat for the battery on the dock's OUTBOARD face (visual fit check):
+# rotate +90° about Y so the tool-side foot (+Z native) faces the dock and the
+# slide axis (X native, 116) runs vertical (housing Z); body hangs outboard
+# (−X). NOTE: a first-pass alignment — the dock's battery channel isn't
+# reconciled yet, so the foot overlaps the SOLID dock (that overlap marks where
+# the channel still needs cutting). Tweak these to refine.
+BATTERY_PLACE_ROT_Y = 90.0
+BATTERY_PLACE_XYZ   = (-136.6, 65.0, 91.5)
+
+
+def _battery_placed():
+    """Makita 18V LXT battery (recovered reference STEP) clipped onto the dock's
+    outboard face for fit-checking — body external, foot/terminals toward the
+    dock + connector."""
+    b = import_step(MAKITA_BATTERY_STEP)
+    if b is None:
+        return None
+    return b.rotate((0, 0, 0), (0, 1, 0), BATTERY_PLACE_ROT_Y).translate(BATTERY_PLACE_XYZ)
+
+
 
 
 def _wire_run(points, d) -> cq.Workplane:
@@ -1237,7 +1257,13 @@ _INTENDED_CONTACT = {frozenset(("wire_bat_pos", "wire_tsr_in")),
                      # TEMPORARY: the dock's terminal seat is being
                      # redesigned (region solid for now) — the terminal
                      # viz overlaps the dock until the new seat lands:
-                     frozenset(("battery_dock", "makita_terminal"))}
+                     frozenset(("battery_dock", "makita_terminal")),
+                     # TEMPORARY: the battery viz is seated for a fit check but
+                     # the dock's battery channel isn't cut yet, so its foot
+                     # overlaps the solid dock (~11.7 cm³ = where the channel
+                     # must go) and the connector (terminals interleave once cut):
+                     frozenset(("makita_battery", "battery_dock")),
+                     frozenset(("makita_battery", "makita_terminal"))}
 for _n, _c, _d, _targets, _p in WIRE_ROUTES:
     for _t in _targets:
         _INTENDED_CONTACT.add(frozenset((_n, _t)))
@@ -1310,6 +1336,9 @@ def _build():
     term = _terminal_placed()
     if term is not None:
         add("makita_terminal", term, "#E1C75D")
+    bat = _battery_placed()
+    if bat is not None:
+        add("makita_battery", bat, "#2E7D74")     # viz: how it clips onto the dock
 
     # Electronics housing (floor = partial lid) + the boards inside it.
     add("elec_housing", elec_housing_part, "#C4A56B")
