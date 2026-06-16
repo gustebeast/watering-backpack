@@ -74,6 +74,9 @@ MAKITA_TERMINAL_STEP  = REFERENCES_DIR / "makita_643852_2.step"
 # mount's geometry while we iterate src.battery_dock. Not loaded into
 # the build assembly.
 MAKITA_MOUNT_STEP     = REFERENCES_DIR / "makita_mount_v4.step"
+# Community STEP of the Makita 18V LXT battery (BL18xx) — viz reference, seated
+# on the dock for fit-checking. Never a printed part.
+MAKITA_BATTERY_STEP   = REFERENCES_DIR / "makita_battery.step"
 
 # ── Dock ↔ housing dovetail joinery (shared contract) ────────────────────────
 # The battery dock mounts to the backpack housing with PLASTIC DOVETAILS, no
