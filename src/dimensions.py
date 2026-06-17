@@ -94,10 +94,13 @@ DOVETAIL_ROOT_W   = 6.5    # arrowhead width at the opening (narrow root)
 DOVETAIL_TIP_W    = 9.0    # arrowhead width at its widest (the undercut). The
                            # depth is DERIVED (45° flanks → 2·tip/2 − root/2),
                            # not a separate constant — see helpers.dovetail_arrowhead.
-DOVETAIL_X_OFF    = 40.0   # groove centrelines at dock x = ±40 — moved
-                           # outboard (was 30) of the battery rail (dock x∓32)
-                           # and connector (±24), into the side ears the dock
-                           # grows to host them (see _dovetail_ears)
+DOVETAIL_X_OFF    = 43.0   # groove centrelines at dock x = ±43 — moved further
+                           # outboard (was 40, orig 30): the battery body reaches
+                           # dock x=36 and the front-shoulder relief cuts to 36.5,
+                           # so the mortise inboard tip (X_OFF − tip/2 − clr) must
+                           # sit beyond that. At ±43 the tip is at x=38.2, ~1.7 mm
+                           # clear of the relief and of the battery. Sits in the
+                           # side ears the dock grows to host them (_dovetail_ears)
 DOVETAIL_END_STOP = 0.0    # 0 = mortise + rail run the dock's FULL slide
                            # length (to the +z top, dock y0 / housing z86);
                            # was 10 (stopped 10 mm short at z76). Seating is by

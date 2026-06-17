@@ -1138,7 +1138,7 @@ def _terminal_placed():
 # reconciled yet, so the foot overlaps the SOLID dock (that overlap marks where
 # the channel still needs cutting). Tweak these to refine.
 BATTERY_PLACE_ROT_Y = 90.0
-BATTERY_PLACE_XYZ   = (-136.6, 65.0, 91.5)
+BATTERY_PLACE_XYZ   = (-132.28, 65.0, 105.02)
 
 
 def _battery_placed():
@@ -1148,7 +1148,13 @@ def _battery_placed():
     b = import_step(MAKITA_BATTERY_STEP)
     if b is None:
         return None
-    return b.rotate((0, 0, 0), (0, 1, 0), BATTERY_PLACE_ROT_Y).translate(BATTERY_PLACE_XYZ)
+    b = b.rotate((0, 0, 0), (0, 1, 0), BATTERY_PLACE_ROT_Y).translate(BATTERY_PLACE_XYZ)
+    # It came out upside down — flip 180° about an X-axis through the part's
+    # centre: brings the −z face to +z, keeps the foot pointing at the dock and
+    # the bounding box in place.
+    bb = b.val().BoundingBox()
+    cy, cz = (bb.ymin + bb.ymax) / 2, (bb.zmin + bb.zmax) / 2
+    return b.rotate((0, cy, cz), (1, cy, cz), 180)
 
 
 
