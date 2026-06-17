@@ -61,6 +61,15 @@ PLATE_X = 72.0     # battery-width direction
 PLATE_Y = 90.0     # slide direction (battery enters from +Y end)
 PLATE_Z = 22.0     # plate thickness (Z=0 face is bottom / battery-facing)
 
+# Front (entry / housing +z) extension: the whole mount's top edge is pushed
+# out by FRONT_EXT so the seated dock reaches housing z=89 (was 86). The entire
+# front cross-section (lip, opening, corners, cavity mouth, shoulder relief)
+# shifts with it, preserving battery clearance; only the latch catch face stays
+# put — so the material above it grows from 1 mm to FRONT_EXT+1 = 4 mm. The
+# front face is therefore at dock y = -FRONT_EXT.
+FRONT_EXT = 3.0
+FRONT_Y0  = -FRONT_EXT          # dock-y of the extended front face
+
 
 # ── Battery channel cut into the underside ───────────────────────────────────
 # A pocket cut up from the bottom face (Z=0) into the plate, opening at the
@@ -129,10 +138,10 @@ def _lightening_cutter() -> cq.Workplane:
     """
     return (cq.Workplane("XY")
             .workplane(offset=CHANNEL_TOTAL_H)
-            .box(POCKET_X, POCKET_Y_LENGTH,
-                 PLATE_Z - CHANNEL_TOTAL_H + BOOL_OVERSHOOT,
+            .box(POCKET_X, POCKET_Y_LENGTH + FRONT_EXT,    # mouth tracks the
+                 PLATE_Z - CHANNEL_TOTAL_H + BOOL_OVERSHOOT,  # extended front
                  centered=(True, False, False))
-            .translate((0.0, POCKET_WALL_NEAR, 0.0)))
+            .translate((0.0, POCKET_WALL_NEAR + FRONT_Y0, 0.0)))
 
 
 HAT_BACK_NARROW_Y_START  = 60.3      # Y where the hat narrows
@@ -193,8 +202,9 @@ def _stem_cutter() -> cq.Workplane:
 # STEP importers (FreeCAD GUI, Onshape) warn on the near-tangent boundary
 # the union would leave behind when its two boxes overlap by BOOL_OVERSHOOT.
 _plate = (cq.Workplane("XY")
-          .box(PLATE_X, PLATE_Y, PLATE_Z,
-               centered=(True, False, False)))
+          .box(PLATE_X, PLATE_Y + FRONT_EXT, PLATE_Z,
+               centered=(True, False, False))
+          .translate((0.0, FRONT_Y0, 0.0)))     # extend the front edge to z=89
 
 # ── Front-end opening ──────────────────────────────────────────────────────
 # V4 has the upper cavity opened through the front face. The opening
@@ -226,7 +236,7 @@ def _front_opening_cutter() -> cq.Workplane:
                  FRONT_LIP_THICKNESS + 2 * BOOL_OVERSHOOT,
                  PLATE_Z - FRONT_LIP_HEIGHT + 2 * BOOL_OVERSHOOT,
                  centered=(True, False, False))
-            .translate((0.0, -BOOL_OVERSHOOT, 0.0)))
+            .translate((0.0, -BOOL_OVERSHOOT + FRONT_Y0, 0.0)))
 
 
 # ── Back-end top recess (shallow tray) ──────────────────────────────────────
@@ -259,7 +269,10 @@ def _top_recess_cutter() -> cq.Workplane:
 # spring-loaded latch button (which protrudes from the battery's front
 # face when the latch is at rest).
 FRONT_POCKET_X         = 36.0
-FRONT_POCKET_Y_START   = 4.0
+FRONT_POCKET_Y_START   = 1.0    # was 4.0 — shifted 3 mm toward the entry face so
+                                # the seated pocket top rises from housing z=82 to
+                                # z=85, clearing the battery's latch button (the
+                                # latch was hitting dock material above the pocket)
 FRONT_POCKET_Y_LENGTH  = 13.0
 FRONT_POCKET_Z_START   = 1.5
 FRONT_POCKET_Z_DEPTH   = 5.5    # extends to z=7 (the main cavity floor),
@@ -272,6 +285,27 @@ def _front_pocket_cutter() -> cq.Workplane:
             .box(FRONT_POCKET_X, FRONT_POCKET_Y_LENGTH, FRONT_POCKET_Z_DEPTH,
                  centered=(True, False, False))
             .translate((0.0, FRONT_POCKET_Y_START, 0.0)))
+
+
+# NOTE: the latch catch-face backing (4 mm above the catch, housing z=85→89) is
+# now provided by the whole-mount front extension (FRONT_EXT) rather than a local
+# boss — the catch face stays at dock y=1 while the front edge moves to y=-3.
+CATCH_TOP_RELIEF_Z0 = 6.0    # the seated battery reaches dock z≈6.65 just in
+                             # front of the catch, so the backing above this is
+                             # trimmed to clear it (4 mm of backing below stays)
+
+
+def _catch_top_relief() -> cq.Workplane:
+    """Trim the top sliver (z 6..7) of the catch-face backing where the seated
+    battery would otherwise foul it; the load-bearing backing below z=6 stays."""
+    z0 = CATCH_TOP_RELIEF_Z0
+    z1 = FRONT_POCKET_Z_START + FRONT_POCKET_Z_DEPTH        # 7.0
+    return (cq.Workplane("XY").workplane(offset=z0)
+            .box(FRONT_POCKET_X,
+                 FRONT_POCKET_Y_START - FRONT_Y0 + BOOL_OVERSHOOT,
+                 z1 - z0 + BOOL_OVERSHOOT,
+                 centered=(True, False, False))
+            .translate((0.0, FRONT_Y0 - BOOL_OVERSHOOT, 0.0)))
 
 
 # ── Front-corner cutouts ────────────────────────────────────────────────────
@@ -313,25 +347,69 @@ def _back_corner_cutter(side_sign: int) -> cq.Workplane:
 
 
 def _front_corner_cutter(side_sign: int) -> cq.Workplane:
-    """45° wedge cut at the front corner: full-depth Z=5.5..22 at Y=0,
-    tapering linearly to zero by Y=FRONT_CORNER_Y_LENGTH (16.5 → 45°).
-    Approximates V4's sloped front side-wall transition."""
-    pts = [
-        (-BOOL_OVERSHOOT, FRONT_CORNER_Z_FLOOR),            # Y=-0.5, Z=5.5
-        (-BOOL_OVERSHOOT, PLATE_Z + BOOL_OVERSHOOT),        # Y=-0.5, Z=22.5
-        (FRONT_CORNER_Y_LENGTH, PLATE_Z + BOOL_OVERSHOOT),  # Y=16.5, Z=22.5
-    ]
-    # Workplane("YZ") extrudes in +X; pre-translate cutter sits at X=0..W+δ.
+    """Cut the side-wall front-top corner back to the BATTERY's 117.3° side
+    bevel, so the dock face beds against it (one clean face — no stacked lip).
+    The hypotenuse follows the battery contact line (SIDE_CHAMFER_A→B) offset by
+    bed clearance; below where that line meets the front-shoulder relief wall
+    (y=13) the relief takes over. (Was a 45°/37° wedge that over-cut, leaving a
+    gap the eye saw as a mismatch / spike when filled on top.)"""
+    (az, ay), (bz, by) = SIDE_CHAMFER_A, SIDE_CHAMFER_B    # battery contact, dock (z,y)
+    dz, dy = bz - az, by - ay
+    L = (dz * dz + dy * dy) ** 0.5
+    nz, ny = -dy / L, dz / L                               # bevel-line normal
+    if ny < 0:
+        nz, ny = -nz, -ny                                  # point into the dock (+y)
+    az, ay = az + nz * SIDE_CHAMFER_CLR, ay + ny * SIDE_CHAMFER_CLR
+    m = dy / dz                                            # bevel slope dy/dz (0.516)
+    z_top, z_flr = PLATE_Z + BOOL_OVERSHOOT, FRONT_CORNER_Z_FLOOR
+    y_bev = lambda z: ay + m * (z - az)                    # bevel y at height z
+    y_min = -PLATE_Y                                       # well past the front edge
+    pts = [(y_min, z_flr), (y_min, z_top),
+           (y_bev(z_top), z_top), (y_bev(z_flr), z_flr)]   # (y,z); hypotenuse=bevel
     width = FRONT_CORNER_X + BOOL_OVERSHOOT
-    cutter = (cq.Workplane("YZ")
-              .polyline(pts).close()
-              .extrude(width))
+    cutter = (cq.Workplane("YZ").polyline(pts).close().extrude(width))
     if side_sign > 0:
-        # Land cutter at X[PLATE_X/2 - FRONT_CORNER_X .. PLATE_X/2 + δ]
         return cutter.translate((PLATE_X / 2 - FRONT_CORNER_X, 0, 0))
     else:
-        # Land cutter at X[-PLATE_X/2 - δ .. -PLATE_X/2 + FRONT_CORNER_X]
         return cutter.translate((-PLATE_X / 2 - BOOL_OVERSHOOT, 0, 0))
+
+
+# ── Front-top side relief (battery body clearance) ──────────────────────────
+# With the battery seated, its front-end side SHOULDERS (dock x ±18..36, entry
+# end y≈0..11, z≈6..14) overhang the dock's solid front corners and collide
+# (145 mm³ each side, at housing z≈75..86). Relieve that material out to the
+# plate edge. The battery never reaches past x=36, so the dovetail rail bulk
+# (which lives in the ear at x 36..47.3, centred x=40) stays intact; only the
+# mortise's inboard flank sliver (x 35.2..36) is nicked over the top 13 mm of
+# the 90 mm engagement — negligible (seating is by floor-bottoming, not the
+# closed mortise end).
+FRONT_SIDE_RELIEF_X_IN  = 17.0   # 1 mm inboard of the overlap (starts at x≈18)
+FRONT_SIDE_RELIEF_Y_LEN = 13.0   # entry end; overlap reaches y≈11
+FRONT_SIDE_RELIEF_Z0    = 5.5    # above the front-lip / channel-floor band
+
+
+def _front_side_relief(side_sign: int) -> cq.Workplane:
+    x_in   = FRONT_SIDE_RELIEF_X_IN
+    x_edge = PLATE_X / 2 + BOOL_OVERSHOOT         # 36.5 — to the plate edge
+    y0, y1 = -BOOL_OVERSHOOT + FRONT_Y0, FRONT_SIDE_RELIEF_Y_LEN  # track new front
+    cut = (cq.Workplane("XY").workplane(offset=FRONT_SIDE_RELIEF_Z0)
+           .box(x_edge - x_in, y1 - y0,
+                PLATE_Z - FRONT_SIDE_RELIEF_Z0 + BOOL_OVERSHOOT,
+                centered=(False, False, False))
+           .translate((x_in, y0, 0.0)))
+    return cut if side_sign > 0 else cut.mirror("YZ")
+
+
+# ── Battery side-bevel contact line (used by _front_corner_cutter) ───────────
+# The battery's side wall rises to its tool-side face and chamfers back at the
+# top-front corner: a 117.3° bevel (= 27.3° off the front face). The dock's
+# side-wall front corner is cut to match it (see _front_corner_cutter) so the
+# lip beds against it for X retention. Contact line measured in the assembly,
+# in dock (z, y); same bevel on both x-edges (mirror):
+SIDE_CHAMFER_A   = (22.13, 14.98)   # (dock z, dock y) at the front face (z=22)
+SIDE_CHAMFER_B   = (18.29, 13.00)   # (dock z, dock y) bevel end at the overhang
+                                    # shelf (housing Z=73); sets the bevel slope
+SIDE_CHAMFER_CLR = 0.20             # bed clearance, per face
 
 
 # ── Side ribs inside the upper cavity ───────────────────────────────────────
@@ -727,4 +805,7 @@ battery_dock = (_slot
                 .union(_ribs)
                 .union(_dovetail_ears())           # width tabs hosting the rails
                 .cut(_dovetail_mortises())         # grooves, outboard of battery
+                .cut(_front_side_relief(+1))       # battery front-shoulder clearance
+                .cut(_front_side_relief(-1))       # (after ears, so it clips them too)
+                .cut(_catch_top_relief())          # clear battery above the catch
                 .cut(_dock_back_trim()))           # flange back -> dock mounting face
