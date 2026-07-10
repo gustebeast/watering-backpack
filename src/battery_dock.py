@@ -17,16 +17,11 @@ Frame:
     the battery engages from that side. (An earlier reading had this
     backwards; corrected per the user against the physical V4 mount.)
 
-Dimensional reference: the Wiseone V4 community mount
-(``references/makita_mount_v4.step``) — same family as the user's existing
-Wiseone Printables design. We don't import that STEP; instead we read off
-its dimensions and rebuild parametrically so we can tune fits, extend the
-plate for backpack integration, and add features like the terminal pocket.
-
-Validated against V4 with the oversize-overlap method (src/build.py
-diagram stations): nominal battery fit shows ~0 overlap and the terminal
-seats without interference. Use ``py -3.12 tools/inspect_step.py
-references/makita_mount_v4.step`` to read off any further reference dims.
+Dimensional origin: the dock was derived from the Wiseone V4 community mount
+(same family as the user's existing Wiseone Printables design) — we read off its
+dimensions and rebuilt parametrically so we can tune fits, extend the plate for
+backpack integration, and add the terminal pocket. Battery + terminal fit is now
+validated in the assembly build's collision report (``src.backpack_housing``).
 """
 
 from __future__ import annotations
@@ -96,7 +91,6 @@ HAT_Y_FAR            = 73.0   # +Y wall of the wider hat region
 # stem void, removing the overhang; the battery still clears (the void only
 # grows). The lips (hat±24 vs stem±22) are unchanged over y=22..60.3.
 STEM_Y_FAR           = 60.3   # = HAT_BACK_NARROW_Y_START
-HAT_LENGTH           = HAT_Y_FAR  - CHANNEL_Y_NEAR        # 51
 STEM_LENGTH          = STEM_Y_FAR - CHANNEL_Y_NEAR        # 36
 
 # X-axis extent of each channel level:
@@ -199,7 +193,7 @@ def _stem_cutter() -> cq.Workplane:
 # but with Y starting at 0 (the closed/back end of the dock).
 #
 # The pocket is applied as TWO SEPARATE cuts (not a union-then-cut) — strict
-# STEP importers (FreeCAD GUI, Onshape) warn on the near-tangent boundary
+# STEP importers (e.g. FreeCAD GUI) warn on the near-tangent boundary
 # the union would leave behind when its two boxes overlap by BOOL_OVERSHOOT.
 _plate = (cq.Workplane("XY")
           .box(PLATE_X, PLATE_Y + FRONT_EXT, PLATE_Z,
@@ -314,9 +308,6 @@ def _catch_top_relief() -> cq.Workplane:
 # these cuts, the front-corner side walls show up as ~2K mm³ of BLUE (I
 # have material V4 doesn't). User asked for these as "missing cutouts at -y".
 FRONT_CORNER_X         = 4.0    # corner strip width (matches V4 wall offset)
-FRONT_CORNER_Y_LENGTH  = 22.0   # extends the 45° taper longer in Y so the mid-Z
-                                # cut reaches deeper into V4's hollow corner.
-                                # Effective slope = 16.5/22 ≈ 0.75 (~37°).
 FRONT_CORNER_Z_FLOOR   = 5.5    # above the front-lip height
 
 
@@ -419,11 +410,14 @@ SIDE_CHAMFER_CLR = 0.20             # bed clearance, per face
 # mm³ of unmodelled material against V4.
 RIB_W = 5.0                              # X extent (inboard from wall)
 RIB_LENGTH = 51.0                        # Y length
-RIB_THICKNESS = PLATE_Z - 16.5           # 5.5 — from z=16.5 to plate top
+RIB_THICKNESS = PLATE_Z - 14.5           # 7.5 — rib underside LOWERED from z16.5
+                                         # to z14.5 so the battery-rail slot
+                                         # (floor z7 .. rib underside) is 7.5 mm,
+                                         # not 9.5; top (z22) unchanged
 RIB_Y_START = 20.0
 
 
-RIB_Z_FLOOR = PLATE_Z - RIB_THICKNESS    # 16.5 — rib underside height
+RIB_Z_FLOOR = PLATE_Z - RIB_THICKNESS    # 14.5 — rib underside height
 
 
 def _rib(x_inboard_edge: float) -> cq.Workplane:
@@ -528,7 +522,10 @@ def _dovetail_ears() -> cq.Workplane:
     half_tip = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
     x_in  = PLATE_X / 2 - 1.0                          # 35 — 1 mm into the plate
     x_out = DOVETAIL_X_OFF + half_tip + 2.5            # 47.3 — 2.5 mm outboard wall
-    y0, y1 = DOVETAIL_END_STOP, PLATE_Y               # 0..90 (full groove span)
+    y0, y1 = 0.0, PLATE_Y                             # FULL dock length: the ear must
+                                                      # span PAST the closed groove end
+                                                      # (y=END_STOP) so the groove cut
+                                                      # leaves a ROOF there = the z-stop
     z0, z1 = DOCK_BACK_TRIM, DOCK_BACK_TRIM + 9.0     # 3.2..12.2 (over arrowhead top)
     ear = (cq.Workplane("XY").workplane(offset=z0)
            .box(x_out - x_in, y1 - y0, z1 - z0, centered=(False, False, False))
@@ -544,11 +541,13 @@ def _dovetail_mortises() -> cq.Workplane:
     pts = dovetail_arrowhead(DOVETAIL_ROOT_W / 2, DOVETAIL_TIP_W / 2,
                              clr=DOVETAIL_CLR, open_ov=BOOL_OVERSHOOT)
     profile = [(across, zb + depth) for across, depth in pts]
-    length  = PLATE_Y - DOVETAIL_END_STOP + 2 * BOOL_OVERSHOOT
+    # Overshoot the OPEN (y=PLATE_Y, housing-bottom) end only; the closed end
+    # stays exactly at y=END_STOP so the roof bottom is flush with the rail tip.
+    length  = PLATE_Y - DOVETAIL_END_STOP + BOOL_OVERSHOOT
     groove = (cq.Workplane("XZ")
               .polyline(profile).close()
               .extrude(-length)                  # XZ extrude(-L) lands at +Y
-              .translate((0.0, DOVETAIL_END_STOP - BOOL_OVERSHOOT, 0.0)))
+              .translate((0.0, DOVETAIL_END_STOP, 0.0)))
     return (groove.translate((-DOVETAIL_X_OFF, 0, 0))
             .union(groove.translate((DOVETAIL_X_OFF, 0, 0))))
 
@@ -605,40 +604,6 @@ CONN_NUB_PLUS_X       = 5.40    # nub +x edge
 CONN_NUB_MINUS_X      = -9.60   # nub −x edge
 CONN_NUB_TOP_DZ       = 1.80    # nub flange-lip top above TERMINAL_PLACE z
                                 # (the nub tab is ~0.1 lower than the body flange)
-
-
-def _crossbar_chamfer(side_sign: int) -> cq.Workplane:
-    """X-positioning chamfer/lip on a crossbar outer wall, above the
-    connector flange. side_sign +1 = side 10 (+x wall), −1 = side 4 (−x
-    wall); the connector flange/body are symmetric in x, so side 4 is the
-    mirror of side 10. A 45° inner face grazes the connector's flange-lip
-    edge and runs up-and-inward to the mount's cavity floor
-    (CHANNEL_TOTAL_H), just clearing the body. Fills the clearance gap,
-    growing in width from the flange edge (outboard) inward.
-
-    PARAMETRIC — the graze height tracks the connector seat (TERMINAL_PLACE)
-    and the top tracks the cavity floor, so moving the connector in z
-    auto-updates the chamfer."""
-    s        = side_sign
-    OV       = BOOL_OVERSHOOT
-    flange_x = s * CONN_FLANGE_HALF_X                   # connector flange edge
-    wall_x   = s * (CONN_FLANGE_HALF_X + TERM_CLR)      # the crossbar wall
-    z_lip    = TERMINAL_PLACE[2] + CONN_FLANGE_TOP_DZ   # flange-lip top (tracks seat)
-    z_top    = CHANNEL_TOTAL_H                          # mount cavity floor
-    # The 45° line through the flange edge (flange_x, z_lip) drops in z by
-    # exactly the flange→wall gap (it's 45°), so it meets the wall at z_wall.
-    # Computed from the connector + wall positions + the graze requirement —
-    # no hard-coded clearance, so it's correct even if the gap changes.
-    z_wall   = z_lip - abs(wall_x - flange_x)
-    x_top    = flange_x - s * (z_top - z_lip)           # 45° inner at z_top
-    # quad: the 45° underside is anchored at the ACTUAL wall (wall_x, z_wall)
-    # so it grazes the flange; only the back vertices overshoot into the solid
-    # wall (putting OV on the 45° anchor would shift the whole slope outward).
-    poly = [(wall_x, z_wall), (x_top, z_top),
-            (wall_x + s * OV, z_top), (wall_x + s * OV, z_wall)]
-    y0, y1 = 23.43, 61.53                               # crossbar wall span
-    return (cq.Workplane("XZ").polyline(poly).close()
-            .extrude(-(y1 - y0)).translate((0, y0, 0)))
 
 
 def _plus_x_lips() -> cq.Workplane:

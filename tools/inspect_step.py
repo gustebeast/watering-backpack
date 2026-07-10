@@ -12,7 +12,6 @@ live, where the terminal recess is, etc.
 
 from __future__ import annotations
 
-import math
 import sys
 from collections import defaultdict
 from pathlib import Path

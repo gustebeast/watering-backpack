@@ -35,9 +35,7 @@ BOOL_OVERSHOOT =   0.5
 
 
 # ── Makita 18V LXT battery interface ─────────────────────────────────────────
-# TODO: fill in once the reference STEP is dropped at
-# references/makita_battery.step. The dock geometry mates with these
-# features on the battery's tool-side face:
+# The dock geometry mates with these features on the battery's tool-side face:
 #
 #   • Two side rails (T-slots) — battery has the male tongues, dock has the
 #     female L-grooves that the tongues slide into.
@@ -69,11 +67,6 @@ REFERENCES_DIR = REPO_ROOT / "references"
 # viz/demo part inside the dock (the real OEM contact you'll glue in).
 # Imported as viz only; never a printed part.
 MAKITA_TERMINAL_STEP  = REFERENCES_DIR / "makita_643852_2.step"
-# Community Wiseone V4 mount — STEP version of the Printables design 43386.
-# DIMENSIONAL reference only — used by tools/inspect_*.py to read off the
-# mount's geometry while we iterate src.battery_dock. Not loaded into
-# the build assembly.
-MAKITA_MOUNT_STEP     = REFERENCES_DIR / "makita_mount_v4.step"
 # Community STEP of the Makita 18V LXT battery (BL18xx) — viz reference, seated
 # on the dock for fit-checking. Never a printed part.
 MAKITA_BATTERY_STEP   = REFERENCES_DIR / "makita_battery.step"
@@ -101,10 +94,10 @@ DOVETAIL_X_OFF    = 43.0   # groove centrelines at dock x = ±43 — moved furth
                            # sit beyond that. At ±43 the tip is at x=38.2, ~1.7 mm
                            # clear of the relief and of the battery. Sits in the
                            # side ears the dock grows to host them (_dovetail_ears)
-DOVETAIL_END_STOP = 0.0    # 0 = mortise + rail run the dock's FULL slide
-                           # length (to the +z top, dock y0 / housing z86);
-                           # was 10 (stopped 10 mm short at z76). Seating is by
-                           # the dock bottoming flush on the housing floor.
+DOVETAIL_END_STOP = 2.0    # mortise closes 2 mm short of the dock top so its
+                           # roof rests on the rail (tenon) TIP = the seating
+                           # z-stop (rail tip at z84). Was 0 (through-groove —
+                           # nothing set the seated z); 10 earlier (stop at z76).
 DOVETAIL_CLR      = 0.30   # per-side groove clearance — looser than KEY_CLR
                            # (0.20): this is a long (76 mm) engagement on big
                            # wall surfaces, so it needs the extra room to
@@ -140,7 +133,6 @@ TERMINAL_PLACE       = (0.0, 47.0, 3.2)   # translate after rotation; z=3.2
                                           # face flush with the dock cavity
                                           # floor (dock z = CHANNEL_TOTAL_H = 7;
                                           # was z=3.0, leaving a 0.2 mm gap)
-TERMINAL_POCKET_CLR  = 0.20    # clearance per ~face for the conformal pocket
 # The connector's flange back sits at dock z = TERMINAL_PLACE[2]. We trim the
 # dock's back off at that plane so the flange back becomes the dock's mounting
 # face, and shift the dock placement by the same amount so it lands flush on

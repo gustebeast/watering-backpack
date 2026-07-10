@@ -27,7 +27,14 @@ Run:  py -3.12 -m src.test_pieces      → writes the 4 coupon STEPs.
 """
 from __future__ import annotations
 
+import pathlib
+import sys
+
 import cadquery as cq
+
+# Shared STEP exporter (Archive/3D/freecad) — names each product after its file.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
+from step_export import export_step
 
 from .dimensions import (BOOL_OVERSHOOT, DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_CLR)
@@ -133,7 +140,7 @@ def main():
         b = part.val().BoundingBox()
         # recenter each coupon's bbox-min to the origin (tidy, on the bed)
         coupon = part.translate((-b.xmin, -b.ymin, -b.zmin))
-        cq.exporters.export(coupon.val(), os.path.join(root, f"{name}.step"))
+        export_step(coupon.val(), os.path.join(root, f"{name}.step"))
         print(f"  {name:22s} {b.xlen:6.1f} × {b.ylen:5.1f} × {b.zlen:5.1f} mm")
     print("Wrote 4 individual test-piece STEPs")
 
