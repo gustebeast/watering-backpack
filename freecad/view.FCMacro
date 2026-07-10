@@ -12,12 +12,13 @@ import os
 import sys
 
 # Locate this macro's folder so we can import the shared viewer module next to
-# it, whether launched from the command line (__file__ defined) or fallback.
-_FALLBACK = r"C:\Users\gus\Sync\Documents\Archive\3D\freecad"
+# it. Normally __file__ is defined (FreeCAD runs the macro from its path); if it
+# isn't, the launcher (freecad_view.py) passes the dir via the environment, so we
+# never hardcode an install location.
 try:
     _HERE = os.path.dirname(os.path.realpath(__file__))
 except NameError:
-    _HERE = _FALLBACK
+    _HERE = os.environ.get("FREECAD_VIEW_MACRO_DIR", "").strip()
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
