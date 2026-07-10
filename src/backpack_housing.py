@@ -34,6 +34,10 @@ import sys
 
 import cadquery as cq
 
+# Shared STEP exporter (Archive/3D/freecad) — names each product after its file.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
+from step_export import export_step
+
 from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP, MAKITA_BATTERY_STEP,
                          TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
                          DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
@@ -262,7 +266,6 @@ BTS_BOARD_Z  = TRAY_SEAT_Z + TRAY_T + BTS_BOSS_H        # 144 board underside
 # Power terminal: hangs below the board at the +y edge; 4 entries at 5 mm
 # pitch on its outer face, order B−, B+, M+, M− (datasheet p.4).
 BTS_TERM_Y_FACE = BTS_CENTER[1] + BTS_BOARD[1] / 2      # 76.7
-BTS_ENTRY_X = {"B-": -82.5, "B+": -77.5, "M+": -72.5, "M-": -67.5}
 # Control header: hangs below the board at the −y edge, pins pointing −y.
 BTS_HDR_Y_FACE = BTS_CENTER[1] - BTS_BOARD[1] / 2       # 27.3
 # QuinLED-ESP32, from the user's measured board drawing: PCB 31.05 × 32.89
@@ -321,13 +324,8 @@ _buck_cx = BUCK_POS[0] + BUCK_BOARD[0] / 2              # −26.4
 _buck_cy = BUCK_POS[1] + BUCK_BOARD[1] / 2              # 90.9
 BUCK_BOSS_XY = [(_buck_cx - 38.9 / 2, _buck_cy - 25.4 / 2),
                 (_buck_cx + 38.9 / 2, _buck_cy + 25.4 / 2)]
-BUCK_PIN_Y   = BUCK_POS[1] + BUCK_BOARD[1] - 7.62       # 99.18 pin-row line
-# Board rotated so VIN/GND sit at the +x end (battery side) and VOUT/GND at
-# the −x end (BTS side) — input and output wiring never cross at the row.
-BUCK_PIN_X   = {"VIN": _buck_cx + 11.69, "GND": _buck_cx + 6.69,
-                "VOUT": _buck_cx - 11.25, "GND2": _buck_cx - 17.65}
-# = VIN −14.71, GND −19.71, VOUT −37.65, GND2 −44.05 — VIN/GND at the +x
-# end (riser side), VOUT/GND2 at the −x end (BTS side): no crossings.
+# Buck board rotated so VIN/GND sit at the +x end (battery side) and VOUT/GND
+# at the −x end (BTS side) — input and output wiring never cross at the row.
 # Traco TSR 1-2450E (5 V/1A SIP): lives heat-shrunk in the harness beside
 # the ESP32; the wire routes land on its pins.
 TSR_POS  = (-30.0, 58.0)                # block min corner (x, y)
@@ -336,12 +334,6 @@ TSR_SIZE = (11.7, 7.6, 10.2)            # footprint + height
 # FLOOR wire openings (everything enters from below — gravity-protected):
 WIRE_SLOT    = (-105.5, -92.0, 85.0, 105.0)  # (x0, x1, y0, y1) − battery +
                                              # pump wires rise here (−X corner)
-# Joystick cable: comes over the pump-housing +X rim, runs UNDER the elec
-# floor (above the pump; the y≈55 lane clears the barb zone y 72.5..99.5)
-# and up through this floor hole.
-JOY_HOLE_D   = 10.0
-JOY_FLOOR_XY = (-10.0, 55.0)  # inside the half-width box, off the barb zone
-
 # Battery dock mounting (−X wall, outside).
 # Dock frame: x −36..36 (width), y 0..90 (slide; +y = mouth), z 0..22
 # (thickness). The z=0 face is the FLAT BACK — it mounts against the wall.
@@ -365,7 +357,7 @@ DOCK_TZ      = -FLOOR_T                       # dock bottom FLUSH with the
 # on the bed (z=−FLOOR_T) and print as plain vertical prisms.
 DOCK_TOP_Z      = DOCK_TZ + DOCK_PLATE_Y      # 86 — top edge of seated dock
 RAIL_Y_CENTERS  = (DOCK_TY - DOVETAIL_X_OFF, DOCK_TY + DOVETAIL_X_OFF)
-RAIL_Z_TOP      = DOCK_TOP_Z - DOVETAIL_END_STOP   # 76 — rail tip = stop
+RAIL_Z_TOP      = DOCK_TOP_Z - DOVETAIL_END_STOP   # 84 — rail tip = seating stop
 # Terminal access window: a square opening through the −X wall directly
 # behind the seated terminal (window centred on DOCK_TY), exposing the
 # whole contact-plate/wire side for wiring from inside the bay. PRINT ORIENTATION: the housing prints floor-down, so the
@@ -895,13 +887,8 @@ def _build_elec_housing() -> cq.Workplane:
                     .box(sx1 - sx0, sy1 - sy0, TRAY_T + 2 * BOOL_OVERSHOOT,
                          centered=(False, False, False))
                     .translate((sx0, sy0, 0)))
-    # FLOOR hole for the joystick cable (comes over the +X rim, runs under
-    # this floor above the pump, then up through here).
-    tray = tray.cut(cq.Workplane("XY")
-                    .workplane(offset=TRAY_SEAT_Z - BOOL_OVERSHOOT)
-                    .center(*JOY_FLOOR_XY)
-                    .circle(JOY_HOLE_D / 2)
-                    .extrude(TRAY_T + 2 * BOOL_OVERSHOOT))
+    # (The separate joystick-cable floor hole was removed — all wiring now uses
+    # the single WIRE_SLOT entry above.)
 
     return tray
 
@@ -1048,7 +1035,7 @@ def _esp32_parts():
 # Sits ON TOP of the elec housing walls (plate at ELEC_TOP_Z), oversized,
 # with a 13mm skirt running DOWN around all four sides (user) — water on
 # the lid sheds past the wall joint. Prints upside-down (plate on bed).
-LID_T     = 3.0                 # top plate thickness
+LID_T     = 0.72                # top plate thickness (flat top — thin lid)
 LID_SKIRT = 13.0                # skirt drop below the wall tops
 LID_CLR   = 0.3                 # skirt-to-wall clearance per side
 LID_WALL  = 2.4                 # skirt thickness (3 perimeters @ 0.8)
@@ -1338,13 +1325,34 @@ def _build():
     pump = _pump_placed()
     if pump is not None:
         add("pump", pump, "#C0683C")
-    add("battery_dock", _dock_placed(), "#6B8AAB")
+    # The dock + glued-in connector + battery are shown SEATED (fully installed):
+    # the dovetail mortise's closed roof rests on the rail tip (DOVETAIL_END_STOP),
+    # which sets the seated z. The slide-in PATH is still validated by the dock
+    # sweep below (over the full SLIDE_L rail engagement).
+    SLIDE_L  = RAIL_Z_TOP - DOCK_TZ                  # 88 mm — rail engagement (sweep)
+    VIZ_LIFT = 0.0                                   # viz: show the dock seated
+
+    def add_lifted(name, wp, col):
+        parts[name] = wp                             # seated, for the report
+        asm.add(wp.translate((0, 0, VIZ_LIFT)), name=name, color=color(col))
+
+    add_lifted("battery_dock", _dock_placed(), "#6B8AAB")
     term = _terminal_placed()
     if term is not None:
-        add("makita_terminal", term, "#E1C75D")
+        add_lifted("makita_terminal", term, "#E1C75D")
     bat = _battery_placed()
     if bat is not None:
-        add("makita_battery", bat, "#2E7D74")     # viz: how it clips onto the dock
+        add_lifted("makita_battery", bat, "#2E7D74")  # viz: clips on AFTER mounting
+
+    # Joystick hose-clamp mount (separate accessory) — parked +x of the housing
+    # for viz; in use it clamps onto the watering hose.
+    from .joystick_mount import joystick_mount
+    add("joystick_mount", joystick_mount.translate((145.0, 65.0, 0.0)), "#3CB371")
+
+    # Dual C-clamp tying the 4-way valve (+tubing) to a frame pole — parked
+    # off to the side for viz.
+    from .dual_clamp import dual_clamp
+    add("dual_clamp", dual_clamp.translate((170.0, 105.0, 0.0)), "#8E7CC3")
 
     # Electronics housing (floor = partial lid) + the boards inside it.
     add("elec_housing", elec_housing_part, "#C4A56B")
@@ -1423,6 +1431,28 @@ def _build():
         seated = _solid_volume(pump.translate((0, -0.5, 0))
                                .intersect(backpack_housing)) > 0.05
         print(f"    feet {'SEATED on the bosses' if seated else 'NOT SEATED - pump floats!'}")
+
+    # DOCK SLIDE-IN SWEEP: the dock (with the glued-in connector) slides DOWN
+    # onto the housing rails from the slide-start shown in the assembly. Sweep
+    # the descent for a clean path. (The battery clips on AFTER the dock is
+    # mounted, so it's not part of the sliding group.)
+    slide_grp = _dock_placed()
+    if term is not None:
+        slide_grp = slide_grp.union(term)
+    print("  -- dock slide-in sweep --------------------------------")
+    dock_hits = [(dz, _solid_volume(slide_grp.translate((0, 0, dz))
+                                    .intersect(backpack_housing)))
+                 for dz in range(5, int(SLIDE_L) + 1, 5)]
+    dock_hits = [(dz, v) for dz, v in dock_hits if v > 0.5]
+    if not dock_hits:
+        print(f"    clear - dock+connector slide {SLIDE_L:.0f} mm onto the rails")
+    else:
+        lo, hi = min(d for d, _ in dock_hits), max(d for d, _ in dock_hits)
+        vmax = max(v for _, v in dock_hits)
+        note = ("connector tail clips the elec-housing shelf edge at the very top"
+                if lo >= SLIDE_L - 5 else
+                "connector tail vs the -X wall (expected: trim the connector tail)")
+        print(f"    BLOCKED +{lo}..+{hi} mm (max {vmax:.0f} mm3) - {note}")
     try:
         counter = (cq.Workplane("XZ").center(0, OUTER_H + 50)
                    .text(str(build_n), 30, 6))
@@ -1430,11 +1460,13 @@ def _build():
     except Exception:                                              # noqa: BLE001
         pass
 
-    cq.exporters.export(backpack_housing, "backpack_pump_housing.step")
-    cq.exporters.export(elec_housing_part, "backpack_elec_housing.step")
-    cq.exporters.export(esp_clamp, "backpack_esp_clamp.step")
-    cq.exporters.export(elec_lid, "backpack_elec_lid.step")
-    asm.save("backpack_assembly.step")
+    # Anchor outputs to the project root (never the cwd) per the build-loop rule.
+    out = pathlib.Path(__file__).resolve().parent.parent
+    export_step(backpack_housing, str(out / "backpack_pump_housing.step"))
+    export_step(elec_housing_part, str(out / "backpack_elec_housing.step"))
+    export_step(esp_clamp, str(out / "backpack_esp_clamp.step"))
+    export_step(elec_lid, str(out / "backpack_elec_lid.step"))
+    asm.save(str(out / "assembly.step"))          # the file the viewer/launcher opens
     bb = backpack_housing.val().BoundingBox()
     print("Wrote backpack_pump_housing/elec_housing/esp_clamp.step")
     print(f"  outer envelope : X {bb.xlen:.1f}  Y {bb.ylen:.1f}  Z {bb.zlen:.1f} mm")
@@ -1444,8 +1476,8 @@ def _build():
         pb = pump.val().BoundingBox()
         print(f"  pump (placed)  : X[{pb.xmin:.1f}..{pb.xmax:.1f}] "
               f"Y[{pb.ymin:.1f}..{pb.ymax:.1f}] Z[{pb.zmin:.1f}..{pb.zmax:.1f}]")
-    print(f"Wrote backpack_assembly.step  (housing + pump + dock)  [build #{build_n}]")
-    show("backpack_assembly.step")
+    print(f"Wrote assembly.step  (housing + pump + dock)  [build #{build_n}]")
+    show(str(out / "assembly.step"))
 
 
 if __name__ == "__main__":
