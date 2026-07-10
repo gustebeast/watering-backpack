@@ -7,9 +7,7 @@ module encodes every workaround we had to find. Import it and move on with your
 life; read this if you need to change it.
 
 ```python
-import sys, pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from threads import threaded_rod, cut_thread
+from cadkit.threads import threaded_rod, cut_thread
 
 # short rods / nut cutters / test coupons:
 nut_cutter = threaded_rod(minor_d=11, major_d=13, pitch=4, length=20)

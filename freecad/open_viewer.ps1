@@ -5,8 +5,8 @@
 
   Usage:
     & "<this>\open_viewer.ps1"                                  # current folder
-    & "<this>\open_viewer.ps1" -Project "C:\...\3D\servo-steel"
-    & "<this>\open_viewer.ps1" -Step    "C:\...\servo-steel\assembly.step"
+    & "<this>\open_viewer.ps1" -Project "C:\path\to\my-project"
+    & "<this>\open_viewer.ps1" -Step    "C:\path\to\my-project\assembly.step"
     & "<this>\open_viewer.ps1" -FreeCAD "D:\FreeCAD\bin\freecad.exe"
 
   STEP auto-detection (no -Step): prefers assembly.step, else the single
