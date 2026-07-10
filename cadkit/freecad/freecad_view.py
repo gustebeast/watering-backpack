@@ -153,7 +153,7 @@ def show(step_path=None, project=None, freecad_exe=None):
             print("[freecad] FreeCAD not found at %s - set FREECAD_EXE" % exe, file=sys.stderr)
             return False
         env = dict(os.environ, FREECAD_VIEW_STEP=step, FREECAD_VIEW_INBOX=_INBOX,
-                   FREECAD_VIEW_HEARTBEAT=_HEARTBEAT)
+                   FREECAD_VIEW_HEARTBEAT=_HEARTBEAT, FREECAD_VIEW_MACRO_DIR=_HERE)
         flags = 0
         if os.name == "nt":
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP

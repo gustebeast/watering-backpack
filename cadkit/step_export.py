@@ -1,4 +1,4 @@
-"""Shared STEP exporter for the Archive/3D projects.
+"""Shared STEP exporter for CadQuery 3D-printing projects.
 
 A bare ``cq.exporters.export(obj, "housing.step")`` names the STEP *product*
 "Open CASCADE STEP translator 7.8 …", so slicers and viewers (Bambu Studio,
