@@ -48,5 +48,31 @@ git subtree add  --prefix=cadkit cadkit main --squash    # first time
 git subtree pull --prefix=cadkit cadkit main --squash    # to update later
 ```
 
+## Changing cadkit — you MUST propagate to every consumer
+
+cadkit is **vendored** (copied) into each project, so the copies **drift** the
+moment the canonical repo changes — nothing forces them identical. Therefore a
+cadkit change is not *done* when you commit it; it is done when every consumer
+project has been re-pulled. **Never edit a project's vendored `cadkit/` in place** —
+edit the canonical repo, then propagate.
+
+The whole process is one command — **run it after committing to the canonical
+cadkit repo**:
+
+```
+py -3.12 cadkit/tools/propagate.py        # pushes canonical, then re-pulls into every consumer
+```
+
+It pushes the canonical to its upstream (one source of truth), auto-discovers
+every sibling project that vendors cadkit, and re-pulls the subtree into each.
+A project with a **dirty** working tree is **skipped** (never auto-stashed) and
+reported — commit or stash there, then re-run. The exit code is the number of
+consumers *not* in sync, so `propagate.py` doubles as a gate: **0 means every
+project is current.** Use `--dry-run` to preview, `--no-push` to pull only.
+
+(The manual equivalent, per project, is `git fetch cadkit main &&
+git subtree pull --prefix=cadkit cadkit main --squash` — but do not hand-run it
+across N repos; that is exactly the step people forget, which is what drift is.)
+
 See `THREADS_README.md` and `JOINERY_README.md` before changing threads or joinery —
 both encode FDM-specific rules that fail silently if broken.
