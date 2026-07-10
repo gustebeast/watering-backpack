@@ -144,6 +144,73 @@ Fit lessons from the first row:
    `py -3.12 joinery.py`): seated = 0, +X free = 0, −X / ±Y / +Z all > 0.
    A joint that "looks right" can still be an unconstrained slot.
 
+## Octagon ("stop-sign") joint — both hosts print −Z→+Z
+
+A second joint family for when **neither** part prints sideways — the tenon host
+*and* the mortise host both print −Z→+Z. Its cross-section is an **octagon on a
+post**, a stop sign:
+
+```
+   ___            roof = ONE nozzle wide (the only bridge; pinned, never scales)
+  /   \           upper 45° tapers tuck IN  → always printable
+ |     |          vertical sides
+  \   /           lower 45° flare widens up → self-supporting AND the shoulder
+   | |            post / neck (mortise lip captures the shoulder above it)
+```
+
+```python
+from cadkit.joinery import octagon_tenon, octagon_mortise, octagon_height
+
+ten = octagon_tenon(span=4.0, length=12)                     # octagon-on-post, +X prism
+cut = octagon_mortise(span=4.0, length=24, clearance=0.1)    # matching cavity
+host = host.union(ten.translate(...))     # tenon fuses into its host (root sunk 1 mm)
+ring = ring.cut(cut.translate(...))       # cavity opens through the other host's face
+```
+
+Same slide-along-X convention as the arrowhead: the profile lives in Y-Z, extrudes
+along +X, and the parts mate by sliding along X. The octagon captures **±Y and
+±Z** by shape (the lower flare is the retention shoulder — to lift the bulb out,
+its waist can't pass back through the neck), leaving X the install axis; add the
+hard stop by trimming the cavity's far end, as with the arrowhead.
+
+Why an octagon and not a triangle (which is also all-45°)? A triangle meets at a
+sharp **peak** the nozzle rounds off — you can't print the point as drawn. The
+octagon replaces that peak with a short flat roof, and that roof is the joint's
+one real print risk: printed −Z→+Z, the mortise cavity's roof is an unsupported
+**bridge**. So it's held to **one nozzle width** — a single bead the printer
+spans without sag.
+
+### Sizing — one knob, and the dangerous dimension isn't one
+
+```python
+octagon_tenon(span, length, nozzle=0.8, root=1.0)
+octagon_mortise(span, length, nozzle=0.8, clearance=0.1, drop=2.0)
+```
+
+- **`span`** — flat-to-flat width = *the room the joint may occupy*. This is the
+  only size knob. Bigger `span` → longer verticals and flares → **stronger,
+  automatically**. It **floors** at the nozzle-minimum octagon (every side =
+  nozzle, `span_min = nozzle·(1+√2) ≈ 1.93 mm` at 0.8); below that it **raises**
+  with the minimum in the message, so a space-constrained caller learns the floor
+  instead of getting a broken joint. Measure your free space, pass it as `span`.
+- **`nozzle`** — the one physical constant (0.8 here). Sets the floor and the roof
+  width. As `span` grows the roof **stays pinned at `nozzle`** while the load-
+  bearing segments lengthen — the cap holds at every size.
+- **`length`** — slide/engagement depth. **`clearance`** (mortise) — the fit gap;
+  the printed roof bridge is `nozzle + 2·clearance`, so keep it small (0.1 ≈ one
+  bead). **`root`/`drop`** — fusion / cavity-opening depth below the mating plane.
+
+**The roof overhang is deliberately NOT a parameter.** It's computed `= nozzle`
+internally and never exposed, so no argument — including a large `span` — can push
+the bridge past what the printer can lay. The hard cap is unbreakable because the
+knob to break it doesn't exist. Don't add one: to make a joint stronger, give it
+more `span`; to fit a tight space, give it less (down to the floor). If a skinnier
+or fatter neck is ever needed, add a *named optional* `neck_ratio`, never a raw
+overhang/segment length.
+
+The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free, and
+the roof measured at three spans to prove it stays one nozzle wide.
+
 ## Adding a variant
 
 Model the new print-orientation combination as a profile tweak (like
