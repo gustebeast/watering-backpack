@@ -83,6 +83,17 @@ def main():
         print("canonical cadkit repo not found at %s" % CANON, file=sys.stderr)
         return 2
 
+    # Guard against running a VENDORED copy: the canonical cadkit is its own
+    # standalone repo (its git toplevel IS the cadkit dir), whereas a copy vendored
+    # into a project has the project as its toplevel. Running the vendored copy
+    # would treat the project as the workspace and find no consumers — so redirect.
+    rc0, top = _git(["rev-parse", "--show-toplevel"], CANON)
+    if rc0 != 0 or pathlib.Path(top.strip()).resolve() != CANON.resolve():
+        print("this is a VENDORED copy of cadkit (inside %s), not the canonical repo.\n"
+              "Run propagate from the standalone canonical cadkit checkout instead."
+              % (top.strip() or "a project"), file=sys.stderr)
+        return 2
+
     # Where consumers pull FROM: the canonical's upstream if it has one (the true
     # single source), else the local canonical path (offline dev).
     rc, origin = _git(["remote", "get-url", "origin"], CANON)
