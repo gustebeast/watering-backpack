@@ -8,9 +8,7 @@ named product that every viewer reads, with no extra wrapper assembly.
 
 Usage (single printed part):
 
-    import sys, pathlib
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-    from step_export import export_step
+    from cadkit.step_export import export_step
 
     export_step(part, "housing.step")          # imports/slices as "housing"
 
