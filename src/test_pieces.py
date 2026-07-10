@@ -32,9 +32,8 @@ import sys
 
 import cadquery as cq
 
-# Shared STEP exporter (Archive/3D/freecad) — names each product after its file.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from step_export import export_step
+# Shared STEP exporter (vendored cadkit) — names each product after its file.
+from cadkit.step_export import export_step
 
 from .dimensions import (BOOL_OVERSHOOT, DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_CLR)

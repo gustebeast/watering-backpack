@@ -15,8 +15,7 @@ import pathlib
 import sys
 
 # Shared Archive/3D exporter (names the STEP product to match the file stem).
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from step_export import export_step                                  # noqa: E402
+from cadkit.step_export import export_step                                  # noqa: E402
 
 from .battery_dock import battery_dock
 from .joystick_mount import joystick_mount

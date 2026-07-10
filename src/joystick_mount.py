@@ -24,9 +24,8 @@ import sys
 
 import cadquery as cq
 
-# Shared STEP exporter (Archive/3D/freecad) — names the product after its file.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from step_export import export_step
+# Shared STEP exporter (vendored cadkit) — names the product after its file.
+from cadkit.step_export import export_step
 
 # ── Hose clamp ───────────────────────────────────────────────────────────────
 HOSE_OD    = 12.3
