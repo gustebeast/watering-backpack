@@ -25,10 +25,16 @@ import sys
 import glob
 import time
 import uuid
+import shutil
 import tempfile
 import subprocess
 
-DEFAULT_FREECAD = r"C:\Program Files\FreeCAD 1.1\bin\freecad.exe"
+# FreeCAD is resolved PER-MACHINE (never committed): explicit arg > FREECAD_EXE env >
+# cached config file > auto-discovery (cached on first success). This keeps the repo
+# portable — pull it on a fresh machine and the first show() finds FreeCAD and remembers
+# where it is; a machine without FreeCAD gets a clear "go install it" message. See
+# _freecad_exe / _discover_freecad / the --set-path CLI.
+FREECAD_DOWNLOAD_URL = "https://www.freecad.org/downloads.php"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MACRO = os.path.join(_HERE, "view.FCMacro")
@@ -43,8 +49,81 @@ _HEARTBEAT = os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat")
 _HEARTBEAT_STALE_S = 30.0
 
 
+def _config_path():
+    """Per-user cadkit config file holding the FreeCAD executable path — machine-local,
+    OUTSIDE any repo (so it's never committed). %APPDATA%\\cadkit on Windows,
+    $XDG_CONFIG_HOME (or ~/.config) elsewhere."""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "cadkit", "freecad.path")
+
+
+def _read_config():
+    try:
+        p = open(_config_path(), encoding="utf-8").read().strip()
+        return p or None
+    except OSError:
+        return None
+
+
+def _write_config(exe):
+    """Remember the resolved FreeCAD path so later runs skip discovery. Never raises."""
+    try:
+        cfg = _config_path()
+        os.makedirs(os.path.dirname(cfg), exist_ok=True)
+        with open(cfg, "w", encoding="utf-8") as f:
+            f.write(exe)
+    except OSError:
+        pass
+
+
+def _discover_freecad():
+    """Best-effort search of the usual install locations for this OS. Returns an existing
+    executable path (highest version first), or None. Never raises."""
+    cands = []
+    if os.name == "nt":
+        roots = [os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")]
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            roots.append(os.path.join(local, "Programs"))
+        for root in roots:
+            if root:
+                cands += sorted(glob.glob(os.path.join(root, "FreeCAD*", "bin", "freecad.exe")),
+                                reverse=True)
+    elif sys.platform == "darwin":
+        cands += sorted(glob.glob("/Applications/FreeCAD*.app/Contents/MacOS/FreeCAD"), reverse=True)
+        cands += sorted(glob.glob(os.path.expanduser(
+            "~/Applications/FreeCAD*.app/Contents/MacOS/FreeCAD")), reverse=True)
+    else:  # linux / other unix
+        cands += sorted(glob.glob(os.path.expanduser("~/Applications/FreeCAD*.AppImage")), reverse=True)
+        cands += ["/usr/bin/freecad", "/usr/local/bin/freecad"]
+    for name in ("freecad", "freecadcmd", "FreeCAD"):
+        w = shutil.which(name)
+        if w:
+            cands.append(w)
+    for exe in cands:
+        if exe and os.path.exists(exe):
+            return exe
+    return None
+
+
 def _freecad_exe(override=None):
-    return override or os.environ.get("FREECAD_EXE") or DEFAULT_FREECAD
+    """Resolve the FreeCAD executable, or None if it can't be found (cascade above)."""
+    if override:
+        return override
+    env = os.environ.get("FREECAD_EXE")
+    if env:
+        return env
+    cached = _read_config()
+    if cached and os.path.exists(cached):
+        return cached
+    found = _discover_freecad()
+    if found:
+        _write_config(found)          # cache it — instant next time
+    return found
 
 
 def _hub_running():
@@ -149,8 +228,11 @@ def show(step_path=None, project=None, freecad_exe=None):
             except OSError:
                 pass
         exe = _freecad_exe(freecad_exe)
-        if not os.path.exists(exe):
-            print("[freecad] FreeCAD not found at %s - set FREECAD_EXE" % exe, file=sys.stderr)
+        if not exe or not os.path.exists(exe):
+            print("[freecad] FreeCAD not found. Install it from %s, then point cadkit at it once:\n"
+                  "          py -m cadkit.freecad --set-path \"<path to the freecad executable>\"\n"
+                  "          (or set the FREECAD_EXE environment variable). Skipping viewer."
+                  % FREECAD_DOWNLOAD_URL, file=sys.stderr)
             return False
         env = dict(os.environ, FREECAD_VIEW_STEP=step, FREECAD_VIEW_INBOX=_INBOX,
                    FREECAD_VIEW_HEARTBEAT=_HEARTBEAT, FREECAD_VIEW_MACRO_DIR=_HERE)
@@ -174,12 +256,26 @@ def show(step_path=None, project=None, freecad_exe=None):
         return False
 
 
-if __name__ == "__main__":
+def _cli(argv=None):
     import argparse
     ap = argparse.ArgumentParser(
+        prog="cadkit.freecad",
         description="Make a project's STEP viewable in the shared FreeCAD hub.")
     ap.add_argument("--project", help="project folder (default: current directory)")
     ap.add_argument("--step", help="explicit STEP file (overrides --project)")
-    ap.add_argument("--freecad", help="path to freecad.exe")
-    a = ap.parse_args()
-    sys.exit(0 if show(step_path=a.step, project=a.project, freecad_exe=a.freecad) else 1)
+    ap.add_argument("--freecad", help="path to the FreeCAD executable (this run only)")
+    ap.add_argument("--set-path", metavar="EXE",
+                    help="save the FreeCAD executable path to the cadkit config and exit")
+    a = ap.parse_args(argv)
+    if a.set_path:
+        exe = os.path.abspath(os.path.expanduser(a.set_path))
+        if not os.path.exists(exe):
+            print("warning: %s does not exist (saving anyway)" % exe, file=sys.stderr)
+        _write_config(exe)
+        print("saved FreeCAD path -> %s" % _config_path())
+        return 0
+    return 0 if show(step_path=a.step, project=a.project, freecad_exe=a.freecad) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(_cli())
