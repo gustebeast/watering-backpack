@@ -43,15 +43,15 @@ command; the cheap shell poll (not the model) sits idle until a contributor's
 lead then `take`s + `build`s and re-arms `wait`. The contributor never has to ping
 anyone; writing the request IS the notification.
 
-Typical flow
-  human: "let's go multi-agent; the pedal-bar chat is a sub-agent named pedal"
-  lead (once):  py -3.12 ../freecad/agent_sync.py wait      # <-- in the BACKGROUND; re-arm after each take
-  contributor:  py -3.12 ../freecad/agent_sync.py join pedal   # -> cd the printed dir
+Typical flow (<name> is the contributor's task, e.g. the subsystem they own)
+  human: "let's go multi-agent; the second chat is a sub-agent named <name>"
+  lead (once):  py -3.12 cadkit/tools/agent_sync.py wait      # <-- in the BACKGROUND; re-arm after each take
+  contributor:  py -3.12 cadkit/tools/agent_sync.py join <name>   # -> cd the printed dir
                 ...edit, then...
-                py -3.12 ../freecad/agent_sync.py submit "pedal bar latch v2"   # ends the lead's wait
-  lead (auto-woken): py -3.12 ../freecad/agent_sync.py take pedal   # resolve any conflicts
-                     py -3.12 ../freecad/agent_sync.py build
-                     py -3.12 ../freecad/agent_sync.py wait          # re-arm for the next one
+                py -3.12 cadkit/tools/agent_sync.py submit "<summary of your round>"   # ends the lead's wait
+  lead (auto-woken): py -3.12 cadkit/tools/agent_sync.py take <name>   # resolve any conflicts
+                     py -3.12 cadkit/tools/agent_sync.py build
+                     py -3.12 cadkit/tools/agent_sync.py wait          # re-arm for the next one
 """
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def cmd_join(name: str):
     else:
         git("worktree", "add", "-b", branch, str(wt), "main")
     print(f"created worktree for {branch}:\n  cd \"{wt}\"\n"
-          f"Work there, then:  py -3.12 ../freecad/agent_sync.py submit \"<summary>\"")
+          f"Work there, then:  py -3.12 cadkit/tools/agent_sync.py submit \"<summary>\"")
 
 
 def cmd_submit(summary: str):
@@ -142,7 +142,7 @@ def cmd_submit(summary: str):
     print(f"merge request filed for {branch} @ {sha[:8]}\n"
           f"  \"{summary}\"\n"
           f"Tell the LEAD (or it will see it in `inbox`):\n"
-          f"  py -3.12 ../freecad/agent_sync.py take {name}")
+          f"  py -3.12 cadkit/tools/agent_sync.py take {name}")
 
 
 def cmd_sync():
@@ -196,7 +196,7 @@ def cmd_inbox():
     for p in reqs:
         r = json.loads(p.read_text())
         print(f"  • {r['branch']:20s} {r['sha'][:8]}  {r['time']}  \"{r['summary']}\"")
-    print("Take one with:  py -3.12 ../freecad/agent_sync.py take <name>")
+    print("Take one with:  py -3.12 cadkit/tools/agent_sync.py take <name>")
 
 
 def cmd_take(name: str):
@@ -207,13 +207,13 @@ def cmd_take(name: str):
     if git("ls-files", "-u"):
         print(f"CONFLICTS merging {branch}. Resolve the files below, then:\n"
               f"  git add -A && git commit --no-edit\n"
-              f"  py -3.12 ../freecad/agent_sync.py drop {name}   # clears the request\n"
+              f"  py -3.12 cadkit/tools/agent_sync.py drop {name}   # clears the request\n"
               "conflicted:")
         print("  " + "\n  ".join(sorted(set(l.split()[-1] for l in git("ls-files", "-u").splitlines()))))
         return
     (sync_dir() / "inbox" / f"{slug(branch)}.json").unlink(missing_ok=True)
     print(f"merged {branch} into {cur_branch()}. Now build:\n"
-          f"  py -3.12 ../freecad/agent_sync.py build")
+          f"  py -3.12 cadkit/tools/agent_sync.py build")
 
 
 def cmd_drop(name: str):

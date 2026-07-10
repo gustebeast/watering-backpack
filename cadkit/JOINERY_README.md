@@ -5,9 +5,7 @@ geometry rules live here once, projects import and place. Read this before
 adding variants.
 
 ```python
-import sys, pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from joinery import arrow_tenon, arrow_mortise, arrow_height
+from cadkit.joinery import arrow_tenon, arrow_mortise, arrow_height
 
 ten = arrow_tenon(stem_w=4, head_w=7, stem_h=1, length=12, ramp=True)
 cut = arrow_mortise(stem_w=4, head_w=7, stem_h=1, length=24, ramp=True, clearance=0.3)
@@ -35,8 +33,8 @@ installs by sliding +X→−X: relative to it the tenon travels +X through the
 cavity, entering at the cavity's **open −X end** and halting against its
 **+X end wall** — the hard stop. Constrained by shape: ±Y (stem/ramp walls),
 +Z (barb), further −X (the stop). The one free direction — the part backing
-out +X — is covered by an **external preload** (in the toothpaste dispenser:
-the rubber band already pulls the retainer −X), which keeps the stop loaded
+out +X — is covered by an **external preload** (e.g. a rubber band that
+already pulls the retainer −X), which keeps the stop loaded
 tool-free. No pins, no glue, no flexures.
 
 Multiple short joints along different X-lines beat one long one when the
@@ -139,8 +137,8 @@ Fit lessons from the first row:
   0.76 at clr 0.1) — so spec the neck on the MORTISE side and oversize the
   tenon `stem_h` by clr·(√2−1). Gate it with a point-probe, and mind probe
   bias: sampling ε outside the slot wall reads the 45° pocket face ε high
-  (an unbiased-looking 0.80 hid exactly this once). See toothpaste-dispenser
-  `RJOINT_MORTISE_NECK` + `_neck_height` in `tools/joint_test.py`.
+  (an unbiased-looking 0.80 hid exactly this once). Gate it in your project's
+  joint test — a mortise-neck constant plus a `_neck_height` point-probe.
 
 5. **Verify with volume probes, not eyes** (see `joinery.py` self-test —
    `py -3.12 joinery.py`): seated = 0, +X free = 0, −X / ±Y / +Z all > 0.

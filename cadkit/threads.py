@@ -1,10 +1,8 @@
 """Self-supporting 45° screw threads for CadQuery / OpenCASCADE — the reliable way
 to cut a helical thread that OCCT won't silently mangle. Self-contained (only needs
-`cadquery`); drop it next to your other freecad/ utils and import it.
+`cadquery`); import it from the vendored package (no path hack needed).
 
-    import sys, pathlib
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-    from threads import threaded_rod, cut_thread, teardrop_thread_cutter
+    from cadkit.threads import threaded_rod, cut_thread, teardrop_thread_cutter
 
     nut_cutter = threaded_rod(minor_d=11, major_d=13, pitch=4, length=20)   # short rods, nut cutters, coupons
     piston     = body.cut(nut_cutter)                                       # -> internal thread
