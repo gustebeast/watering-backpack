@@ -20,8 +20,7 @@ speedup is ~2-3x, not linear in core count.
 
 Typical use from a project's tools/check_overlaps.py::
 
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-    from overlap_check import run
+    from cadkit.overlap_check import run
     comps = [(n, wp.val()) for n, wp in collect_components()]
     sys.exit(run(comps, intended, jobs=args.jobs, show_all=args.all))
 """

@@ -54,13 +54,11 @@ Prefer measuring over trusting: `measured_bite(solid, …)` reports the real
 self-tap length left in the finished solid. A nominal `depth` says nothing about
 a through-bore crossing a thin wall — only the solid knows.
 
-Consume the same way as the other freecad/ helpers — add this folder to
-sys.path, then import flat:
+Import from the vendored package (no path hack — builds run via `-m` from the
+project root, so `cadkit` is already importable):
 
-    import pathlib, sys
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-    from fasteners import M2, M4, cut_anchor, cut_boss_anchor, measured_bite
-    from fasteners import M2_SELFTAP_D, cut_m2_anchor, cut_m2_head_bore  # bound aliases
+    from cadkit.fasteners import M2, M4, cut_anchor, cut_boss_anchor, measured_bite
+    from cadkit.fasteners import M2_SELFTAP_D, cut_m2_anchor, cut_m2_head_bore  # bound aliases
 """
 
 import math

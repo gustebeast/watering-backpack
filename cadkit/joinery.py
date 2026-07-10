@@ -2,13 +2,11 @@
 
 See JOINERY_README.md for the full story. THE standard recipe — a tenon on a
 sideways-printed (+Y build) host mated to a mortise in a flat-printed (+Z
-build) host — is `ramp=True, hook_h=...` (print-validated in the toothpaste
-dispenser; plain `ramp=True` without a hook cams apart along the up-ramp
-diagonal and survives only as a demo):
+build) host — is `ramp=True, hook_h=...` (print-validated in PETG; plain
+`ramp=True` without a hook cams apart along the up-ramp diagonal and survives
+only as a demo):
 
-    import sys, pathlib
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-    from joinery import arrow_tenon, arrow_mortise
+    from cadkit.joinery import arrow_tenon, arrow_mortise
 
     # print-validated 0.8-nozzle numbers (every face ≥ one bead); scale beads
     # not ratios for other nozzles. neck rule: stem_h = wanted_neck + clearance.
