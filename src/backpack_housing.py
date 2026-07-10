@@ -34,9 +34,8 @@ import sys
 
 import cadquery as cq
 
-# Shared STEP exporter (Archive/3D/freecad) — names each product after its file.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from step_export import export_step
+# Shared STEP exporter (vendored cadkit) — names each product after its file.
+from cadkit.step_export import export_step
 
 from .dimensions import (BOOL_OVERSHOOT, MAKITA_TERMINAL_STEP, MAKITA_BATTERY_STEP,
                          TERMINAL_PLACE, TERMINAL_ROT_DEG, DOCK_BACK_TRIM,
@@ -46,9 +45,8 @@ from .helpers import (bump_build_counter, import_step, place_terminal,
                       dovetail_arrowhead)
 
 # Shared Archive/3D tooling (same as build.py).
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
-from cq_colors import color          # noqa: E402
-from freecad_view import show        # noqa: E402
+from cadkit.cq_colors import color          # noqa: E402
+from cadkit.freecad import show        # noqa: E402
 
 
 # ── Pump envelope (SEAFLO 42, exact where it matters) ───────────────────────

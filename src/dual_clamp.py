@@ -178,7 +178,6 @@ def main():
     import os
     import sys
     import pathlib
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "freecad"))
     from step_export import export_step                            # noqa: E402
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for stem, solid, info in (("dual_clamp_23", dual_clamp_23, INFO_23),
