@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared fastener dimensions AND standard geometry for Archive/3D projects.
+"""Shared fastener dimensions AND standard geometry for CadQuery projects.
 
 Sized/drawn ONCE here so every project pulls the SAME numbers and the SAME
 insert/screw geometry instead of keeping its own copy.

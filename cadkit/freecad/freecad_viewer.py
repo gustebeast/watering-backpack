@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared FreeCAD live-viewer logic for all the Archive/3D CadQuery projects.
+"""Shared FreeCAD live-viewer logic for CadQuery 3D-printing projects.
 
 Single-window / tabbed model: ONE FreeCAD instance (the "hub") holds every
 project as its own document, which FreeCAD shows as a tab in the 3D area. Each
