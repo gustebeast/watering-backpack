@@ -56,11 +56,12 @@ cadkit change is not *done* when you commit it; it is done when every consumer
 project has been re-pulled. **Never edit a project's vendored `cadkit/` in place** —
 edit the canonical repo, then propagate.
 
-The whole process is one command — **run it after committing to the canonical
-cadkit repo**:
+The whole process is one command — **run it from the standalone canonical cadkit
+checkout, after committing your change there** (it refuses to run from a project's
+vendored copy):
 
 ```
-py -3.12 cadkit/tools/propagate.py        # pushes canonical, then re-pulls into every consumer
+py -3.12 tools/propagate.py        # pushes canonical, then re-pulls into every consumer
 ```
 
 It pushes the canonical to its upstream (one source of truth), auto-discovers
