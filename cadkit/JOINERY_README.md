@@ -1,14 +1,46 @@
-# `joinery.py` — printable mortise-and-tenon slide joints (dull arrowhead)
+# `joinery.py` — printable mortise-and-tenon slide joints
 
 Shared, project-agnostic joint generators, in the spirit of `threads.py`: the
 geometry rules live here once, projects import and place. Read this before
 adding variants.
 
-```python
-from cadkit.joinery import arrow_tenon, arrow_mortise, arrow_height
+## Single entrypoint — start here
 
-ten = arrow_tenon(stem_w=4, head_w=7, stem_h=1, length=12, ramp=True)
-cut = arrow_mortise(stem_w=4, head_w=7, stem_h=1, length=24, ramp=True, clearance=0.3)
+Don't pick a joint type. Describe how each half **prints** and the **room** it has;
+the library picks the printable family and the fit clearance.
+
+```python
+from cadkit.joinery import PrintSpec, slide_joint
+
+up   = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")    # part prints -Z→+Z
+side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")  # part prints -Y→+Y
+
+j = slide_joint(width=5.6, length=6, tenon=side, mortise=up)     # facings pick the family
+host = host.union(j.tenon(root=1.0).translate(...))   # tenon fuses into its host
+ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the face
+# j.family / j.height / j.width_min / j.clearance / j.nozzle — size around it without
+# knowing internals
+```
+
+- **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
+  (−Y→+Y). `material` picks the fit clearance from a print-validated table
+  (`PETG-GF → 0.1`), falling back to a **default (0.15)** when unknown; override any
+  time with `slide_joint(…, clearance=…)`.
+- **Facings pick the family:** `up + up` → the octagon; `side + up` → the arrow
+  ramp+hook. Any unmodelled pair **raises** with an "add the variant" pointer — no
+  silent unprintable improvisation.
+- **Size = room:** `width` (flat-to-flat) and `length` (engagement). Everything else
+  is derived and floored per family; the bridge is pinned to one nozzle on the
+  mortise. `width` too small → raises at model time with the floor.
+
+The per-family generators below are the fine-control layer `slide_joint` dispatches
+to — each takes one `width` knob:
+
+```python
+from cadkit.joinery import arrow_tenon, arrow_mortise, octagon_tenon, octagon_mortise
+
+ten = arrow_tenon(width=5.6, length=6, clearance=0.1)     # ramp+hook dovetail
+cut = arrow_mortise(width=5.6, length=12, clearance=0.1)
 rail = rail.union(ten.translate(...))    # tenon fuses into its host (root sunk 1 mm)
 ring = ring.cut(cut.translate(...))      # cavity opens through the other host's face
 ```
@@ -147,69 +179,76 @@ Fit lessons from the first row:
 ## Octagon ("stop-sign") joint — both hosts print −Z→+Z
 
 A second joint family for when **neither** part prints sideways — the tenon host
-*and* the mortise host both print −Z→+Z. Its cross-section is an **octagon on a
-post**, a stop sign:
+*and* the mortise host both print −Z→+Z. Its cross-section is an **octagon on a fat
+stem**, a stop sign:
 
 ```
-   ___            roof = ONE nozzle wide (the only bridge; pinned, never scales)
-  /   \           upper 45° tapers tuck IN  → always printable
- |     |          vertical sides
-  \   /           lower 45° flare widens up → self-supporting AND the shoulder
-   | |            post / neck (mortise lip captures the shoulder above it)
+   __             ROOF = one nozzle (the MORTISE bridge cap)
+  /  \            upper 45° "green" diagonal ← set by `width` (the size)
+ |    |           vertical (one nozzle)
+  \  /            lower 45° "orange" diagonal ← (width−stem)/2, the shoulder
+  |  |            STEM = width/2 (fat, computed)
 ```
 
 ```python
 from cadkit.joinery import octagon_tenon, octagon_mortise, octagon_height
 
-ten = octagon_tenon(span=4.0, length=12)                     # octagon-on-post, +X prism
-cut = octagon_mortise(span=4.0, length=24, clearance=0.1)    # matching cavity
+ten = octagon_tenon(width=6.0, length=12, clearance=0.1)    # nominal shape, +X prism
+cut = octagon_mortise(width=6.0, length=24, clearance=0.1)  # the tenon dilated by the fit gap
 host = host.union(ten.translate(...))     # tenon fuses into its host (root sunk 1 mm)
-ring = ring.cut(cut.translate(...))       # cavity opens through the other host's face
+ring = ring.cut(cut.translate(...))       # cavity opens through the host's face
 ```
 
 Same slide-along-X convention as the arrowhead: the profile lives in Y-Z, extrudes
 along +X, and the parts mate by sliding along X. The octagon captures **±Y and
-±Z** by shape (the lower flare is the retention shoulder — to lift the bulb out,
+±Z** by shape (the lower diagonal is the retention shoulder — to lift the bulb out,
 its waist can't pass back through the neck), leaving X the install axis; add the
 hard stop by trimming the cavity's far end, as with the arrowhead.
 
 Why an octagon and not a triangle (which is also all-45°)? A triangle meets at a
 sharp **peak** the nozzle rounds off — you can't print the point as drawn. The
 octagon replaces that peak with a short flat roof, and that roof is the joint's
-one real print risk: printed −Z→+Z, the mortise cavity's roof is an unsupported
-**bridge**. So it's held to **one nozzle width** — a single bead the printer
-spans without sag.
+one real print risk: printed −Z→+Z, the **mortise cavity's roof is an unsupported
+bridge**. So it's held to **one nozzle width** — a single bead the printer spans
+without sag.
 
-### Sizing — one knob, and the dangerous dimension isn't one
+### Two constraints, on OPPOSITE parts
+
+- **Roof cap → the MORTISE.** The face that bridges is the mortise roof, so that is
+  what's pinned to one nozzle. The tenon roof is *pre-shrunk* so that after the
+  mortise's mitred clearance dilation the bridge lands on exactly one nozzle. (Cap
+  the tenon instead and the mortise roof widens to `nozzle + 2·clearance·(√2−1)` —
+  0.88 mm at 0.1 — which sags.)
+- **Nozzle minimum → the TENON.** The mortise is the tenon dilated, so the tenon is
+  the *smaller* part everywhere — its segments are what bottom out. `width_min` is
+  the smallest width whose **tenon** stem and diagonals all clear one nozzle. (The
+  roof is exempt: capped bridge on the mortise, supported last layer on the tenon.)
+
+### Sizing — give it room, not force
 
 ```python
-octagon_tenon(span, length, nozzle=0.8, root=1.0)
-octagon_mortise(span, length, nozzle=0.8, clearance=0.1, drop=2.0)
+octagon_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0)
+octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0)
 ```
 
-- **`span`** — flat-to-flat width = *the room the joint may occupy*. This is the
-  only size knob. Bigger `span` → longer verticals and flares → **stronger,
-  automatically**. It **floors** at the nozzle-minimum octagon (every side =
-  nozzle, `span_min = nozzle·(1+√2) ≈ 1.93 mm` at 0.8); below that it **raises**
-  with the minimum in the message, so a space-constrained caller learns the floor
-  instead of getting a broken joint. Measure your free space, pass it as `span`.
-- **`nozzle`** — the one physical constant (0.8 here). Sets the floor and the roof
-  width. As `span` grows the roof **stays pinned at `nozzle`** while the load-
-  bearing segments lengthen — the cap holds at every size.
-- **`length`** — slide/engagement depth. **`clearance`** (mortise) — the fit gap;
-  the printed roof bridge is `nozzle + 2·clearance`, so keep it small (0.1 ≈ one
-  bead). **`root`/`drop`** — fusion / cavity-opening depth below the mating plane.
+- **`width`** — flat-to-flat = *the lateral room* = the joint size, and the **only
+  shape knob**. Sets the upper ("green") diagonal; wider = bigger (and, at 45°,
+  taller).
+- **`length`** — slide/engagement depth = *the other room dimension*, and the real
+  load path of a slide joint.
+- **`nozzle`** the physical constant; `clearance` = fit gap; `root`/`drop` = fusion
+  / cavity-opening depth.
 
-**The roof overhang is deliberately NOT a parameter.** It's computed `= nozzle`
-internally and never exposed, so no argument — including a large `span` — can push
-the bridge past what the printer can lay. The hard cap is unbreakable because the
-knob to break it doesn't exist. Don't add one: to make a joint stronger, give it
-more `span`; to fit a tight space, give it less (down to the floor). If a skinnier
-or fatter neck is ever needed, add a *named optional* `neck_ratio`, never a raw
-overhang/segment length.
+The **stem is width/2** and the **shoulder follows** — both *computed*, not knobs.
+width/2 is where the stem (tension) and the two mortise lips (shear) fail at the
+same load, so it's the deterministic strength optimum; wider starves retention,
+narrower starves the neck. Verticals are locked at one nozzle. So the callsite
+reports *room* (`width`, `length`) and nothing else — no `force`, no `stem_frac`,
+no raw segments to get wrong.
 
-The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free, and
-the roof measured at three spans to prove it stays one nozzle wide.
+The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free, the
+fat stem (`width/2`, orange < green), the **tenon floor** ≥ nozzle, and the
+**mortise roof** measured at three widths to prove it stays one nozzle.
 
 ## Adding a variant
 
