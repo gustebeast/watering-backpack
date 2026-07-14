@@ -70,6 +70,50 @@ part = part.cut(cutter.translate((x, y, 0)), clean=False)
 - The thread **runs out** at each end through `threaded_rod`'s conical lead-in, so the
   last tooth dissolves into a smooth cone instead of a thin feather — don't "fix" it.
 
+## Multi-start (quarter-turn) threads — `multistart_rod` / `cut_multistart_thread`
+
+A cap that seals in a **90° turn** needs a multi-start thread: `starts` parallel
+helices, each advancing `lead = spacing·starts` per turn (4-start × 4 mm spacing →
+4 mm per quarter turn). The trick that keeps this inside everything already proven:
+**the cross-section derives from `spacing`** (the caliper ridge-to-ridge distance),
+so a 4-start spacing-4 thread is locally IDENTICAL to the pitch-4 single-start
+profile — only the helix steepens (~24° lead angle at Ø12).
+
+```python
+from cadkit.threads import multistart_rod, cut_multistart_thread
+
+# male collar on the nozzle (0.6 mm diametral clearance taken off the male):
+nozzle = cut_multistart_thread(smooth_nozzle, minor_d=10.4, major_d=12.4,
+                               spacing=4, starts=4, length=6, z=collar_z)
+# female nut in the cap (cutter at NOMINAL size):
+cap = cap_body.cut(multistart_rod(11, 13, spacing=4, starts=4,
+                                  length=6.5, z=-0.5), clean=False)
+```
+
+Multi-start-specific rules (each verified by crest probes in `superglue-cap`):
+
+- **Never reuse `thread_segments` for multi-start** — its flats derive from the
+  full per-helix pitch; at lead 16 the valleys come out 7 mm wide and the starts
+  erase each other. `_valley_profile(minor, major, spacing)` is the shared quad.
+- **Different starts must not overlap**: valley width at the overshoot < spacing
+  (checked, raises). Same 3.6-vs-4.0 margin as the proven pitch-4 profile.
+- **Sweeps are still whole turns — of the LEAD.** A short band (a 6 mm collar on
+  a 16 mm lead) is covered by ONE full-turn sweep based at the band and RUNNING
+  OUT past it: upward it must exit into air or a sub-minor-Ø section; downward it
+  leaves a shallow helical notch (~a groove half-width) in whatever shoulder is
+  there — keep that notch inside the mating rim's clearance Ø.
+- **Sweeps may pass THROUGH blank faces** (the nut cutter's rod is shorter than
+  one lead; the sweeps enter below and exit above it, ending in air). Rule 5's
+  killer is a sweep **ending at** a blank face, not passing through one.
+- **A healthy N-start thread probes IDENTICALLY at θ and θ+360°/N** (and for even
+  N, at θ+180°) — that symmetry is a quick sanity signature, not a bug.
+- Self-locking is weak at steep leads (24° > friction angle): a quarter-turn cap
+  holds shut by seal friction. If it backs off, add a detent, don't flatten the lead.
+
+First deployment: superglue-cap nozzle↔cap (Ø13/Ø11, spacing 4, 4-start, 0.6 mm
+diametral clearance off the male, 0.4 nozzle). **Print-fit pending** — record the
+verdict in the clearance table below when it's in.
+
 ## Clearance (print-tested)
 
 Thread clearance is print-dependent — nozzle width, layer height, orientation, and
@@ -132,7 +176,10 @@ When a thread change misbehaves, don't stare at the render — **probe**. The sc
 scripts that cracked this (kept in the session scratchpad) were:
 
 - **crest probe** — march up Z at the crest radius, print `#`/`.`; catches
-  smooth/filled/partial instantly.
+  smooth/filled/partial instantly. **Probe OFF the θ=0 seam plane** (e.g. at
+  θ=90°/270°): the helix start/end profile faces lie exactly in y=0, and
+  `BRepClass3d_SolidClassifier` reports those boundary faces as not-inside —
+  a healthy thread reads broken there (cost a debug session in superglue-cap).
 - **height matrix** — sweep single cuts at heights 12…150 and at cylinder-vs-sweep
   height combos; this is how the ~100 mm limit and the whole-turn rule surfaced.
 - **min-wall / distance probes** (`BRepClass3d_SolidClassifier`,
