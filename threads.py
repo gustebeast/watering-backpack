@@ -18,10 +18,14 @@ to cut a helical thread that OCCT won't silently mangle. Self-contained (only ne
     hole = block.cut(teardrop_thread_cutter(minor_d=4.8, major_d=6.4, pitch=3.5,
                      length=14, z=z0, peak_h=3.75, over_lo=0.0), clean=False)
 
-THREE public cutters — reuse them, do NOT hand-roll a thread: `threaded_rod` (short
-internal/nut threads), `cut_thread` (long screw from a smooth blank), and
-`teardrop_thread_cutter` (sideways/horizontal female thread). See THREADS_README.md
-for the whole story. The rules it bakes in (every violation is
+PUBLIC cutters — reuse them, do NOT hand-roll a thread: `threaded_rod` (short
+internal/nut threads), `cut_thread` (long screw from a smooth blank),
+`teardrop_thread_cutter` (sideways/horizontal female thread), and the MULTI-START
+family for quarter-turn caps — `multistart_rod` (nut cutter) and
+`cut_multistart_thread` (male), where `spacing` is the caliper ridge-to-ridge
+distance and each helix advances lead = spacing·starts per turn (a 4-start,
+spacing-4 thread closes 4 mm per quarter turn and its cross-section is identical
+to the proven pitch-4 profile). See THREADS_README.md for the whole story. The rules it bakes in (every violation is
 a SILENT failure — a smooth or half-filled rod, 0 solids, or a multi-minute hang —
 so ALWAYS probe the crest solid/void up Z; never trust the eye or `solids==1`):
 
@@ -59,6 +63,30 @@ def _cone(d_bottom, d_top, h, z):
             .workplane(offset=h).circle(d_top / 2.0).loft())
 
 
+def _valley_profile(minor_d, major_d, spacing):
+    """The 4-point 45° trapezoid valley quad, in (radius, axial) coordinates.
+    `spacing` is the AXIAL ridge-to-ridge distance — the pitch for a
+    single-start thread, lead/starts for a multi-start one. Raises on the two
+    geometry errors that would otherwise fail SILENTLY (a no-op cutter)."""
+    core_r = minor_d / 2.0
+    crest_r = major_d / 2.0
+    depth = crest_r - core_r
+    if depth > spacing / 2.0 + 1e-6:
+        raise ValueError(
+            f"thread depth {depth:.2f} > spacing/2 {spacing / 2:.2f}: 45° flanks "
+            f"need depth ≤ spacing/2. Raise the spacing or the minor Ø.")
+    flat = (spacing - 2.0 * depth) / 2.0         # equal crest + root flats (axial)
+    hw_root = flat / 2.0                          # valley half-width at the root floor
+    hw_out = flat / 2.0 + (crest_r + _OVERSHOOT - core_r)   # at the overshoot
+    if 2.0 * hw_out >= spacing - 1e-6:
+        raise ValueError(
+            f"valley {2 * hw_out:.2f} wide at the overshoot ≥ spacing {spacing}: "
+            f"adjacent turns/starts would overlap into an invalid cutter "
+            f"(silent no-op). Raise the spacing or shrink the depth.")
+    return [(core_r, -hw_root), (crest_r + _OVERSHOOT, -hw_out),
+            (crest_r + _OVERSHOOT, hw_out), (core_r, hw_root)]
+
+
 def thread_segments(minor_d, major_d, pitch, length):
     """A LIST of ABUTTING (non-overlapping) helical valley cutters, base at z=0,
     tiling `length`. CUT THEM SEQUENTIALLY (`solid = solid.cut(seg)` in a loop) from
@@ -68,19 +96,8 @@ def thread_segments(minor_d, major_d, pitch, length):
     (360°·z0/pitch) and dropped at z0, so the valleys form ONE continuous single-
     start thread across the seams. Valley = 4-point 45° trapezoid, inner edge at
     minor_r (never reaches the core), width < pitch (turns never self-overlap)."""
-    core_r = minor_d / 2.0
-    crest_r = major_d / 2.0
-    r_mid = (core_r + crest_r) / 2.0
-    depth = crest_r - core_r
-    if depth > pitch / 2.0 + 1e-6:
-        raise ValueError(
-            f"thread depth {depth:.2f} > pitch/2 {pitch / 2:.2f}: 45° flanks need "
-            f"depth ≤ pitch/2. Raise the pitch or the minor Ø.")
-    flat = (pitch - 2.0 * depth) / 2.0           # equal crest + root flats (axial)
-    hw_root = flat / 2.0                          # valley half-width at the root floor
-    hw_out = flat / 2.0 + (crest_r + _OVERSHOOT - core_r)   # at the overshoot (2·hw_out < pitch)
-    gpts = [(core_r, -hw_root), (crest_r + _OVERSHOOT, -hw_out),
-            (crest_r + _OVERSHOOT, hw_out), (core_r, hw_root)]
+    r_mid = (minor_d + major_d) / 4.0
+    gpts = _valley_profile(minor_d, major_d, pitch)
     segs = []
     for i in range(int(math.ceil(length / _SEG_LEN))):
         z0 = i * _SEG_LEN
@@ -181,4 +198,79 @@ def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0):
     out = blank
     for seg in thread_segments(minor_d, major_d, pitch, turns_len):
         out = out.cut(seg.translate((0.0, 0.0, z)), clean=False)
+    return out
+
+
+# ── Multi-start (quarter-turn) threads ───────────────────────────────────────
+# A multi-start thread is the SAME cross-section as a single-start thread of
+# pitch = `spacing` (the caliper ridge-to-ridge distance), swept along `starts`
+# steeper helices: lead = spacing·starts per turn. A 4-start spacing-4 thread
+# advances 4 mm per quarter turn — that's how quarter-turn caps close — while
+# looking locally identical to the print-proven pitch-4 profile.
+
+
+def multistart_valleys(minor_d, major_d, spacing, starts, length, z=0.0):
+    """Valley cutters for a STARTS-start thread COVERING [z, z+length], all
+    starts. Sweep heights are WHOLE turns of the LEAD (rule 5), so the sweeps
+    RUN OUT upward past z+length — the region above must be air or a
+    sub-minor-Ø section. Below z they extend only ~one groove half-width
+    (thread run-in — plan for the shallow helical notch it leaves in a
+    shoulder). CUT SEQUENTIALLY with clean=False; never union the cutters.
+    Phase is 360°·z/lead + 360°·i/starts, so geometry is position-independent
+    and chunks of long threads stay continuous across seams."""
+    lead = spacing * starts
+    if lead > _SEG_LEN:
+        raise ValueError(
+            f"lead {lead} > {_SEG_LEN}: one whole turn exceeds the single-sweep "
+            f"limit — reduce starts or spacing")
+    gpts = _valley_profile(minor_d, major_d, spacing)
+    r_mid = (minor_d + major_d) / 4.0
+    seg_len = math.floor(_SEG_LEN / lead) * lead          # whole leads per sweep
+    segs = []
+    z0 = 0.0
+    while z0 < length - 1e-6:
+        h = min(seg_len, math.ceil((length - z0) / lead - 1e-6) * lead)
+        sweep = (cq.Workplane("XZ").polyline(gpts).close()
+                 .sweep(cq.Workplane("XY").add(
+                     cq.Wire.makeHelix(pitch=lead, height=h, radius=r_mid)),
+                     isFrenet=True))
+        for i in range(starts):
+            segs.append(sweep
+                        .rotate((0, 0, 0), (0, 0, 1),
+                                360.0 * (z + z0) / lead + 360.0 * i / starts)
+                        .translate((0, 0, z + z0)))
+        z0 += h
+    return segs
+
+
+def multistart_rod(minor_d, major_d, spacing, starts, length, z=0.0, bevel=2.0):
+    """A STARTS-start threaded ROD over EXACTLY [z, z+length] — no whole-turn
+    height rounding, because a quarter-turn nut band is much shorter than one
+    lead. The valley sweeps are based a spacing below the rod and pass
+    THROUGH both rod faces, running out in air: rule 5's failure mode is a
+    sweep ENDING at a blank face, not passing through it (validated by crest
+    probes in superglue-cap). Use as a NUT CUTTER
+    (`body.cut(rod, clean=False)`); `bevel` (mm, 0 to skip) cuts a conical
+    lead-in at the BOTTOM end — the mouth."""
+    rod = _cyl(major_d, length, z=z)
+    for seg in multistart_valleys(minor_d, major_d, spacing, starts,
+                                  length + 2.0 * spacing, z=z - spacing):
+        rod = rod.cut(seg, clean=False)
+    if bevel:
+        core_r, brim = minor_d / 2.0, major_d / 2.0 + 1.0
+        bot = _cyl(2 * brim, bevel, z=z).cut(_cone(2 * core_r, 2 * brim, bevel, z))
+        rod = rod.cut(bot, clean=False)
+    return rod
+
+
+def cut_multistart_thread(blank, minor_d, major_d, spacing, starts, length, z=0.0):
+    """Subtract a STARTS-start MALE thread from a SMOOTH `blank` over
+    [z, z+length]. Same contract as cut_thread — build the blank fully smooth
+    first, cut the thread LAST, mill any flat after — plus the multistart
+    run-out rules from multistart_valleys: a shallow helical notch a groove
+    half-width below z, and whole-lead run-out above z+length (air or
+    sub-minor-Ø only up there). Returns the threaded solid (un-healed)."""
+    out = blank
+    for seg in multistart_valleys(minor_d, major_d, spacing, starts, length, z=z):
+        out = out.cut(seg, clean=False)
     return out
