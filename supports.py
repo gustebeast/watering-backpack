@@ -33,32 +33,43 @@ import cadquery as cq
 __all__ = ["teardrop_boss_support"]
 
 
-def teardrop_boss_support(radius, length, axis_point=(0.0, 0.0, 0.0),
-                          axis_dir=(0.0, 1.0, 0.0)):
-    """Support solid (UNION it with the part) for a horizontal cylinder of
-    `radius` protruding `length` out of a wall.
+def teardrop_boss_support(radius, length=None, axis_point=(0.0, 0.0, 0.0),
+                          axis_dir=(0.0, 1.0, 0.0), print_up=(0.0, 0.0, 1.0)):
+    """Support solid (UNION it with the part) for a cylinder of `radius`
+    protruding out of a wall, SIDEWAYS relative to the print direction.
+    Everything is stated in WORLD coordinates — the function orients the
+    geometry itself; never rotate or mirror its output afterwards (the wall
+    ramp is direction-sensitive and post-transforms silently turn it into
+    an unprintable shape).
 
-    axis_point — the cylinder's axis at the WALL face (world coords).
-    axis_dir   — axis direction from the wall toward the FREE end; must be
-                 horizontal (perpendicular to print +Z), any plan azimuth.
-
-    The returned solid spans the full `length`; its free-end bottom is the
-    45° wall ramp. Print direction is −Z→+Z (cadkit convention)."""
-    dxa, dya, dza = (float(c) for c in axis_dir)
-    n = math.sqrt(dxa * dxa + dya * dya + dza * dza)
-    if n < 1e-9:
-        raise ValueError("axis_dir must be non-zero")
-    if abs(dza) > 1e-6 * n:
-        raise ValueError(
-            "axis_dir must be horizontal (perpendicular to the print Z)")
-    r, L = float(radius), float(length)
-    if r <= 0.0 or L <= 0.0:
-        raise ValueError("radius and length must be positive")
+    axis_point — the cylinder's axis at the WALL face.
+    axis_dir   — axis direction from the wall toward the FREE end.
+    print_up   — the print's build direction ("up"); the teardrop tail
+                 hangs opposite it. Must be perpendicular to axis_dir.
+    length     — protrusion length; ONLY needed when the boss is SHORTER
+                 than radius/√2 (the wall ramp naturally caps the tail at
+                 that length, so longer bosses can omit it)."""
+    ax, ay, az_ = (float(c) for c in axis_dir)
+    ux, uy, uz = (float(c) for c in print_up)
+    na = math.sqrt(ax * ax + ay * ay + az_ * az_)
+    nu = math.sqrt(ux * ux + uy * uy + uz * uz)
+    if na < 1e-9 or nu < 1e-9:
+        raise ValueError("axis_dir and print_up must be non-zero")
+    ax, ay, az_ = ax / na, ay / na, az_ / na
+    ux, uy, uz = ux / nu, uy / nu, uz / nu
+    if abs(ax * ux + ay * uy + az_ * uz) > 1e-6:
+        raise ValueError("axis_dir must be perpendicular to print_up")
+    r = float(radius)
+    if r <= 0.0:
+        raise ValueError("radius must be positive")
+    L = float(length) if length is not None else r * math.sqrt(2.0) / 2.0
+    if L <= 0.0:
+        raise ValueError("length must be positive")
 
     a = r * math.sqrt(2.0) / 2.0          # 45° tangency half-width
     tip = -r * math.sqrt(2.0)             # tail point (below the axis)
 
-    # local frame: wall face at y=0, axis along +Y, axis through the origin
+    # canonical frame: wall face at y=0, axis +Y, print-up +Z
     tail = (cq.Workplane("XZ")
             .polyline([(-a, -a), (a, -a), (0.0, tip)])
             .close().extrude(-L))                     # XZ extrude(−L) → +Y
@@ -70,10 +81,17 @@ def teardrop_boss_support(radius, length, axis_point=(0.0, 0.0, 0.0),
             .close().extrude(2.0 * a + 2.0))
     tail = tail.cut(ramp)
 
-    az = math.degrees(math.atan2(dya, dxa)) - 90.0    # rotate +Y → axis_dir
+    # rigid map canonical → world via a located plane: normal = print_up
+    # (canonical +Z), xDir = axis × up (canonical +X) — the plane's implied
+    # yDir = normal × xDir = axis (canonical +Y)
+    tx = ay * uz - az_ * uy
+    ty = az_ * ux - ax * uz
+    tz = ax * uy - ay * ux
     px, py, pz = (float(c) for c in axis_point)
-    return (tail.rotate((0, 0, 0), (0, 0, 1), az)
-            .translate((px, py, pz)))
+    plane = cq.Plane(origin=cq.Vector(px, py, pz),
+                     xDir=cq.Vector(tx, ty, tz),
+                     normal=cq.Vector(ux, uy, uz))
+    return cq.Workplane(obj=tail.val().moved(cq.Location(plane)))
 
 
 if __name__ == "__main__":
@@ -116,10 +134,33 @@ if __name__ == "__main__":
     if not tr_ok:
         fails.append("transform")
 
-    for bad, kw in ((((0, 0, 1),), "vertical axis"),
-                    (((0, 0, 0),), "zero axis")):
+    # print_up: a +Y print with the boss running DOWN world −Z from a seat
+    # at z=10 (the toothpaste-dispenser mount case) — tail must hang −Y,
+    # run z 10−L..10
+    p = teardrop_boss_support(R, L, (0.0, 0.0, 10.0), (0.0, 0.0, -1.0),
+                              print_up=(0.0, 1.0, 0.0))
+    pb = p.val().BoundingBox()
+    pu_ok = (abs(pb.ymin - tip) < 0.01 and abs(pb.ymax + a) < 0.01
+             and abs(pb.zmax - 10.0) < 0.01 and abs(pb.zmin - (10.0 - L)) < 0.01
+             and abs(pb.xmin + a) < 0.01 and abs(pb.xmax - a) < 0.01)
+    print(f"  print_up (+Y print)   {'ok' if pu_ok else 'FAIL'}")
+    if not pu_ok:
+        fails.append("print_up")
+
+    # default length: ramp-capped tail = radius/sqrt(2) deep
+    d = teardrop_boss_support(R)
+    db = d.val().BoundingBox()
+    dl_ok = abs(db.ymax - a) < 0.01 and abs(db.ymin) < 0.01
+    print(f"  default length (r/sqrt2) {'ok' if dl_ok else 'FAIL'}")
+    if not dl_ok:
+        fails.append("default length")
+
+    for args, kw in (({"axis_dir": (0, 0, 1)}, "axis parallel to up"),
+                     ({"axis_dir": (0, 0, 0)}, "zero axis"),
+                     ({"axis_dir": (0, 1, 0), "print_up": (0, 1, 0)},
+                      "up parallel to axis")):
         try:
-            teardrop_boss_support(R, L, (0, 0, 0), bad[0])
+            teardrop_boss_support(R, L, (0, 0, 0), **args)
             print(f"  {kw:<20}  did NOT raise  <-- FAIL")
             fails.append(kw)
         except ValueError:
