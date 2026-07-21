@@ -48,7 +48,15 @@ def teardrop_boss_support(radius, length=None, axis_point=(0.0, 0.0, 0.0),
                  hangs opposite it. Must be perpendicular to axis_dir.
     length     — protrusion length; ONLY needed when the boss is SHORTER
                  than radius/√2 (the wall ramp naturally caps the tail at
-                 that length, so longer bosses can omit it)."""
+                 that length, so longer bosses can omit it).
+
+    THE WALL MUST BE REAL: axis_point must lie on a SOLID face of the same
+    printed part, spanning the tail's print layers — the tail roots into
+    that wall layer by layer (that is what the ramp is shaped around). A
+    free plane is NOT a wall: a boss's free end, a seat another part rests
+    on, a face that is open air in this print. This tool supports a boss
+    protruding FROM a wall; it cannot support a feature AT a boss's free
+    end (a proud rib/flange there wants a 45° base flare instead)."""
     ax, ay, az_ = (float(c) for c in axis_dir)
     ux, uy, uz = (float(c) for c in print_up)
     na = math.sqrt(ax * ax + ay * ay + az_ * az_)
