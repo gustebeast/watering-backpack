@@ -235,14 +235,21 @@ def octagon_width_min(nozzle=0.8, clearance=0.1):
                roof_t + n * math.sqrt(2.0))                  # upper (green) diagonal ≥ n
 
 
-def _octagon_profile(width, nozzle, base_z, clearance):
+def _octagon_profile(width, nozzle, base_z, clearance, height=None):
     """Closed (y, z) points for the TENON cross-section — the smaller part, where the
     nozzle floor is enforced. A stop sign: a `width`-wide waist over a stem of
     `width/2` (see _STEM_FRAC), joined by 45° diagonals — the UPPER (green) set by
     `width`, the LOWER (orange) shorter so the stem stays fat. The roof is
     pre-shrunk so the MORTISE roof (this dilated by clearance) is one nozzle. z=0 is
     the mating plane; the stem runs from base_z up through it. Returns
-    (points, roof_z)."""
+    (points, roof_z).
+
+    `height` (optional): total profile height above the mating plane — the third
+    sizing bound alongside width and length. The 45° diagonals and the one-nozzle
+    roof are printability-locked, so ALL extra height (beyond the width-driven
+    minimum) goes into the two VERTICALS, split evenly: a taller stem POST (deeper
+    mortise-lip engagement — more capture shear) and a taller WAIST wall (more
+    flat flank bearing). height=None keeps the classic minimal profile."""
     if nozzle <= 0:
         raise ValueError("nozzle must be > 0")
     wmin = octagon_width_min(nozzle, clearance)
@@ -256,10 +263,18 @@ def _octagon_profile(width, nozzle, base_z, clearance):
     stem = _STEM_FRAC * width              # FAT stem (strength optimum, = width/2)
     orange = hw - stem / 2.0               # lower diagonal run = shoulder overhang / side
     green = hw - roof_t / 2.0              # upper diagonal run (set by width)
-    post_h = n                             # stem standoff above the mating plane (locked)
+    h_min = n + orange + n + green         # the width-driven minimal height
+    extra = 0.0
+    if height is not None:
+        if height < h_min - 1e-9:
+            raise ValueError(f"height {height:.3f} is below this width's minimum "
+                             f"{h_min:.3f} mm (45° diagonals + one-nozzle verticals "
+                             "are incompressible) — raise height or shrink width")
+        extra = height - h_min
+    post_h = n + extra / 2.0               # stem standoff above the mating plane
     z_neck = post_h
     z_wb = z_neck + orange                 # lower (orange) diagonal → waist bottom
-    z_wt = z_wb + n                        # nozzle-tall vertical → waist top
+    z_wt = z_wb + n + extra / 2.0          # vertical (grows with height) → waist top
     z_roof = z_wt + green                  # upper (green) diagonal → roof
     pts = [
         (stem / 2.0,  base_z),             # stem right (below the mating plane)
@@ -276,29 +291,34 @@ def _octagon_profile(width, nozzle, base_z, clearance):
     return pts, z_roof
 
 
-def octagon_height(width, nozzle=0.8, clearance=0.1):
-    """Tenon height above the mating plane (what the mortise host must swallow)."""
-    _, h = _octagon_profile(width, nozzle, 0.0, clearance)
+def octagon_height(width, nozzle=0.8, clearance=0.1, height=None):
+    """Tenon height above the mating plane (what the mortise host must swallow).
+    With `height` given, echoes it back (after validating the width's minimum)."""
+    _, h = _octagon_profile(width, nozzle, 0.0, clearance, height)
     return h
 
 
-def octagon_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
+def octagon_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0,
+                  height=None):
     """Stop-sign TENON (the nominal shape, where the nozzle floor is enforced): an
     octagon-on-stem prism along +X, base at the z=0 mating plane and extended `root`
     below for fusion. Prints -Z→+Z. `width` = joint size, the stem is width/2 (a
-    computed strength optimum, not a knob), `length` = engagement depth. Pass the
-    SAME width/nozzle/clearance to the mortise so they mate."""
-    pts, _ = _octagon_profile(width, nozzle, -abs(root), clearance)
+    computed strength optimum, not a knob), `length` = engagement depth, `height`
+    (optional) = total profile height — extra over the width-driven minimum grows
+    the two verticals evenly (see _octagon_profile). Pass the SAME
+    width/nozzle/clearance/height to the mortise so they mate."""
+    pts, _ = _octagon_profile(width, nozzle, -abs(root), clearance, height)
     return cq.Workplane("YZ").polyline(pts).close().extrude(length)
 
 
-def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
+def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0,
+                    height=None):
     """Cavity CUTTER — the tenon profile DILATED `clearance` per side (mitred → faces
     stay 45°/vertical) and dropped `drop` below the mating plane so it opens through
     the host's face. Extrude PAST the host's open X-face so the tenon slides in; the
     far end left inside is the stop wall. The printed roof BRIDGE is exactly one
-    nozzle (the tenon roof was pre-shrunk for this)."""
-    pts, _ = _octagon_profile(width, nozzle, -abs(drop), clearance)
+    nozzle (the tenon roof was pre-shrunk for this). `height` as in octagon_tenon."""
+    pts, _ = _octagon_profile(width, nozzle, -abs(drop), clearance, height)
     return (cq.Workplane("YZ").polyline(pts).close()
             .offset2D(abs(clearance), "intersection")
             .extrude(length))
@@ -349,7 +369,7 @@ class _SlideJoint:
     solids. Attributes: `.family` ('octagon'|'arrow'), `.height` (how deep the
     mortise host must be), `.width_min` (the printable floor), `.clearance`, and
     `.nozzle` (the coarser of the two halves)."""
-    def __init__(self, width, length, tenon, mortise, clearance):
+    def __init__(self, width, length, tenon, mortise, clearance, height=None):
         self.width, self.length, self.clearance = width, length, clearance
         self.nozzle = max(tenon.nozzle, mortise.nozzle)   # coarser drives the min feature
         kind = (tenon.facing, mortise.facing)
@@ -361,27 +381,41 @@ class _SlideJoint:
             raise NotImplementedError(
                 "no joint for tenon '%s' + mortise '%s' yet (have up+up, side+up) — "
                 "add the variant the way threads.py grew" % kind)
-        self.height = (octagon_height if self.family == "octagon" else arrow_height)(
-            self.width, self.nozzle, self.clearance)
+        if height is not None and self.family != "octagon":
+            raise ValueError("the `height` sizing bound is octagon-only for now "
+                             "(the arrow profile's height is width-locked)")
+        self._height_in = height
+        self.height = (octagon_height(self.width, self.nozzle, self.clearance,
+                                      height)
+                       if self.family == "octagon"
+                       else arrow_height(self.width, self.nozzle, self.clearance))
         self.width_min = (octagon_width_min if self.family == "octagon"
                           else arrow_width_min)(self.nozzle)
 
     def tenon(self, root=1.0):
-        f = octagon_tenon if self.family == "octagon" else arrow_tenon
-        return f(self.width, self.length, self.nozzle, self.clearance, root)
+        if self.family == "octagon":
+            return octagon_tenon(self.width, self.length, self.nozzle,
+                                 self.clearance, root, self._height_in)
+        return arrow_tenon(self.width, self.length, self.nozzle,
+                           self.clearance, root)
 
     def mortise(self, drop=2.0):
-        f = octagon_mortise if self.family == "octagon" else arrow_mortise
-        return f(self.width, self.length, self.nozzle, self.clearance, drop)
+        if self.family == "octagon":
+            return octagon_mortise(self.width, self.length, self.nozzle,
+                                   self.clearance, drop, self._height_in)
+        return arrow_mortise(self.width, self.length, self.nozzle,
+                             self.clearance, drop)
 
 
-def slide_joint(width, length, tenon, mortise, clearance=None):
-    """Build a printable slide joint sized to the room (`width`, `length`) and the
-    way each half prints (`tenon`, `mortise`: PrintSpec). Facings pick the shape;
-    material picks the clearance (override with `clearance=`). Returns a _SlideJoint
-    with `.tenon(root)` / `.mortise(drop)`."""
+def slide_joint(width, length, tenon, mortise, clearance=None, height=None):
+    """Build a printable slide joint sized to the room (`width`, `length`, and
+    optionally `height` — octagon-only) and the way each half prints (`tenon`,
+    `mortise`: PrintSpec). Facings pick the shape; material picks the clearance
+    (override with `clearance=`). Extra `height` over the width-driven minimum
+    grows the profile's two verticals evenly for max strength in the given
+    bounds. Returns a _SlideJoint with `.tenon(root)` / `.mortise(drop)`."""
     return _SlideJoint(width, length, tenon, mortise,
-                       _clearance_for(tenon, mortise, clearance))
+                       _clearance_for(tenon, mortise, clearance), height)
 
 
 # ── Self-test: geometry gates (run `py -3.12 joinery.py`) ────────────────────
@@ -502,6 +536,55 @@ if __name__ == "__main__":
         print("  width floor           did NOT raise  <-- FAIL")
     except ValueError:
         print(f"  width floor           raises below {wmin:.2f} mm (ok)")
+
+    # ── octagon HEIGHT sizing: extra room grows the two verticals evenly ──
+    print("-- octagon height --")
+    W3, H3 = 28.0, 32.0
+    h0 = octagon_height(W3, NZ, CLR2)
+    ok = abs(octagon_height(W3, NZ, CLR2, H3) - H3) < 1e-6
+    print(f"  height echo           min {h0:.2f} -> sized {H3} {'ok' if ok else 'FAIL'}")
+    if not ok:
+        fails.append("octagon-h: height not honoured")
+    hpts, _ = _octagon_profile(W3, NZ, 0.0, CLR2, H3)
+    seg = lambda i: math.hypot(hpts[i + 1][0] - hpts[i][0], hpts[i + 1][1] - hpts[i][1])
+    post, vert = hpts[1][1], seg(2)              # stem post height, waist vertical
+    want = NZ + (H3 - h0) / 2.0
+    ok = abs(post - want) < 1e-6 and abs(vert - want) < 1e-6
+    print(f"  verticals             post={post:.3f} vert={vert:.3f} (want {want:.3f} each)"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"octagon-h: verticals {post:.3f}/{vert:.3f} != {want:.3f}")
+    # mortise roof stays ONE nozzle at any height
+    hm = octagon_mortise(W3, 6, nozzle=NZ, clearance=CLR2, height=H3)
+    htop = max(hm.val().Faces(), key=lambda f: f.Center().z)
+    hrw = htop.BoundingBox().ylen
+    ok = abs(hrw - NZ) < 1e-3
+    print(f"  mortise roof @ H={H3}  {hrw:.3f} mm (must be {NZ}){'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"octagon-h: roof {hrw:.3f} != {NZ}")
+    # sized capture: seat clear, ±y/±z locked (same guarantees as minimal)
+    hten = octagon_tenon(W3, 14, nozzle=NZ, clearance=CLR2, height=H3)
+    hhost = (cq.Workplane("XY").box(20, W3 + 8, H3 + 8, centered=(False, True, True))
+             .translate((0, 0, H3 / 2.0))
+             .cut(octagon_mortise(W3, 22, nozzle=NZ, clearance=CLR2, drop=3,
+                                  height=H3).translate((-1, 0, 0))))
+    g = CLR2 + 0.2
+    for label, d, expect in [("seated", (0, 0, 0), "=0"), ("+z", (0, 0, g), ">0"),
+                             ("-z", (0, 0, -g), ">0"), ("+y", (0, g, 0), ">0"),
+                             ("-y", (0, -g, 0), ">0")]:
+        v = vol(hhost.translate(d), hten)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  sized {label:14s} {v:>9.3f} mm3 (must be {expect})"
+              f"{'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"octagon-h: {label} = {v:.3f}")
+    # below the width-driven height minimum must raise
+    try:
+        octagon_tenon(W3, 10, nozzle=NZ, clearance=CLR2, height=h0 - 1.0)
+        fails.append("octagon-h: sub-minimum height did not raise")
+        print("  height floor          did NOT raise  <-- FAIL")
+    except ValueError:
+        print(f"  height floor          raises below {h0:.2f} mm (ok)")
 
     # ── unified slide_joint dispatch ──
     print("-- slide_joint --")
