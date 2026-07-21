@@ -90,6 +90,11 @@ def teardrop_boss_support(radius, length=None, axis_point=(0.0, 0.0, 0.0),
                        (L + 1.0, tip + L + 1.0), (0.0, tip)])
             .close().extrude(2.0 * a + 2.0))
     tail = tail.cut(ramp)
+    # the support only adds material OUTSIDE the supported cylinder: cut the
+    # cylinder's own volume from the tail (a solid boss re-absorbs it on
+    # union anyway; a RING/annulus feature must not have its opening filled)
+    tail = tail.cut(cq.Workplane("XZ").circle(r)
+                    .extrude(-(L + 2.0)).translate((0.0, -1.0, 0.0)))
 
     # rigid map canonical → world via a located plane: normal = print_up
     # (canonical +Z), xDir = axis × up (canonical +X) — the plane's implied
@@ -133,6 +138,14 @@ if __name__ == "__main__":
     print(f"  tip recede y<= {ymax:.2f}      {'ok' if ymax <= 0.45 else 'FAIL'}")
     if ymax > 0.45:
         fails.append("ramp recede")
+
+    # nothing INSIDE the supported cylinder (ring features must stay open)
+    inside = s.intersect(cq.Workplane("XZ").circle(R - 0.05)
+                         .extrude(-(L + 2.0)).translate((0.0, -1.0, 0.0)))
+    iv = inside.val().Volume() if inside.val() is not None else 0.0
+    print(f"  inside-cylinder vol  {iv:.4f} {'ok' if iv < 1e-6 else 'FAIL'}")
+    if iv >= 1e-6:
+        fails.append("inside cylinder")
 
     # transform: axis +X from (10, 5, 2) → tail below that point, spans x 10..11
     t = teardrop_boss_support(R, L, (10.0, 5.0, 2.0), (1.0, 0.0, 0.0))
