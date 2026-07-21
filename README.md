@@ -12,6 +12,8 @@ cadkit/
                      one FastenerSpec API, print-undersize aware
   threads.py         self-supporting 45° FDM screw threads (read THREADS_README.md first)
   joinery.py         printable mortise-and-tenon slide joints (read JOINERY_README.md)
+  supports.py        teardrop + 45° wall-ramp support for short SIDEWAYS bosses
+                     (horizontal cylinder off a wall, printed -Z→+Z)
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP
