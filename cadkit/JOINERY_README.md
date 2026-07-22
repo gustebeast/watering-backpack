@@ -24,6 +24,13 @@ ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the
 
 jz = slide_joint(width=7, length=20, depth=3.5, tenon=up, mortise=up,
                  install="z")   # → dovetail; width/depth/length = AVAILABLE room
+
+jb = slide_joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
+                 bounded=True)  # EDGE-BOUNDED site: width = the face's FULL
+                                # extent between free edges — the geometry
+                                # ADAPTS: dovetail while it fits inside the
+                                # reserved edge walls, single-flank HOOK when
+                                # the face is too short (here → hook)
 ```
 
 - **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
@@ -37,7 +44,9 @@ jz = slide_joint(width=7, length=20, depth=3.5, tenon=up, mortise=up,
   lies flat in the plan plane and prints as vertical walls, so the **plain
   dovetail** applies (both hosts must face `'up'`; a side host would overhang).
 - **Facings + install pick the family:** `x`: `up + up` → the octagon; `side + up`
-  → the arrow ramp+hook. `z`: `up + up` → the dovetail. Any unmodelled combo
+  → the arrow ramp+hook. `z`: `up + up` → the dovetail — or, with
+  `bounded=True`, the ROOM picks between the dovetail and the single-flank
+  HOOK (see its section). Any unmodelled combo
   **raises** with an "add the variant" pointer — no silent unprintable
   improvisation.
 - **Size = room:** `width` (flat-to-flat) and `length` (engagement). Everything else
@@ -338,6 +347,52 @@ the derived `(neck, head, depth_used)`; `dovetail_height` reports what the host
 must actually swallow (depth_used + clearance). Floors: width ≥ 4·nozzle, and
 too-shallow depth (balanced neck < 2 beads) raises. Clearance policy is the
 same print-tested table as the other families; it dilates the mortise only.
+
+## Hook (single-flank dovetail) — EDGE-BOUNDED install ∥ print-Z sites
+
+The dovetail's `width` is a region INSIDE a larger face — host material
+continues past both flanks. Some sites are **edge-bounded** instead: the
+mating face's full extent between two FREE EDGES is the room (first case: a
+brake-lever arm 4.15 mm tall carrying its TPU friction pad). There the
+symmetric profile dies long before its width floor — after reserving one
+printable wall per edge, two flanks + a 2-bead neck no longer fit (at a 0.8
+nozzle the symmetric dovetail needs ≥ ~5 mm edge-to-edge; less slices into
+sub-bead shoulders whose retention lips attach to nothing).
+
+The HOOK spends the scarce width on ONE flank: a fat stem (all surplus width
+— the tension link), one one-nozzle hook toward +Y, and a one-nozzle LIP on
+the mortise side filling the notch behind the hook.
+
+```python
+from cadkit.joinery import hook_tenon, hook_mortise, hook_dims, hook_depth
+
+ten = hook_tenon(width=4.15, length=8.5, clearance=0.1)   # prism along +Z
+cut = hook_mortise(width=4.15, length=9.5, clearance=0.1) # dilated cavity
+pad = pad.union(ten.rotate(...).translate(...))   # root (1 mm) fuses in
+arm = arm.cut(cut.rotate(...).translate(...))     # far Z-end inside = stop
+```
+
+- **`width` = the FULL edge-to-edge extent, walls included** — unlike every
+  other family, the hook budgets its own edge walls: after the mortise
+  dilation exactly one nozzle survives at each free edge (self-test-gated).
+- **Retention:** ±X (the lip hooks the notch / the face bears), ±Y (cavity
+  floor + roof — CLOSED, unlike the dovetail's open flanks). ±Z is the free
+  install axis: close one end with a stop, and site the stop DOWN-LOAD of
+  the working force so the joint self-tightens (the brake pad's stop sits
+  where braking drag pushes).
+- **Bead-fixed depth:** notch = nozzle + clearance, full depth = 2·nozzle +
+  clearance; `hook_depth()` = what the mortise host swallows. Floors:
+  `hook_width_min` = 4·nozzle + 2·clearance (stem would drop under a bead).
+- **Print story = the dovetail's:** install ∥ print-Z, every wall vertical,
+  any rotation about the install axis allowed. (In the first consumer both
+  hosts print along an axis ~9° off the channel — near-vertical walls, fine.)
+
+Via the entrypoint: `slide_joint(width, length, tenon=up, mortise=up,
+install="z", bounded=True)` — `bounded=True` declares the edge-bounded
+contract and the ROOM picks the family: symmetric dovetail while
+`width − 2·(nozzle+clearance)` still clears `dovetail_width_min`, hook below
+that, raise under `hook_width_min`. The geometry adapts; the callsite just
+reports the space.
 
 ## Adding a variant
 
