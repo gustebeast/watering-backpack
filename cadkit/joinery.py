@@ -504,6 +504,99 @@ def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0):
             .extrude(length))
 
 
+# ─────────── HOOK (single-flank dovetail) — install ∥ print-Z, EDGE-BOUNDED ──
+# The dovetail above assumes its `width` room sits INSIDE a larger host face:
+# solid material continues past both flanks, so only the profile itself has
+# to fit the room. Some sites are EDGE-BOUNDED instead — the mating face's
+# FULL extent between two free edges IS the room (first case: a brake-lever
+# arm 4.15 mm tall carrying a TPU friction pad). There the symmetric profile
+# dies long before its width floor: after reserving one printable wall per
+# free edge, two flanks + a 2-bead neck no longer fit (at a 0.8 nozzle the
+# symmetric dovetail needs ≥ ~5 mm edge-to-edge; anything less slices into
+# sub-bead shoulders whose retention lips end up attached to nothing).
+#
+# The HOOK spends the scarce width on ONE flank: a fat stem (it takes every
+# spare bead — the tension link), a single one-nozzle hook toward +Y, and a
+# one-nozzle LIP on the mortise side filling the notch behind the hook.
+#
+#      ____________
+#      |  ____________|      plan view: stem on the -Y side, hook at +Y;
+#      |  |     _____       the mortise adds a one-nozzle lip (dashed)
+#      |  |    |  ____|      into the notch — pulling the tenon -X hooks
+#      |__|    |_|           the notch on the lip. Cavity floor + roof
+#                            (closed, unlike the dovetail's open ±Y) lock ±Y.
+#
+# `width` = the FULL edge-to-edge extent INCLUDING the walls the joint must
+# leave standing — the profile budgets them itself (exactly one nozzle per
+# edge survives the mortise dilation). Retention: ±X (lip / face bearing),
+# ±Y (cavity floor + roof); ±Z is the free install axis — the caller closes
+# one end with a stop, and siting the stop DOWN-LOAD of the working force
+# (e.g. brake drag) makes the joint self-tightening. Print story identical
+# to the dovetail: install ∥ print-Z, every wall vertical, any rotation
+# about the install axis allowed.
+
+
+def hook_width_min(nozzle=0.8, clearance=0.1):
+    """Smallest edge-to-edge `width` that fits the hook: a nozzle of wall per
+    free edge (post-dilation), a nozzle of stem, a nozzle of hook."""
+    return 4.0 * nozzle + 2.0 * clearance
+
+
+def hook_dims(width, nozzle=0.8, clearance=0.1):
+    """(stem_h, notch_depth, full_depth) of the hook profile inside the
+    edge-to-edge `width`. The hook, lip and edge walls are bead-fixed; ALL
+    surplus width goes into the STEM — the tension link. Raises when the
+    width can't fit a printable joint."""
+    wmin = hook_width_min(nozzle, clearance)
+    if width < wmin - 1e-9:
+        raise ValueError(f"width {width:.3f} is below the printable minimum "
+                         f"{wmin:.3f} mm for the hook (a nozzle each of edge "
+                         "wall x2, stem, and hook) — the site is too short "
+                         "even for the single-flank profile")
+    stem_h = width - 3.0 * nozzle - 2.0 * clearance
+    return stem_h, nozzle + clearance, 2.0 * nozzle + clearance
+
+
+def hook_depth(nozzle=0.8, clearance=0.1):
+    """Protrusion past the mating plane (what the mortise host must swallow):
+    the bead-fixed full depth + clearance."""
+    return 2.0 * nozzle + 2.0 * clearance
+
+
+def _hook_profile(width, nozzle, clearance, back):
+    """Closed (x, y) plan points for the TENON: stem from the -Y side, hook
+    flare toward +Y, `back` extension behind the mating plane (tenon root /
+    mortise opening drop). y=0 is the FACE CENTRE — the free edges sit at
+    ±width/2. The mortise (this dilated `clearance`) lands exactly one
+    nozzle inside each edge."""
+    stem_h, d1, d2 = hook_dims(width, nozzle, clearance)
+    y0 = -width / 2.0 + nozzle + clearance       # stem bottom
+    y1 = y0 + stem_h                             # stem top = the lip's seat
+    y2 = y1 + nozzle                             # hook top
+    return [(-back, y0), (d2, y0), (d2, y2), (d1, y2), (d1, y1), (-back, y1)]
+
+
+def hook_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
+    """Single-flank hook TENON: a plan-view prism along +Z (the INSTALL
+    axis), mating plane at x=0, hook toward +Y, extended `root` behind the
+    plane for volumetric fusion. `width` = the host face's FULL edge-to-edge
+    extent (see the section note). Both hosts print along the install axis;
+    every face is a vertical wall."""
+    pts = _hook_profile(width, nozzle, clearance, abs(root))
+    return cq.Workplane("XY").polyline(pts).close().extrude(length)
+
+
+def hook_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
+    """Cavity CUTTER — the hook tenon profile DILATED `clearance` per side
+    (mitred; the notch edges dilate INWARD, thinning the lip to exactly one
+    nozzle) and extended `drop` behind the mating plane. Extrude PAST the
+    host's open Z-end; the far end left inside is the hard stop."""
+    pts = _hook_profile(width, nozzle, clearance, abs(drop))
+    return (cq.Workplane("XY").polyline(pts).close()
+            .offset2D(abs(clearance), "intersection")
+            .extrude(length))
+
+
 # ─────────────────── Unified print-aware entry point ─────────────────────────
 # One entrypoint for all joint families. The consumer describes how each half
 # PRINTS (a PrintSpec: nozzle, material, facing), the room it has (width,
@@ -559,13 +652,18 @@ _FAMILY_FUNCS = {
 
 class _SlideJoint:
     """Result of `slide_joint`: call `.tenon(root=…)` / `.mortise(drop=…)` for the two
-    solids. Attributes: `.family` ('octagon'|'arrow'|'dovetail'), `.install` ('x'|'z'),
+    solids. Attributes: `.family` ('octagon'|'arrow'|'dovetail'|'hook'), `.install` ('x'|'z'),
     `.height` (how deep the mortise host must actually be), `.width_min` (the
     printable floor), `.clearance`, `.nozzle` (the coarser of the two halves),
     and `.depth` (dovetail only: the AVAILABLE depth bound)."""
-    def __init__(self, width, length, tenon, mortise, clearance, install, depth):
+    def __init__(self, width, length, tenon, mortise, clearance, install, depth,
+                 bounded=False):
         if install not in ("x", "z"):
             raise ValueError("install must be 'x' or 'z', got %r" % (install,))
+        if bounded and install != "z":
+            raise ValueError("bounded=True is modelled for install='z' only "
+                             "(the x-slide families assume host material past "
+                             "the profile — add the variant if a site needs it)")
         self.width, self.length, self.clearance = width, length, clearance
         self.install = install
         self.nozzle = max(tenon.nozzle, mortise.nozzle)   # coarser drives the min feature
@@ -580,6 +678,28 @@ class _SlideJoint:
                     "install='z' needs BOTH hosts printing -Z→+Z (facing 'up'); "
                     "got tenon '%s' + mortise '%s' — a side-printed host would "
                     "overhang the plan profile" % kind)
+            if bounded:
+                # EDGE-BOUNDED site: `width` = the face's FULL extent between
+                # free edges, walls included — the GEOMETRY ADAPTS to the
+                # room: symmetric dovetail while it still fits inside the
+                # reserved edge walls, single-flank HOOK when it doesn't.
+                usable = width - 2.0 * (self.nozzle + self.clearance)
+                if usable >= dovetail_width_min(self.nozzle) - 1e-9:
+                    self.family = "dovetail"
+                    self.width = usable          # profile stays edge-walled
+                    self.depth = usable / 2.0 if depth is None else depth
+                    self.height = dovetail_height(usable, self.depth,
+                                                  self.nozzle, self.clearance)
+                    self.width_min = dovetail_width_min(self.nozzle)
+                    return
+                if depth is not None:
+                    raise ValueError("the hook's depth is bead-fixed — drop "
+                                     "the `depth` bound for this site")
+                self.family = "hook"
+                hook_dims(width, self.nozzle, self.clearance)   # width floor
+                self.height = hook_depth(self.nozzle, self.clearance)
+                self.width_min = hook_width_min(self.nozzle, self.clearance)
+                return
             self.family = "dovetail"
             # `depth` = AVAILABLE room past the mating plane; the optimizer may
             # use less (strength parity). Default: half the available width.
@@ -613,6 +733,9 @@ class _SlideJoint:
         self.width_min = f_wmin(self.nozzle)
 
     def tenon(self, root=1.0):
+        if self.family == "hook":
+            return hook_tenon(self.width, self.length, self.nozzle,
+                              self.clearance, root)
         if self.family == "dovetail":
             return dovetail_tenon(self.width, self.depth, self.length,
                                   self.nozzle, self.clearance, root)
@@ -632,6 +755,9 @@ class _SlideJoint:
             return octagon_mortise(self.width, self.length, self.nozzle,
                                    self.clearance, drop, pocket=True,
                                    height=self.depth)
+        if self.family == "hook":
+            return hook_mortise(self.width, self.length, self.nozzle,
+                                self.clearance, drop)
         if self.family == "dovetail":
             return dovetail_mortise(self.width, self.depth, self.length,
                                     self.nozzle, self.clearance, drop)
@@ -643,7 +769,7 @@ class _SlideJoint:
 
 
 def slide_joint(width, length, tenon, mortise, clearance=None, install="x",
-                depth=None):
+                depth=None, bounded=False):
     """Build a printable slide joint sized to the AVAILABLE room (`width`,
     `length`, and `depth` — the room past the mating plane: install='z' sizes
     the dovetail with it, install='x' octagons grow their VERTICALS into it
@@ -653,10 +779,16 @@ def slide_joint(width, length, tenon, mortise, clearance=None, install="x",
     slides ⊥ print-Z (facings pick octagon or arrow); `install='z'` slides ∥
     print-Z (both hosts must print 'up'; a plain dovetail whose plan profile is
     OPTIMIZED for strength inside the room — it may use less than the room where
-    more adds nothing). Material picks the clearance (override with
-    `clearance=`). Returns a _SlideJoint with `.tenon(root)` / `.mortise(drop)`."""
+    more adds nothing). `bounded=True` (install='z' only) declares an
+    EDGE-BOUNDED site: `width` is the mating face's FULL extent between free
+    edges, walls included — the geometry then ADAPTS to the room: the
+    symmetric dovetail while it fits inside the reserved edge walls, the
+    single-flank HOOK when the face is too short for it. Material picks the
+    clearance (override with `clearance=`). Returns a _SlideJoint with
+    `.tenon(root)` / `.mortise(drop)`."""
     return _SlideJoint(width, length, tenon, mortise,
-                       _clearance_for(tenon, mortise, clearance), install, depth)
+                       _clearance_for(tenon, mortise, clearance), install, depth,
+                       bounded)
 
 
 # ── Self-test: geometry gates (run `py -3.12 joinery.py`) ────────────────────
@@ -961,6 +1093,67 @@ if __name__ == "__main__":
     except ValueError:
         print("  depth floor           raises (ok)")
 
+    # ── hook (single-flank dovetail): EDGE-BOUNDED faces too short for the dovetail ──
+    print("-- hook --")
+    HW, NZ4, CLR4 = 4.2, 0.8, 0.1                 # a face too short for the dovetail
+    hten2 = hook_tenon(HW, 12, nozzle=NZ4, clearance=CLR4)           # z 0..12
+    # host block spans EXACTLY the width — both ±Y faces are FREE EDGES
+    hhost2 = (cq.Workplane("XY").box(6, HW, 20, centered=(False, True, False))
+              .translate((0, 0, -3))
+              .cut(hook_mortise(HW, 22, nozzle=NZ4, clearance=CLR4, drop=3)
+                   .translate((0, 0, -4))))                          # through-slot in z
+    n_solids = len(hten2.val().Solids())
+    if n_solids != 1:
+        fails.append(f"hook: tenon is {n_solids} solids")
+    g = CLR4 + 0.2
+    hchecks = [
+        ("seated",              (0, 0, 0),  "=0"),
+        ("+z slide free",       (0, 0, 2),  "=0"),
+        ("-z slide free",       (0, 0, -2), "=0"),
+        ("+x push locked",      (g, 0, 0),  ">0"),
+        ("-x pull locked (the hook's job)", (-g, 0, 0), ">0"),
+        ("+y locked",           (0, g, 0),  ">0"),
+        ("-y locked",           (0, -g, 0), ">0"),
+    ]
+    for label, d, expect in hchecks:
+        v = vol(hhost2.translate(d), hten2)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  {label:<34} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"hook: {label} = {v:.3f}")
+    # bead budget: the dilated cavity leaves EXACTLY one nozzle of wall at
+    # each free edge, and the lip (notch minus dilation) is one nozzle
+    hpts2 = _hook_profile(HW, NZ4, CLR4, 1.0)
+    y_lo = min(y for _x, y in hpts2)              # stem bottom (tenon)
+    y_hi = max(y for _x, y in hpts2)              # hook top (tenon)
+    bot_wall = (y_lo - CLR4) - (-HW / 2.0)
+    top_wall = HW / 2.0 - (y_hi + CLR4)
+    stem_h2, hd1, hd2 = hook_dims(HW, NZ4, CLR4)
+    lip = hd1 - CLR4
+    ok = (abs(bot_wall - NZ4) < 1e-9 and abs(top_wall - NZ4) < 1e-9
+          and abs(lip - NZ4) < 1e-9 and abs(hd2 - hd1 - NZ4) < 1e-9
+          and stem_h2 >= NZ4 - 1e-9)
+    print(f"  bead budget           walls={bot_wall:.2f}/{top_wall:.2f} lip={lip:.2f} "
+          f"hook={hd2 - hd1:.2f} stem={stem_h2:.2f} (walls/lip/hook = nozzle)"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"hook: bead budget walls {bot_wall:.2f}/{top_wall:.2f} "
+                     f"lip {lip:.2f} stem {stem_h2:.2f}")
+    # surplus width goes into the STEM alone
+    stem_w6, _d1w, _d2w = hook_dims(6.0, NZ4, CLR4)
+    ok = abs((stem_w6 - stem_h2) - (6.0 - HW)) < 1e-9
+    print(f"  stem takes surplus    {stem_h2:.2f} -> {stem_w6:.2f} for width {HW} -> 6.0"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"hook: stem surplus {stem_w6:.2f} vs {stem_h2:.2f}")
+    # width floor raises
+    try:
+        hook_tenon(hook_width_min(NZ4, CLR4) - 0.2, 10, nozzle=NZ4, clearance=CLR4)
+        fails.append("hook: sub-minimum width did not raise")
+        print("  width floor           did NOT raise  <-- FAIL")
+    except ValueError:
+        print(f"  width floor           raises below {hook_width_min(NZ4, CLR4):.2f} mm (ok)")
+
     # ── unified slide_joint dispatch ──
     print("-- slide_joint --")
     up = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")
@@ -988,6 +1181,37 @@ if __name__ == "__main__":
         print("  z-install side host   did NOT raise  <-- FAIL")
     except NotImplementedError:
         print("  z-install side host   raises (ok)")
+    # bounded install='z': the geometry ADAPTS to the edge-to-edge room —
+    # roomy face → dovetail inside reserved edge walls; short face → hook
+    jb = slide_joint(8.0, 12, up, up, install="z", bounded=True)
+    ok = (jb.family == "dovetail"
+          and abs(jb.width - (8.0 - 2 * (0.8 + 0.1))) < 1e-9)
+    print(f"  bounded 8.0 -> dovetail (usable {jb.width:.1f}) {'ok' if ok else 'FAIL'}")
+    if not ok:
+        fails.append(f"slide_joint: bounded 8.0 -> {jb.family}/{jb.width}")
+    jb = slide_joint(4.2, 12, up, up, install="z", bounded=True)
+    ok = jb.family == "hook" and abs(jb.height - hook_depth(0.8, 0.1)) < 1e-9
+    print(f"  bounded 4.2 -> hook (height {jb.height:.1f}) {'ok' if ok else 'FAIL'}")
+    if not ok:
+        fails.append(f"slide_joint: bounded 4.2 -> {jb.family}")
+    ok = abs(jb.tenon().val().Volume()
+             - hook_tenon(4.2, 12, 0.8, 0.1).val().Volume()) < 1e-3
+    print(f"  bounded hook tenon    matches hook_tenon {'ok' if ok else 'FAIL'}")
+    if not ok:
+        fails.append("slide_joint: bounded hook tenon volume mismatch")
+    # bounded on an x-install must raise; bounded sub-minimum must raise
+    try:
+        slide_joint(6, 12, up, up, bounded=True)
+        fails.append("slide_joint: bounded install='x' did not raise")
+        print("  bounded x-install     did NOT raise  <-- FAIL")
+    except ValueError:
+        print("  bounded x-install     raises (ok)")
+    try:
+        slide_joint(3.0, 12, up, up, install="z", bounded=True)
+        fails.append("slide_joint: bounded sub-minimum did not raise")
+        print("  bounded width floor   did NOT raise  <-- FAIL")
+    except ValueError:
+        print("  bounded width floor   raises (ok)")
     # depth on an x-install family must raise (it's a dovetail-only bound)
     try:
         slide_joint(6, 12, up, up, depth=3)
@@ -1022,5 +1246,7 @@ if __name__ == "__main__":
     else:
         print("OK — all variants: seat clear, only the band-guarded +x is free; "
               "hook locks the up-ramp diagonal; octagon locks +-y/+-z, fat stem, "
-              "tenon floor >= nozzle, mortise roof one nozzle at any width.")
+              "tenon floor >= nozzle, mortise roof one nozzle at any width; "
+              "edge-bounded z-sites adapt dovetail->single-flank hook with "
+              "one-nozzle walls and lip.")
     sys.exit(len(fails))
