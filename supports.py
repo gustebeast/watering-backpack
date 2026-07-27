@@ -1,6 +1,17 @@
 """cadkit.supports — printability helpers for features protruding SIDEWAYS
 out of a wall (feature axis perpendicular to the print direction).
 
+Three helpers, all stated in WORLD coordinates and all taking the part's
+`print_up` so they can reason about what actually overhangs:
+
+  * `teardrop_boss_support` — support to UNION with a sideways cylinder/boss.
+  * `contact_rib`           — a thin proud RING (thrust/contact face), with
+                              that support already fused on when it is needed.
+  * `printable_bore`        — a hole CUTTER that is a teardrop when the bore
+                              runs sideways and a plain cylinder when it runs
+                              along the build direction (where a round hole
+                              has no ceiling and a teardrop would be wrong).
+
 `teardrop_boss_support(radius, length, axis_point, axis_dir)` returns the
 support solid to UNION with a short horizontal cylinder/boss so its
 underside prints support-free in a −Z→+Z print. Two elements, and BOTH are
@@ -30,7 +41,7 @@ import math
 
 import cadquery as cq
 
-__all__ = ["teardrop_boss_support"]
+__all__ = ["teardrop_boss_support", "contact_rib", "printable_bore"]
 
 
 def teardrop_boss_support(radius, length=None, axis_point=(0.0, 0.0, 0.0),
@@ -107,6 +118,139 @@ def teardrop_boss_support(radius, length=None, axis_point=(0.0, 0.0, 0.0),
                      xDir=cq.Vector(tx, ty, tz),
                      normal=cq.Vector(ux, uy, uz))
     return cq.Workplane(obj=tail.val().moved(cq.Location(plane)))
+
+
+
+def _unit(v):
+    x, y, z = (float(c) for c in v)
+    n = math.sqrt(x * x + y * y + z * z)
+    if n < 1e-9:
+        raise ValueError("direction vector must be non-zero")
+    return x / n, y / n, z / n
+
+
+def _to_world(wp, axis_point, axis_dir, print_up):
+    """Map a solid built in the CANONICAL frame (feature axis +Y, print-up +Z,
+    origin on the face) onto a world axis — the same rigid map
+    teardrop_boss_support uses. Never post-transform the result."""
+    ax, ay, az = _unit(axis_dir)
+    ux, uy, uz = _unit(print_up)
+    tx, ty, tz = ay * uz - az * uy, az * ux - ax * uz, ax * uy - ay * ux
+    px, py, pz = (float(c) for c in axis_point)
+    plane = cq.Plane(origin=cq.Vector(px, py, pz),
+                     xDir=cq.Vector(tx, ty, tz),
+                     normal=cq.Vector(ux, uy, uz))
+    return cq.Workplane(obj=wp.val().moved(cq.Location(plane)))
+
+
+def _axis_case(axis_dir, print_up):
+    """'along' (bore/rib runs in the build direction — nothing overhangs),
+    'sideways' (perpendicular — the ceiling needs shaping), or raise."""
+    ax, ay, az = _unit(axis_dir)
+    ux, uy, uz = _unit(print_up)
+    d = abs(ax * ux + ay * uy + az * uz)
+    if d > 1.0 - 1e-6:
+        return "along"
+    if d < 1e-6:
+        return "sideways"
+    raise ValueError(
+        "axis_dir must be either parallel or perpendicular to print_up "
+        f"(got |cos| = {d:.3f}); an oblique feature needs a hand-built shape")
+
+
+def printable_bore(diameter, length, axis_point=(0.0, 0.0, 0.0),
+                   axis_dir=(0.0, 1.0, 0.0), print_up=(0.0, 0.0, 1.0),
+                   overshoot=0.0):
+    """CUTTER for a round hole, shaped for the part's PRINT DIRECTION. Cut it;
+    do not rotate the result (the teardrop peak is direction-sensitive).
+
+    THE POINT: a hole whose axis runs SIDEWAYS in the print has a circular
+    ceiling — the top of the bore is a horizontal overhang that droops into
+    the hole and takes it out of round. Adding a 45° peak (a "teardrop") makes
+    every layer overhang the one below by ≤45°, so it prints round and to size
+    without support. A hole whose axis runs ALONG the build direction has no
+    ceiling at all, and a teardrop there would just be a wrong-shaped hole —
+    so this returns a plain cylinder for that case.
+
+    Callers therefore do NOT need to know which case they are in: pass the
+    part's own print_up and the correct cutter comes back. (Two parts sharing
+    one bore — a lever printed on its side and the housing printed upright —
+    each get the right shape from the same call site.)
+
+    diameter/length — the bore; length runs from axis_point along axis_dir.
+    overshoot       — extra length added at BOTH ends (clean booleans).
+    """
+    r = float(diameter) / 2.0
+    if r <= 0.0:
+        raise ValueError("diameter must be positive")
+    L = float(length)
+    if L <= 0.0:
+        raise ValueError("length must be positive")
+    o = float(overshoot)
+    if o < 0.0:
+        raise ValueError("overshoot must be >= 0")
+    case = _axis_case(axis_dir, print_up)
+    ax, ay, az = _unit(axis_dir)
+    px, py, pz = (float(c) for c in axis_point)
+    start = cq.Vector(px - ax * o, py - ay * o, pz - az * o)
+    total = L + 2.0 * o
+
+    if case == "along":                       # vertical hole: no ceiling
+        return cq.Workplane("XY").add(cq.Solid.makeCylinder(
+            r, total, start, cq.Vector(ax, ay, az)))
+
+    # sideways: circle + 45° peak, apex r*sqrt(2) above the axis
+    a = r * math.sqrt(2.0) / 2.0              # 45° tangency half-width
+    body = cq.Workplane("XZ").circle(r).extrude(-total)          # XZ, -L -> +Y
+    peak = (cq.Workplane("XZ")
+            .polyline([(-a, a), (a, a), (0.0, r * math.sqrt(2.0))])
+            .close().extrude(-total))
+    return _to_world(body.union(peak), (start.x, start.y, start.z),
+                     axis_dir, print_up)
+
+
+def contact_rib(mean_diameter, proud=0.85, thickness=0.85,
+                axis_point=(0.0, 0.0, 0.0), axis_dir=(0.0, 1.0, 0.0),
+                print_up=(0.0, 0.0, 1.0)):
+    """A thin proud RING standing off a face — a CONTACT/THRUST rib. UNION it.
+
+    Why a ring and not the whole face: when a rotating part has to bottom out
+    against a fixed one, seating it on a narrow ring instead of a full annulus
+    collapses the friction radius AND the contact area, so the joint locates
+    axially (a crisp, repeatable datum — which is the point when the distance
+    it sets is something like a sensor air gap) without adding drag. It also
+    gives the printer a small, well-defined face to lay down flat instead of a
+    wide one that only touches on its high spots.
+
+    Defaults are the house size: 0.85 wide × 0.85 proud — about one nozzle
+    each way, the smallest rib that still prints as a solid wall.
+
+    When the ring's axis runs SIDEWAYS in the print (proud of a vertical
+    wall), its own underside overhangs, so the teardrop support is fused on
+    automatically; when it stands on a horizontal face nothing is needed and
+    the bare ring comes back.
+    """
+    md = float(mean_diameter)
+    t = float(thickness)
+    h = float(proud)
+    if md <= 0.0 or t <= 0.0 or h <= 0.0:
+        raise ValueError("mean_diameter, thickness and proud must be positive")
+    if t >= md:
+        raise ValueError("thickness must be smaller than mean_diameter")
+    ro, ri = md / 2.0 + t / 2.0, md / 2.0 - t / 2.0
+    case = _axis_case(axis_dir, print_up)
+    ax, ay, az = _unit(axis_dir)
+    px, py, pz = (float(c) for c in axis_point)
+
+    if case == "along":                       # ring stands on a flat face
+        v = cq.Vector(ax, ay, az)
+        o = cq.Vector(px, py, pz)
+        return (cq.Workplane("XY").add(cq.Solid.makeCylinder(ro, h, o, v))
+                .cut(cq.Workplane("XY").add(cq.Solid.makeCylinder(
+                    ri, h + 2.0, o - v * 1.0, v))))
+    ring = cq.Workplane("XZ").circle(ro).circle(ri).extrude(-h)   # -> +Y
+    out = _to_world(ring, axis_point, axis_dir, print_up)
+    return out.union(teardrop_boss_support(ro, h, axis_point, axis_dir, print_up))
 
 
 if __name__ == "__main__":
