@@ -73,3 +73,59 @@ def pcb_cradle(board_w, board_l, screw_xy, *, board_t=1.6, standoff=2.5, wall_t=
 def pcb_board(board_w, board_l, *, board_t=1.6, standoff=2.5):
     """Fit-check dummy of the seated board (a plain slab at the rest plane) for the assembly."""
     return _block(board_w, board_l, board_t, 0.0, 0.0, standoff)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# JST XH — 2.5 mm pitch wire-to-board connector (dummies for clearance work)
+# ════════════════════════════════════════════════════════════════════════════
+# Every number below is off JST's own XH drawing (eXH.pdf, "Header / Top entry
+# type" + "Housing" tables), not a catalogue summary:
+#   header B*B-XH-A   A = 2.5(n-1)   B = A + 4.9   body 5.75 across the pin row
+#                     7.0 tall above the board, posts □0.64 with a 3.4 tail
+#                     BELOW the board, pin row 2.0 in from one long side edge
+#   housing XHP-n     B = A + 4.8, 5.7 wide, 7.5 tall
+#   MATED height above the board = 9.8 ("assembled board height", p.1) — that
+#                     is the number that decides clearance, not the 7.0.
+# The pin ROW is the datum (y=0), because that is what a PCB footprint is
+# placed by; the body straddles it 2.0 / 3.75, so the connector is NOT
+# symmetric about its pins and which way it faces matters for clearance.
+XH_PITCH      = 2.5
+XH_BODY_W     = 5.75      # across the pin row
+XH_BODY_H     = 7.0       # header alone, above the board's top face
+XH_MATED_H    = 9.8       # header + XHP-n plug seated on it
+XH_PLUG_W     = 5.7
+XH_POST       = 0.64      # square post
+XH_POST_TAIL  = 3.4       # post protrusion BELOW the board
+XH_HOLE_D     = 1.0       # PCB hole (drawing: 3+ circuits Ø0.9 +0.1/-0)
+XH_ROW_OFF    = 2.0       # pin row in from one long side edge of the body
+
+
+def xh_length(n):
+    """Header overall length B (mm) for an n-circuit B*B-XH-A."""
+    return XH_PITCH * (n - 1) + 4.9
+
+
+def jst_xh_header(n, *, mated=False, tails=True, flip=False):
+    """Dummy JST B<n>B-XH-A top-entry header, for clearance checking.
+
+    Frame: the board's TOP FACE is z=0 and the connector rises +Z; the PIN ROW
+    is on y=0 and the part is centred on x=0. `mated=True` returns the envelope
+    with an XHP-n plug seated (9.8 tall) instead of the bare 7.0 header — use it
+    for clearance, since a connector nobody can plug into is not a fit. `tails`
+    adds the □0.64 posts protruding 3.4 BELOW z=0, which on a board mounted
+    against something matters more than the body does. `flip` puts the wide
+    side of the body on -y instead of +y (the connector is not symmetric about
+    its pins, so this is a real choice at layout, not a cosmetic one)."""
+    L = xh_length(n)
+    s = -1.0 if flip else 1.0
+    y0, y1 = -XH_ROW_OFF, XH_BODY_W - XH_ROW_OFF
+    if flip:
+        y0, y1 = -y1, -y0
+    h = XH_MATED_H if mated else XH_BODY_H
+    body = _block(L, y1 - y0, h, 0.0, (y0 + y1) / 2, 0.0)
+    if not tails:
+        return body
+    for i in range(n):
+        x = (i - (n - 1) / 2.0) * XH_PITCH
+        body = body.union(_block(XH_POST, XH_POST, XH_POST_TAIL, x, 0.0, -XH_POST_TAIL))
+    return body
