@@ -129,3 +129,41 @@ def jst_xh_header(n, *, mated=False, tails=True, flip=False):
         x = (i - (n - 1) / 2.0) * XH_PITCH
         body = body.union(_block(XH_POST, XH_POST, XH_POST_TAIL, x, 0.0, -XH_POST_TAIL))
     return body
+
+
+# ── SIDE-ENTRY XH (S*B-XH-A / S*B-XH-SM4-TB) ────────────────────────────────
+# Same drawing, "Header / Side entry type" + "Header / SMT type": the plug mates
+# PARALLEL to the board instead of off it, so the clearance that matters is a
+# horizontal RUN-IN, not headroom. Off the tables:
+#   THT S*B-XH-A      B = 2.5(n-1) + 4.9 , overall depth C = 9.2 or 7.6
+#   SMT S*B-XH-SM4-TB B = 2.5(n-1) + 7.5 (S4B = 15.0), and being SMT it has NO
+#                     post tails through the board — which is the whole reason to
+#                     reach for it when the far face of the board is spoken for.
+# Both stand 7.0 off the board with a 4.5 mouth and a 6.1 body depth.
+XH_SIDE_H     = 7.0       # height above the board
+XH_SIDE_D     = 6.1       # body depth along the mating axis
+XH_SIDE_MOUTH = 4.5       # shroud opening height
+
+
+def xh_side_length(n, *, smt=True):
+    """Overall length B (mm) of an n-circuit side-entry XH header."""
+    return XH_PITCH * (n - 1) + (7.5 if smt else 4.9)
+
+
+def jst_xh_side_header(n, *, smt=True, mated=False, plug_run=7.5):
+    """Dummy side-entry XH header (S<n>B-XH-SM4-TB by default).
+
+    Frame: the board's top face is z=0 and the connector rises +Z; the MOUTH
+    FACE is y=0 with the body extending +Y, so the plug arrives travelling +Y
+    and `mated=True` adds its envelope on -y. Centred on x=0 along the row.
+
+    `plug_run` is the plug's reach beyond the mouth. It is an ENVELOPE, not a
+    drawing figure — JST publishes the XHP-n housing but not its mated
+    projection for side entry, so this is the housing's own 7.5 taken at face
+    value with no credit for shroud engagement. Deliberately pessimistic: the
+    number exists to reserve room, and reserving too much is the safe error."""
+    L = xh_side_length(n, smt=smt)
+    body = _block(L, XH_SIDE_D, XH_SIDE_H, 0.0, XH_SIDE_D / 2, 0.0)
+    if mated:
+        body = body.union(_block(L, plug_run, XH_SIDE_H, 0.0, -plug_run / 2, 0.0))
+    return body
