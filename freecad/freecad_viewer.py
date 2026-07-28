@@ -205,11 +205,25 @@ def _reload_project(name):
         App.setActiveDocument(prev.Name)
 
 
+def _raise_window():
+    """Bring the hub window to the user. Only for launcher-initiated opens —
+    background polls must never steal focus."""
+    try:
+        mw = Gui.getMainWindow()
+        if mw.isMinimized():
+            mw.showNormal()
+        mw.raise_()
+        mw.activateWindow()
+    except Exception:
+        pass
+
+
 def _scan_inbox():
     """Open any projects queued by later launcher calls (one file per request)."""
     inbox = _hub["inbox"]
     if not inbox or not os.path.isdir(inbox):
         return
+    focused = None
     for f in sorted(glob.glob(os.path.join(inbox, "*.txt"))):
         try:
             # utf-8-sig so a BOM (e.g. from PowerShell Set-Content) is stripped.
@@ -217,11 +231,23 @@ def _scan_inbox():
         except OSError:
             continue
         if step:
-            _open_project(step)
+            doc = _open_project(step)
+            if doc is not None:
+                focused = doc
         try:
             os.remove(f)            # processed (or already open) — drop the request
         except OSError:
             pass
+    if focused is not None:
+        # An inbox request is user-initiated (View Assembly.cmd or a build's
+        # show()): switch to that project's tab and bring the window forward —
+        # otherwise a double-click with FreeCAD in the background looks like
+        # a silent no-op.
+        try:
+            App.setActiveDocument(focused.Name)
+        except Exception:
+            pass
+        _raise_window()
 
 
 def _write_heartbeat():
