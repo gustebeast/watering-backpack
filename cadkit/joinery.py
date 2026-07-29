@@ -257,7 +257,9 @@ def _octagon_profile(width, nozzle, base_z, clearance, height=None):
     ALL extra height over the width-driven minimum goes into the two VERTICALS,
     split evenly: a taller stem POST (deeper mortise-lip engagement = more
     capture shear) and a taller WAIST wall (more flat flank bearing).
-    height=None keeps the classic minimal profile."""
+    height=None keeps the minimal profile — verticals at the TWO-NOZZLE
+    quality tier (user print finding; the ROOF alone stays one nozzle: it is
+    the mortise's bridge, intentionally the smallest possible overhang)."""
     if nozzle <= 0:
         raise ValueError("nozzle must be > 0")
     wmin = octagon_width_min(nozzle, clearance)
@@ -266,23 +268,24 @@ def _octagon_profile(width, nozzle, base_z, clearance, height=None):
                          f"{wmin:.3f} mm (a tenon segment would drop under the {nozzle} "
                          "nozzle) — give the joint more room, or use a finer nozzle")
     n = nozzle
+    pv = _bead_pref(n)                     # verticals: two-nozzle quality tier
     roof_t = _tenon_roof(n, clearance)     # tenon roof → mortise roof = one nozzle
     hw = width / 2.0                       # half flat-to-flat (the waist)
     stem = _STEM_FRAC * width              # FAT stem (strength optimum, = width/2)
     orange = hw - stem / 2.0               # lower diagonal run = shoulder overhang / side
     green = hw - roof_t / 2.0              # upper diagonal run (set by width)
-    h_min = n + orange + n + green         # the width-driven minimal height
+    h_min = pv + orange + pv + green       # the width-driven minimal height
     extra = 0.0
     if height is not None:
         if height < h_min - 1e-9:
             raise ValueError(f"height {height:.3f} is below this width's minimum "
-                             f"{h_min:.3f} mm (45° diagonals + one-nozzle verticals "
+                             f"{h_min:.3f} mm (45° diagonals + two-nozzle verticals "
                              "are incompressible) — raise height or shrink width")
         extra = height - h_min
-    post_h = n + extra / 2.0               # stem standoff above the mating plane
+    post_h = pv + extra / 2.0              # stem standoff above the mating plane
     z_neck = post_h
     z_wb = z_neck + orange                 # lower (orange) diagonal → waist bottom
-    z_wt = z_wb + n + extra / 2.0          # vertical (grows with height) → waist top
+    z_wt = z_wb + pv + extra / 2.0         # vertical (grows with height) → waist top
     z_roof = z_wt + green                  # upper (green) diagonal → roof
     pts = [
         (stem / 2.0,  base_z),             # stem right (below the mating plane)
@@ -438,28 +441,36 @@ def octagon_mortise_arc(width, radius, sweep_deg, nozzle=0.8, clearance=0.1,
 #   mortise LIP shear  ∝ 2 · 0.6 · lip   (face → head channel, mortise side)
 #   tenon BAR shear    ∝ 2 · 0.6 · bar   (the head bar off the stem)
 #   shoulder bearing   ∝ 2 · 1.5 · o     → parity at o = neck/3
-# Strongest joint in the given box (user's rule):
-#   neck = 0.6·min(width, depth)  — shear parity across both stacked elements;
-#          floored at 2·nozzle (printable tension member), capped at
-#          width − 2·bead
-#   o    = max(bead, min(neck/3, (width − neck)/2))
-#   lip  = bar = max(bead, min(neck/1.2, depth/2));  depth_used = lip + bar
-#   (surplus room beyond parity stays host material)
-# where bead = ONE NOZZLE — EVERY tenon wall segment is floored there (the
-# mortise is the dilated copy, always larger, so it needs no separate
-# check; Arachne slicing keeps exactly-nozzle lines, so no buffer).
+# Strongest joint in the given box (user's rule), with TWO-TIER wall sizing
+# (user print finding): every tenon segment TARGETS 2·nozzle — two clean
+# perimeters slice crisply where a single bead prints mushy — and degrades
+# toward the ONE-NOZZLE hard floor only when the room is too tight:
+#   neck = 0.6·min(width, depth)  — shear parity across both stacked
+#          elements; floored at 2·nozzle, capped at width − 2·nozzle
+#   o    = min((width − neck)/2, max(neck/3, 2·nozzle))
+#   lip  = bar = max(min(2·nozzle, depth/2), min(neck/1.2, depth/2))
+#   depth_used = lip + bar   (surplus room beyond parity stays host material)
+# The mortise is the dilated copy, always larger, so it needs no separate
+# check; Arachne slicing keeps exactly-nozzle lines, so no buffer.
 
 _DT_SHEAR_RATIO = 1.2    # lip-shear parity: neck = 1.2·depth_used (τ ≈ 0.6·σ, 2 planes)
 _DT_BEAR_FRAC   = 3.0    # bearing parity: shoulder overhang o = neck/3 (σ_c ≈ 1.5·σ, 2 sides)
 
 
 def _bead(nozzle):
-    """One printed wall: exactly ONE NOZZLE. (An earlier +0.05 buffer guarded
-    against classic wall generators dropping exactly-nozzle lines; the
-    projects slice with ARACHNE now, which handles them — buffer removed,
-    user's call 2026-07-22.) Floor for EVERY tenon wall segment of the T —
-    the mortise is the dilated copy, always larger, no separate check."""
+    """The HARD FLOOR for a printed wall: exactly ONE NOZZLE. (An earlier
+    +0.05 buffer guarded against classic wall generators dropping
+    exactly-nozzle lines; the projects slice with ARACHNE now, which
+    handles them — buffer removed, user's call 2026-07-22.)"""
     return nozzle
+
+
+def _bead_pref(nozzle):
+    """The QUALITY TARGET for a printed wall: TWO nozzles (user print
+    finding — two clean perimeters slice crisply where a single bead prints
+    mushy). Segments aim here and degrade toward _bead only in tight
+    rooms."""
+    return 2.0 * nozzle
 
 
 def dovetail_width_min(nozzle=0.8):
@@ -488,9 +499,11 @@ def dovetail_dims(width, depth, nozzle=0.8):
                          f"(2 × {b:.2f}) — deepen the mortise")
     neck = 0.6 * min(width, depth)              # shear parity, both elements
     neck = min(max(neck, 2.0 * nozzle), width - 2.0 * b)
-    o = max(b, min(neck / _DT_BEAR_FRAC, (width - neck) / 2.0))
+    o = min((width - neck) / 2.0,
+            max(neck / _DT_BEAR_FRAC, _bead_pref(nozzle)))
     head = neck + 2.0 * o
-    lip = max(b, min(neck / _DT_SHEAR_RATIO, depth / 2.0))
+    lip = max(min(_bead_pref(nozzle), depth / 2.0),
+              min(neck / _DT_SHEAR_RATIO, depth / 2.0))
     depth_used = 2.0 * lip
     return neck, head, depth_used
 
@@ -975,7 +988,7 @@ if __name__ == "__main__":
     hpts, _ = _octagon_profile(W3, NZ, 0.0, CLR2, H3)
     seg = lambda i: math.hypot(hpts[i + 1][0] - hpts[i][0], hpts[i + 1][1] - hpts[i][1])
     post, vert = hpts[1][1], seg(2)              # stem post height, waist vertical
-    want = NZ + (H3 - h0) / 2.0
+    want = 2.0 * NZ + (H3 - h0) / 2.0            # verticals base = quality tier
     ok = abs(post - want) < 1e-6 and abs(vert - want) < 1e-6
     print(f"  verticals             post={post:.3f} vert={vert:.3f} (want {want:.3f} each)"
           f"{'' if ok else '  <-- FAIL'}")
@@ -1115,20 +1128,21 @@ if __name__ == "__main__":
               f"neck={n2:.2f}{'' if ok else '  <-- FAIL'}")
         if not ok:
             fails.append(f"dovetail: bead floors at ({w},{d})")
-    # OPTIMIZER gates — max-min with TWO stacked shear elements sharing depth:
-    # (6, 4): neck=0.6·4=2.4, o=max(0.8, 0.8)=0.8, head=4.0,
+    # OPTIMIZER gates — max-min with TWO stacked shear elements sharing depth,
+    # walls at the two-nozzle quality tier where room allows:
+    # (6, 4): neck=0.6·4=2.4, o=min(1.8, max(0.8, 1.6))=1.6, head=5.6,
     # lip=bar=2.0 → depth_used=4.0 (depth-parity uses the full 4)
     neck, head, dused = dovetail_dims(DW, DD, NZ3)
-    ok = (abs(neck - 2.4) < 1e-9 and abs(head - 4.0) < 1e-9
+    ok = (abs(neck - 2.4) < 1e-9 and abs(head - 5.6) < 1e-9
           and abs(dused - 4.0) < 1e-9)
     print(f"  optimizer @room(6,4)  neck={neck:.2f} head={head:.2f} "
           f"depth_used={dused:.2f}{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"dovetail: optimizer (6,4) → {neck},{head},{dused}")
     # depth-bound room (10, 2): parity neck 1.2 rides its 2-nozzle floor →
-    # neck=1.6, o=bead, head=3.2, lip=bar=1.0 — width surplus declined
+    # neck=1.6, o=quality tier 1.6, head=4.8, lip=bar=1.0 (depth-bound)
     neck, head, dused = dovetail_dims(10.0, 2.0, NZ3)
-    ok = (abs(neck - 1.6) < 1e-9 and abs(head - 3.2) < 1e-9
+    ok = (abs(neck - 1.6) < 1e-9 and abs(head - 4.8) < 1e-9
           and abs(dused - 2.0) < 1e-9 and head < 10.0)
     print(f"  optimizer @room(10,2) neck={neck:.2f} head={head:.2f} "
           f"depth_used={dused:.2f}{'' if ok else '  <-- FAIL'}")

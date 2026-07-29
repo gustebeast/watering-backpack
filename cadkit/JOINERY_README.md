@@ -204,9 +204,9 @@ A second joint family for when **neither** part prints sideways — the tenon ho
 stem**, a stop sign:
 
 ```
-   __             ROOF = one nozzle (the MORTISE bridge cap)
-  /  \            upper 45° "green" diagonal ← set by `width` (the size)
- |    |           vertical (one nozzle)
+   __             ROOF = one nozzle (the MORTISE bridge cap — the ONE
+  /  \              intentionally-minimal segment: it is the bridge)
+ |    |           vertical (two nozzles — the quality tier)
   \  /            lower 45° "orange" diagonal ← (width−stem)/2, the shoulder
   |  |            STEM = width/2 (fat, computed)
 ```
@@ -263,7 +263,10 @@ octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0)
 The **stem is width/2** and the **shoulder follows** — both *computed*, not knobs.
 width/2 is where the stem (tension) and the two mortise lips (shear) fail at the
 same load, so it's the deterministic strength optimum; wider starves retention,
-narrower starves the neck. Verticals are locked at one nozzle. So the callsite
+narrower starves the neck. Verticals sit at the TWO-NOZZLE quality tier (user
+print finding — crisper walls); only the ROOF stays one nozzle, because it is
+the mortise's printed bridge and is intentionally the smallest possible
+overhang. So the callsite
 reports *room* (`width`, `length`) and nothing else — no `force`, no `stem_frac`,
 no raw segments to get wrong.
 
