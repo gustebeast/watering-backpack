@@ -35,8 +35,20 @@ jb = slide_joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
 
 - **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
   (−Y→+Y). `material` picks the fit clearance from a print-validated table
-  (`PETG-GF → 0.1`), falling back to a **default (0.15)** when unknown; override any
-  time with `slide_joint(…, clearance=…)`.
+  (`PETG-GF → 0.15`), falling back to a **default (0.15)** when unknown; override
+  any time with `slide_joint(…, clearance=…)`.
+- **Materials pick the clearances** (`joint_clearances(tenon, mortise, fit,
+  override)` is the policy, public for sizing math): the table value dilates the
+  mortise laterally everywhere; **fiber-filled filaments (GF/CF in the material
+  name) get 2× on the install-z T's DEPTH faces** — only the mortise's back
+  wall moves deeper, every printed wall keeps its tier size. Print finding
+  (retractable-cable-spool wall joint, PETG-GF both halves): lateral 0.15 slid
+  fine, the depth sandwich bound until its face gap reached 0.3. Other
+  families' fiber behavior is unmeasured — they use the base value.
+- **`fit`** — `"normal"` (default) is the print-tested slide fit; `"loose"`
+  doubles BOTH clearances for joints that must slide with zero effort (glued
+  assemblies, frequently-serviced parts). Retention geometry is unchanged —
+  only the gaps grow.
 - **`install`** — the slide/install axis: the ONE direction deliberately left
   without retention (print orientation alone under-determines a slide joint).
   `'x'` (default) slides ⊥ print-Z — the profile faces are overhangs, so the
@@ -366,7 +378,8 @@ dilation THINS it by `clearance`, so the tenon lip is pre-grown and the
 printed **mortise lip = the tenon bar**. `dovetail_dims(width, depth,
 nozzle, clearance)` exposes the derived `(neck, head, depth_used)`
 (lip = bar + clearance); `dovetail_height` reports what the host must
-actually swallow (depth_used + clearance).
+actually swallow (depth_used + back_clearance — the fiber-filled depth-face
+relief deepens ONLY the cavity's back wall; see `joint_clearances`).
 
 **Minimum bounding boxes** — `dovetail_box_min(nozzle, clearance,
 quality)` returns the smallest (width, depth) whose joint has NO wall
