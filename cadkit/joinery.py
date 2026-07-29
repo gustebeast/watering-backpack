@@ -535,10 +535,14 @@ def dovetail_box_min(nozzle=0.8, clearance=0.1, quality=False):
     return (2.0 * nozzle + 2.0 * seg, 2.0 * seg + abs(clearance))
 
 
-def dovetail_height(width, depth, nozzle=0.8, clearance=0.1):
+def dovetail_height(width, depth, nozzle=0.8, clearance=0.1,
+                    back_clearance=None):
     """Protrusion past the mating plane (what the mortise host must actually
-    swallow — depth_used, NOT the full available depth), clearance included."""
-    return dovetail_dims(width, depth, nozzle, clearance)[2] + clearance
+    swallow — depth_used, NOT the full available depth), clearance included.
+    `back_clearance` (≥ clearance; see joint_clearances) deepens only the
+    cavity's back wall — fiber-filled depth-face relief."""
+    bc = abs(clearance) if back_clearance is None else abs(back_clearance)
+    return dovetail_dims(width, depth, nozzle, clearance)[2] + bc
 
 
 def _dovetail_profile(width, depth, nozzle, back, clearance):
@@ -568,17 +572,28 @@ def dovetail_tenon(width, depth, length, nozzle=0.8, clearance=0.1, root=1.0):
     return cq.Workplane("XY").polyline(pts).close().extrude(length)
 
 
-def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0):
+def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0,
+                     back_clearance=None):
     """Cavity CUTTER — the tenon plan profile DILATED `clearance` per side
     (mitred → the square corners stay square) and extended `drop` behind the
     mating plane so it opens through the host's face. The dilation THINS the
     cavity's lip by `clearance`; the tenon's lip is pre-grown by the same
-    amount, so the printed mortise lip is a full bar-sized wall. Extrude
-    PAST the host's open Z-end (pass a longer `length` / translate) so the
-    tenon can enter; the far end left inside the host is the hard stop."""
+    amount, so the printed mortise lip is a full bar-sized wall.
+    `back_clearance` (≥ clearance) pushes ONLY the cavity's BACK WALL deeper
+    — the depth-face relief fiber-filled filaments need to slide (see
+    joint_clearances); the lateral faces and the lip keep `clearance`, so
+    every printed wall keeps its tier size. Extrude PAST the host's open
+    Z-end (pass a longer `length` / translate) so the tenon can enter; the
+    far end left inside the host is the hard stop."""
+    c = abs(clearance)
+    bc = c if back_clearance is None else abs(back_clearance)
     pts = _dovetail_profile(width, depth, nozzle, abs(drop), clearance)
+    if bc - c > 1e-12:
+        d_used = dovetail_dims(width, depth, nozzle, clearance)[2]
+        pts = [(x + (bc - c) if abs(x - d_used) < 1e-9 else x, y)
+               for x, y in pts]
     return (cq.Workplane("XY").polyline(pts).close()
-            .offset2D(abs(clearance), "intersection")
+            .offset2D(c, "intersection")
             .extrude(length))
 
 
@@ -688,14 +703,55 @@ def hook_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
 #     • tenon 'up',   mortise 'up'   → plain dovetail
 # Other combinations aren't modelled yet and raise.
 
-# Fit clearance per side, print-VALIDATED (small joints, ~0.8 nozzle). Clearance is
-# print-TESTED, not formulaic (it also creeps up with engagement length), so this
-# holds only measured materials; anything else falls back to the default and should
-# be print-checked (or passed explicitly via `clearance=`).
+# Fit clearance per side, print-VALIDATED (~0.8 nozzle, long-engagement slide
+# joints). Clearance is print-TESTED, not formulaic (it also creeps up with
+# engagement length), so this holds only measured materials; anything else falls
+# back to the default and should be print-checked (or passed explicitly via
+# `clearance=`).
+#
+# FIBER-FILLED filaments (GF/CF — detected from the material name) get DOUBLE
+# clearance on the install-z T's DEPTH faces (the mortise's back wall): the
+# stiff, rough-surfaced walls bind in the depth sandwich (head front ↔ cavity
+# back) long before the lateral faces do — print finding, retractable-cable-
+# spool wall joint in PETG-GF: lateral 0.15 slid fine, the depth faces needed
+# 0.3. The LATERAL faces keep the table value; only the back wall grows, so
+# every printed wall keeps its tier size. Other families use the base value
+# (their fiber behavior is unmeasured — print-check before extending the rule).
+#
+# `fit` picks the tier: "normal" (default) = the print-tested slide fit;
+# "loose" = 2× BOTH values, for joints that must slide with zero effort
+# (glued assemblies, frequently-serviced parts) — retention geometry is
+# unchanged, only the gaps grow.
 _MATERIAL_CLEARANCE = {
-    "PETG-GF": 0.1,
+    "PETG-GF": 0.15,
 }
 _DEFAULT_CLEARANCE = 0.15
+_FIT_FACTORS = {"normal": 1.0, "loose": 2.0}
+
+
+def _is_fiber_filled(material):
+    """GF/CF token anywhere in the material name (e.g. 'PETG-GF', 'PA-CF')."""
+    if not material:
+        return False
+    m = material.upper()
+    return "GF" in m or "CF" in m
+
+
+def joint_clearances(tenon, mortise, fit="normal", override=None):
+    """The library's clearance POLICY — (clearance, back_clearance) for a
+    joint between two PrintSpecs. `clearance` dilates the mortise laterally
+    (every family); `back_clearance` is the install-z T's DEPTH-face gap
+    (its mortise back wall) — 2× the base when either half is fiber-filled
+    (see the table note). `fit="loose"` doubles both. `override` replaces
+    the material-table base (the fiber and fit factors still apply)."""
+    if fit not in _FIT_FACTORS:
+        raise ValueError("fit must be one of %s, got %r"
+                         % (sorted(_FIT_FACTORS), fit))
+    c = _clearance_for(tenon, mortise, override)
+    bc = 2.0 * c if any(_is_fiber_filled(s.material)
+                        for s in (tenon, mortise)) else c
+    k = _FIT_FACTORS[fit]
+    return c * k, bc * k
 
 
 class PrintSpec:
@@ -735,7 +791,9 @@ class _SlideJoint:
     printable floor), `.clearance`, `.nozzle` (the coarser of the two halves),
     and `.depth` (dovetail only: the AVAILABLE depth bound)."""
     def __init__(self, width, length, tenon, mortise, clearance, install, depth,
-                 bounded=False):
+                 bounded=False, back_clearance=None):
+        self.back_clearance = (clearance if back_clearance is None
+                               else back_clearance)
         if install not in ("x", "z"):
             raise ValueError("install must be 'x' or 'z', got %r" % (install,))
         if bounded and install != "z":
@@ -767,7 +825,8 @@ class _SlideJoint:
                     self.width = usable          # profile stays edge-walled
                     self.depth = usable / 2.0 if depth is None else depth
                     self.height = dovetail_height(usable, self.depth,
-                                                  self.nozzle, self.clearance)
+                                                  self.nozzle, self.clearance,
+                                                  self.back_clearance)
                     self.width_min = dovetail_width_min(self.nozzle)
                     return
                 if depth is not None:
@@ -782,7 +841,8 @@ class _SlideJoint:
             # `depth` = AVAILABLE room past the mating plane; the optimizer may
             # use less (strength parity). Default: half the available width.
             self.depth = width / 2.0 if depth is None else depth
-            self.height = dovetail_height(width, self.depth, self.nozzle, self.clearance)
+            self.height = dovetail_height(width, self.depth, self.nozzle,
+                                          self.clearance, self.back_clearance)
             self.width_min = dovetail_width_min(self.nozzle)
             return
         if kind == ("up", "up"):
@@ -838,7 +898,8 @@ class _SlideJoint:
                                 self.clearance, drop)
         if self.family == "dovetail":
             return dovetail_mortise(self.width, self.depth, self.length,
-                                    self.nozzle, self.clearance, drop)
+                                    self.nozzle, self.clearance, drop,
+                                    self.back_clearance)
         if self.family == "octagon":
             return octagon_mortise(self.width, self.length, self.nozzle,
                                    self.clearance, drop, height=self.depth)
@@ -847,7 +908,7 @@ class _SlideJoint:
 
 
 def slide_joint(width, length, tenon, mortise, clearance=None, install="x",
-                depth=None, bounded=False):
+                depth=None, bounded=False, fit="normal"):
     """Build a printable slide joint sized to the AVAILABLE room (`width`,
     `length`, and `depth` — the room past the mating plane: install='z' sizes
     the dovetail with it, install='x' octagons grow their VERTICALS into it
@@ -861,12 +922,15 @@ def slide_joint(width, length, tenon, mortise, clearance=None, install="x",
     EDGE-BOUNDED site: `width` is the mating face's FULL extent between free
     edges, walls included — the geometry then ADAPTS to the room: the
     symmetric dovetail while it fits inside the reserved edge walls, the
-    single-flank HOOK when the face is too short for it. Material picks the
-    clearance (override with `clearance=`). Returns a _SlideJoint with
-    `.tenon(root)` / `.mortise(drop)`."""
-    return _SlideJoint(width, length, tenon, mortise,
-                       _clearance_for(tenon, mortise, clearance), install, depth,
-                       bounded)
+    single-flank HOOK when the face is too short for it. The MATERIALS pick
+    the clearances (see joint_clearances — fiber-filled halves get a doubled
+    depth-face gap on the install-z T; override the base with `clearance=`),
+    and `fit` picks the tier: "normal" (default) or "loose" (2× everything —
+    for joints that must slide with zero effort, e.g. glued assemblies).
+    Returns a _SlideJoint with `.tenon(root)` / `.mortise(drop)`."""
+    c, bc = joint_clearances(tenon, mortise, fit, clearance)
+    return _SlideJoint(width, length, tenon, mortise, c, install, depth,
+                       bounded, back_clearance=bc)
 
 
 # ── Self-test: geometry gates (run `py -3.12 joinery.py`) ────────────────────
@@ -1215,6 +1279,78 @@ if __name__ == "__main__":
         except ValueError:
             print(f"  depth floor {bad_d}       raises (ok)")
 
+    # ── clearance policy: material table, fiber depth rule, fit tiers ──
+    print("-- clearance policy --")
+    up_gf = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")
+    up_pl = PrintSpec(nozzle=0.8, facing="up")
+    pchecks = [
+        ("GF+GF normal → (0.15, 0.30)", joint_clearances(up_gf, up_gf), (0.15, 0.30)),
+        ("plain normal → (0.15, 0.15)", joint_clearances(up_pl, up_pl), (0.15, 0.15)),
+        ("GF one side → (0.15, 0.30)", joint_clearances(up_pl, up_gf), (0.15, 0.30)),
+        ("GF loose → (0.30, 0.60)", joint_clearances(up_gf, up_gf, "loose"), (0.30, 0.60)),
+        ("override 0.1 + GF → (0.1, 0.2)",
+         joint_clearances(up_gf, up_gf, override=0.1), (0.10, 0.20)),
+    ]
+    for label, got, want in pchecks:
+        ok = all(abs(g - w) < 1e-9 for g, w in zip(got, want))
+        print(f"  {label:<34} got ({got[0]:.2f}, {got[1]:.2f})"
+              f"{'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"policy: {label} got {got}")
+    try:
+        joint_clearances(up_gf, up_gf, fit="wobbly")
+        fails.append("policy: unknown fit did not raise")
+        print("  unknown fit           did NOT raise  <-- FAIL")
+    except ValueError:
+        print("  unknown fit           raises (ok)")
+
+    # ── fiber depth-face relief: ONLY the mortise back wall moves ──
+    # GF joint through slide_joint: laterals stay at the base clearance
+    # (±y probes unchanged), but the tenon can float an extra base-worth
+    # of depth toward the cavity's back before touching.
+    BC = 0.30                                     # = 2 × the GF base 0.15
+    gj = slide_joint(DW, 14, up_gf, up_gf, install="z", depth=DD)
+    if abs(gj.clearance - 0.15) > 1e-9 or abs(gj.back_clearance - BC) > 1e-9:
+        fails.append(f"policy: slide_joint GF clr ({gj.clearance}, {gj.back_clearance})")
+    gten = gj.tenon(root=1.0)
+    gj_cut = slide_joint(DW, 22, up_gf, up_gf, install="z", depth=DD)
+    ghost = (cq.Workplane("XY").box(Dh + 6, DW + 8, 20, centered=(False, True, False))
+             .translate((0, 0, -3))
+             .cut(gj_cut.mortise(drop=3).translate((0, 0, -4))))
+    gchecks = [
+        ("seated",              (0, 0, 0),             "=0"),
+        ("+y locked as before", (0, 0.15 + 0.2, 0),    ">0"),
+        ("-y locked as before", (0, -(0.15 + 0.2), 0), ">0"),
+    ]
+    for label, d, expect in gchecks:
+        v = vol(ghost.translate(d), gten)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  {label:<26} {v:>9.3f} mm3 (must be {expect})"
+              f"{'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"policy: GF T {label} = {v:.3f}")
+    # the cavity's BACK WALL sits back_clearance past the tenon head (the
+    # lateral shift probes can't isolate it — the lips bind at the base
+    # clearance by design, so gate the cutter's extent directly), and the
+    # swallow reports the deeper cavity
+    du_gf = dovetail_dims(DW, DD, NZ3, 0.15)[2]
+    gbb = gj.mortise(drop=3).val().BoundingBox()
+    ok = abs(gbb.xmax - (du_gf + BC)) < 1e-6
+    print(f"  cavity back at du+bc      {gbb.xmax:.3f} vs {du_gf + BC:.3f}"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"policy: GF cavity back {gbb.xmax}")
+    pbb = (slide_joint(DW, 14, up_pl, up_pl, install="z", depth=DD)
+           .mortise(drop=3).val().BoundingBox())
+    du_pl = dovetail_dims(DW, DD, NZ3, 0.15)[2]
+    ok = abs(pbb.xmax - (du_pl + 0.15)) < 1e-6
+    print(f"  plain back at du+c        {pbb.xmax:.3f} vs {du_pl + 0.15:.3f}"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"policy: plain cavity back {pbb.xmax}")
+    if abs(gj.height - (du_gf + BC)) > 1e-9:
+        fails.append(f"policy: GF height {gj.height}")
+
     # ── hook (single-flank dovetail): EDGE-BOUNDED faces too short for the dovetail ──
     print("-- hook --")
     HW, NZ4, CLR4 = 4.2, 0.8, 0.1                 # a face too short for the dovetail
@@ -1280,19 +1416,20 @@ if __name__ == "__main__":
     print("-- slide_joint --")
     up = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")
     side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")
+    CGF = _MATERIAL_CLEARANCE["PETG-GF"]          # 0.15 — the table's GF base
     cases = [
         ("up+up -> octagon", up, up, "x",
-         octagon_tenon(6.0, 12, 0.8, 0.1).val().Volume()),
+         octagon_tenon(6.0, 12, 0.8, CGF).val().Volume()),
         ("side+up -> arrow", side, up, "x",
-         arrow_tenon(5.6, 12, 0.8, 0.1).val().Volume()),
+         arrow_tenon(5.6, 12, 0.8, CGF).val().Volume()),
         ("up+up z -> dovetail", up, up, "z",
-         dovetail_tenon(6.0, 3.0, 12, 0.8, 0.1).val().Volume()),   # default depth = width/2
+         dovetail_tenon(6.0, 3.0, 12, 0.8, CGF).val().Volume()),   # default depth = width/2
     ]
     for label, tspec, mspec, inst, want_vol in cases:
         w = 6.0 if tspec.facing == "up" else 5.6
         j = slide_joint(w, 12, tenon=tspec, mortise=mspec, install=inst)
         got = j.tenon().val().Volume()
-        ok = abs(got - want_vol) < 1e-3 and j.clearance == 0.1
+        ok = abs(got - want_vol) < 1e-3 and j.clearance == CGF
         print(f"  {label:<22} clr={j.clearance} vol={got:.1f}{'' if ok else '  <-- FAIL'}")
         if not ok:
             fails.append(f"slide_joint: {label} vol {got:.1f}/{want_vol:.1f} clr {j.clearance}")
@@ -1307,17 +1444,17 @@ if __name__ == "__main__":
     # roomy face → dovetail inside reserved edge walls; short face → hook
     jb = slide_joint(8.0, 12, up, up, install="z", bounded=True)
     ok = (jb.family == "dovetail"
-          and abs(jb.width - (8.0 - 2 * (0.8 + 0.1))) < 1e-9)
+          and abs(jb.width - (8.0 - 2 * (0.8 + CGF))) < 1e-9)
     print(f"  bounded 8.0 -> dovetail (usable {jb.width:.1f}) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"slide_joint: bounded 8.0 -> {jb.family}/{jb.width}")
     jb = slide_joint(4.2, 12, up, up, install="z", bounded=True)
-    ok = jb.family == "hook" and abs(jb.height - hook_depth(0.8, 0.1)) < 1e-9
+    ok = jb.family == "hook" and abs(jb.height - hook_depth(0.8, CGF)) < 1e-9
     print(f"  bounded 4.2 -> hook (height {jb.height:.1f}) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"slide_joint: bounded 4.2 -> {jb.family}")
     ok = abs(jb.tenon().val().Volume()
-             - hook_tenon(4.2, 12, 0.8, 0.1).val().Volume()) < 1e-3
+             - hook_tenon(4.2, 12, 0.8, CGF).val().Volume()) < 1e-3
     print(f"  bounded hook tenon    matches hook_tenon {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append("slide_joint: bounded hook tenon volume mismatch")
