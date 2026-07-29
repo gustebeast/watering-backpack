@@ -358,14 +358,27 @@ the strongest joint the box admits (shear ≈ 0.6·σ, bearing ≈ 1.5·σ):
     lip = bar  = max(bead, min(neck/1.2, depth/2)); depth_used = lip + bar
                  — parity depth; SURPLUS ROOM IS NOT USED (host material)
 
-where `bead = one nozzle`: **every tenon wall segment is floored at one
-nozzle** (Arachne slicing keeps exactly-nozzle lines — the old +0.05 buffer
-predates Arachne and is gone; the mortise is the dilated copy — always
-larger, no separate check). `dovetail_dims(width, depth, nozzle)` exposes
-the derived `(neck, head, depth_used)` (lip = bar = depth_used/2);
-`dovetail_height` reports what the host must actually swallow
-(depth_used + clearance).
-Floors: width ≥ 4·nozzle, depth ≥ 2·nozzle — both raise. Clearance
+where walls TARGET the 2·nozzle QUALITY tier and degrade toward the
+one-nozzle HARD floor only in tight rooms (Arachne slicing keeps
+exactly-nozzle lines — the old +0.05 buffer is gone). The MORTISE is the
+dilated copy — larger everywhere EXCEPT its lip, the one CONCAVE feature:
+dilation THINS it by `clearance`, so the tenon lip is pre-grown and the
+printed **mortise lip = the tenon bar**. `dovetail_dims(width, depth,
+nozzle, clearance)` exposes the derived `(neck, head, depth_used)`
+(lip = bar + clearance); `dovetail_height` reports what the host must
+actually swallow (depth_used + clearance).
+
+**Minimum bounding boxes** — `dovetail_box_min(nozzle, clearance,
+quality)` returns the smallest (width, depth) whose joint has NO wall
+under the tier on EITHER half (overhangs/bridges are exempt everywhere in
+the library — they are intentionally one nozzle):
+
+| tier | width | depth | at nozzle 0.8, clr 0.15 |
+|---|---|---|---|
+| hard (1·nozzle) | 4·nz | 2·nz + clr | 3.2 × 1.75 |
+| quality (2·nozzle) | 6·nz | 4·nz + clr | 4.8 × 3.35 |
+
+Below the hard box the generators raise. Clearance
 policy is the same print-tested table as the other families; it dilates the
 mortise only (the T profile itself is print-UNVALIDATED as of 2026-07-22 —
 A/B the first print like the arrow rows above).
