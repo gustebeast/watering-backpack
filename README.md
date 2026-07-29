@@ -18,8 +18,8 @@ cadkit/
                      teardrop ceiling replaces the sagging round top; round
                      lower half untouched (pins/rods bear as in a round bore)
   contact.py         minimal-contact rub features: contact_rib_size(nozzle)
-                     = nozzle + 0.05 (one reliable bead, width AND proud);
-                     contact_ring() = thrust ring + its teardrop tail
+                     = exactly one nozzle (width AND proud; Arachne keeps
+                     exact-nozzle lines); contact_ring() = ring + teardrop tail
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP
