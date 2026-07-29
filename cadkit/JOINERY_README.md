@@ -367,19 +367,23 @@ the strongest joint the box admits (shear ≈ 0.6·σ, bearing ≈ 1.5·σ):
                  elements; floored at 2·nozzle, capped at width − 2·bead
     shoulder o = max(bead, min(neck/3, (width − neck)/2))
     head       = neck + 2·o              (≤ width)
-    lip = bar  = max(bead, min(neck/1.2, depth/2)); depth_used = lip + bar
+    bar        = max(bead, min(neck/1.2, (depth − back_clearance)/2))
+    lip        = bar + back_clearance;  depth_used = lip + bar
                  — parity depth; SURPLUS ROOM IS NOT USED (host material)
 
 where walls TARGET the 2·nozzle QUALITY tier and degrade toward the
 one-nozzle HARD floor only in tight rooms (Arachne slicing keeps
 exactly-nozzle lines — the old +0.05 buffer is gone). The MORTISE is the
 dilated copy — larger everywhere EXCEPT its lip, the one CONCAVE feature:
-dilation THINS it by `clearance`, so the tenon lip is pre-grown and the
-printed **mortise lip = the tenon bar**. `dovetail_dims(width, depth,
-nozzle, clearance)` exposes the derived `(neck, head, depth_used)`
-(lip = bar + clearance); `dovetail_height` reports what the host must
-actually swallow (depth_used + back_clearance — the fiber-filled depth-face
-relief deepens ONLY the cavity's back wall; see `joint_clearances`).
+its face lands `back_clearance` behind the tenon's pre-grown lip, so the
+printed **mortise lip = the tenon bar**. `back_clearance` (default =
+`clearance`; 2× the base for fiber-filled materials, see
+`joint_clearances`) is the DEPTH-FACE gap on BOTH pairs — head-front ↔
+cavity-back AND lip ↔ head-back — the depth BOX absorbs it, every wall
+keeps tier. `dovetail_dims(width, depth, nozzle, clearance,
+back_clearance)` exposes the derived `(neck, head, depth_used)`;
+`dovetail_height` reports what the host must actually swallow
+(depth_used + back_clearance).
 
 **Minimum bounding boxes** — `dovetail_box_min(nozzle, clearance,
 quality)` returns the smallest (width, depth) whose joint has NO wall

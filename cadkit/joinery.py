@@ -483,29 +483,35 @@ def dovetail_width_min(nozzle=0.8):
     return 2.0 * nozzle + 2.0 * _bead(nozzle)
 
 
-def dovetail_dims(width, depth, nozzle=0.8, clearance=0.1):
+def dovetail_dims(width, depth, nozzle=0.8, clearance=0.1,
+                  back_clearance=None):
     """MAX-MIN the plan profile inside the available room (`width` across the
     face, `depth` into the host): returns (neck_w, head_w, depth_used) per
-    the model above. The TENON LIP carries +`clearance` over the tenon BAR,
-    because the mortise dilation THINS its lip by exactly that much (the
-    lip is the one CONCAVE feature — "the mortise is always larger" is
-    false there, user-caught at 1.45): mortise lip = tenon bar, and the
-    two shear elements balance by construction. Unused room stays host
+    the model above. The TENON LIP carries +`back_clearance` over the tenon
+    BAR, because the cavity's lip face lands that far behind it (the lip is
+    the one CONCAVE feature — "the mortise is always larger" is false
+    there, user-caught at 1.45): mortise lip = tenon bar, and the two shear
+    elements balance by construction. `back_clearance` (default =
+    `clearance`) is the DEPTH-FACE gap — BOTH the lip↔head-back pair and
+    the head-front↔cavity-back pair run at it (fiber-filled filaments bind
+    on the depth sandwich; see joint_clearances) — and the depth allocation
+    runs on it so every wall keeps its tier size. Unused room stays host
     material. Raises when the room can't fit a printable joint."""
     b = _bead(nozzle)
     c = abs(clearance)
+    bc = c if back_clearance is None else abs(back_clearance)
     wmin = dovetail_width_min(nozzle)
     if width < wmin - 1e-9:
         raise ValueError(f"width {width:.3f} is below the printable minimum "
                          f"{wmin:.3f} mm (a 2-nozzle neck + a nozzle of "
                          "shoulder per side) — give the joint more room, or use "
                          "a finer nozzle")
-    if depth < 2.0 * b + c - 1e-9:
+    if depth < 2.0 * b + bc - 1e-9:
         raise ValueError(f"depth {depth:.3f} is too shallow for the T profile: "
                          f"no room for a one-bead MORTISE lip + a one-bead head "
-                         f"bar + the lip's clearance (2 × {b:.2f} + {c:.2f}) — "
-                         "deepen the mortise")
-    shear_room = (depth - c) / 2.0              # per shear element
+                         f"bar + the lip's depth-face clearance "
+                         f"(2 × {b:.2f} + {bc:.2f}) — deepen the mortise")
+    shear_room = (depth - bc) / 2.0             # per shear element
     neck = min(0.6 * width, _DT_SHEAR_RATIO * shear_room)
     neck = min(max(neck, 2.0 * nozzle), width - 2.0 * b)
     # prefer QUALITY-TIER shoulders over surplus neck (the neck's own floor
@@ -518,57 +524,66 @@ def dovetail_dims(width, depth, nozzle=0.8, clearance=0.1):
     head = neck + 2.0 * o
     bar = max(min(_bead_pref(nozzle), shear_room),
               min(neck / _DT_SHEAR_RATIO, shear_room))
-    depth_used = 2.0 * bar + c                  # tenon lip = bar + clearance
+    depth_used = 2.0 * bar + bc                 # tenon lip = bar + back_clearance
     return neck, head, depth_used
 
 
-def dovetail_box_min(nozzle=0.8, clearance=0.1, quality=False):
+def dovetail_box_min(nozzle=0.8, clearance=0.1, quality=False,
+                     back_clearance=None):
     """The smallest (width, depth) BOUNDING BOX whose joint has NO geometry —
     on the TENON or the MORTISE — under the tier size: nozzle (hard floor,
     quality=False) or 2·nozzle (quality floor, quality=True). Overhang/
     bridge features are excluded from the rule everywhere in the library —
     they are intentionally one nozzle. Width: neck (≥ 2·nozzle either tier)
     + a shoulder per side; depth: head bar + MORTISE lip (each at tier) +
-    the lip's clearance (the dilation thins the cavity's lip, so the tenon
-    lip pre-grows by `clearance`)."""
+    the lip's DEPTH-FACE clearance (the tenon lip pre-grows by
+    `back_clearance`, default = `clearance`, so the cavity's lip stays at
+    tier)."""
     seg = _bead_pref(nozzle) if quality else _bead(nozzle)
-    return (2.0 * nozzle + 2.0 * seg, 2.0 * seg + abs(clearance))
+    bc = abs(clearance) if back_clearance is None else abs(back_clearance)
+    return (2.0 * nozzle + 2.0 * seg, 2.0 * seg + bc)
 
 
 def dovetail_height(width, depth, nozzle=0.8, clearance=0.1,
                     back_clearance=None):
     """Protrusion past the mating plane (what the mortise host must actually
     swallow — depth_used, NOT the full available depth), clearance included.
-    `back_clearance` (≥ clearance; see joint_clearances) deepens only the
-    cavity's back wall — fiber-filled depth-face relief."""
+    `back_clearance` (≥ clearance; see joint_clearances) is the depth-face
+    gap: it sizes the profile's depth allocation AND the cavity's extra
+    back-wall depth — fiber-filled depth-face relief."""
     bc = abs(clearance) if back_clearance is None else abs(back_clearance)
-    return dovetail_dims(width, depth, nozzle, clearance)[2] + bc
+    return dovetail_dims(width, depth, nozzle, clearance, bc)[2] + bc
 
 
-def _dovetail_profile(width, depth, nozzle, back, clearance):
+def _dovetail_profile(width, depth, nozzle, back, clearance,
+                      back_clearance=None):
     """Closed (x, y) plan-view points for the TENON: the SQUARE-SHOULDERED T
     — optimized neck through the mating plane (x=0), the LIP step (= bar +
-    clearance, so the DILATED mortise's lip lands at the bar's size), then
-    the parallel-sided head bar out to depth_used. Every corner is 90°: the
-    nozzle rounds tenon and mortise corners COMPATIBLY (the angled dovetail's
-    acute corners rounded into interference). `back` = extension behind the
-    plane (tenon root / mortise opening drop)."""
-    neck_w, head_w, d_used = dovetail_dims(width, depth, nozzle, clearance)
-    lip = (d_used + abs(clearance)) / 2.0        # = bar + clearance
+    back_clearance, so the mortise's lip face lands a full depth-face gap
+    behind it at the bar's size), then the parallel-sided head bar out to
+    depth_used. Every corner is 90°: the nozzle rounds tenon and mortise
+    corners COMPATIBLY (the angled dovetail's acute corners rounded into
+    interference). `back` = extension behind the plane (tenon root /
+    mortise opening drop)."""
+    bc = abs(clearance) if back_clearance is None else abs(back_clearance)
+    neck_w, head_w, d_used = dovetail_dims(width, depth, nozzle, clearance, bc)
+    lip = (d_used + bc) / 2.0                    # = bar + back_clearance
     neck, head = neck_w / 2.0, head_w / 2.0
     return [(-back, -neck), (lip, -neck), (lip, -head), (d_used, -head),
             (d_used, head), (lip, head), (lip, neck), (-back, neck)]
 
 
-def dovetail_tenon(width, depth, length, nozzle=0.8, clearance=0.1, root=1.0):
+def dovetail_tenon(width, depth, length, nozzle=0.8, clearance=0.1, root=1.0,
+                   back_clearance=None):
     """Install-z TENON (square-shouldered T; the name predates the profile
     swap): a plan-view T prism along +Z (the INSTALL axis), mating plane at
     x=0, head toward +X, extended `root` behind the plane for volumetric
     fusion into its host. Both hosts print -Z→+Z; every face is a vertical
-    wall and every corner 90°. (`clearance` dilates the mortise side only,
-    but it also SIZES the tenon's lip — pass the same value to both halves,
-    as slide_joint does.)"""
-    pts = _dovetail_profile(width, depth, nozzle, abs(root), clearance)
+    wall and every corner 90°. (`clearance`/`back_clearance` dilate the
+    mortise side, but they also SIZE the tenon's lip and depth — pass the
+    same values to both halves, as slide_joint does.)"""
+    pts = _dovetail_profile(width, depth, nozzle, abs(root), clearance,
+                            back_clearance)
     return cq.Workplane("XY").polyline(pts).close().extrude(length)
 
 
@@ -579,18 +594,27 @@ def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0,
     mating plane so it opens through the host's face. The dilation THINS the
     cavity's lip by `clearance`; the tenon's lip is pre-grown by the same
     amount, so the printed mortise lip is a full bar-sized wall.
-    `back_clearance` (≥ clearance) pushes ONLY the cavity's BACK WALL deeper
-    — the depth-face relief fiber-filled filaments need to slide (see
-    joint_clearances); the lateral faces and the lip keep `clearance`, so
-    every printed wall keeps its tier size. Extrude PAST the host's open
-    Z-end (pass a longer `length` / translate) so the tenon can enter; the
-    far end left inside the host is the hard stop."""
+    `back_clearance` (≥ clearance) opens the DEPTH-FACE gaps to its value on
+    BOTH pairs — the cavity's back wall moves deeper AND its lip face drops
+    further behind the tenon's (pre-grown) lip — the relief fiber-filled
+    filaments need to slide (see joint_clearances). The LATERAL faces keep
+    `clearance`, and because the tenon's lip and depth box are sized on
+    `back_clearance` too, every printed wall on both halves keeps its tier
+    size. Extrude PAST the host's open Z-end (pass a longer `length` /
+    translate) so the tenon can enter; the far end left inside the host is
+    the hard stop."""
     c = abs(clearance)
     bc = c if back_clearance is None else abs(back_clearance)
-    pts = _dovetail_profile(width, depth, nozzle, abs(drop), clearance)
-    if bc - c > 1e-12:
-        d_used = dovetail_dims(width, depth, nozzle, clearance)[2]
-        pts = [(x + (bc - c) if abs(x - d_used) < 1e-9 else x, y)
+    e = bc - c                                    # extra beyond the dilation
+    pts = _dovetail_profile(width, depth, nozzle, abs(drop), clearance, bc)
+    if e > 1e-12:
+        d_used = dovetail_dims(width, depth, nozzle, clearance, bc)[2]
+        lip = (d_used + bc) / 2.0
+        # back wall out by e (dilation adds the remaining c → bc total);
+        # lip step back by e (dilation thins a further c → the cavity lip
+        # face lands bc behind the tenon's, still a full bar-sized wall)
+        pts = [(x + e if abs(x - d_used) < 1e-9 else
+                (x - e if abs(x - lip) < 1e-9 else x), y)
                for x, y in pts]
     return (cq.Workplane("XY").polyline(pts).close()
             .offset2D(c, "intersection")
@@ -710,12 +734,14 @@ def hook_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
 # `clearance=`).
 #
 # FIBER-FILLED filaments (GF/CF — detected from the material name) get DOUBLE
-# clearance on the install-z T's DEPTH faces (the mortise's back wall): the
-# stiff, rough-surfaced walls bind in the depth sandwich (head front ↔ cavity
-# back) long before the lateral faces do — print finding, retractable-cable-
-# spool wall joint in PETG-GF: lateral 0.15 slid fine, the depth faces needed
-# 0.3. The LATERAL faces keep the table value; only the back wall grows, so
-# every printed wall keeps its tier size. Other families use the base value
+# clearance on the install-z T's DEPTH faces — BOTH pairs: head-front ↔
+# cavity-back AND lip ↔ head-back (the retention faces): the stiff,
+# rough-surfaced walls bind in the depth sandwich long before the lateral
+# faces do — print finding, retractable-cable-spool wall joint in PETG-GF:
+# lateral 0.15 slid fine, the depth faces needed 0.3. The LATERAL faces keep
+# the table value, and the T's depth allocation runs on the depth gap (tenon
+# lip pre-grows by it), so every printed wall on both halves keeps its tier
+# size — the depth BOX grows instead. Other families use the base value
 # (their fiber behavior is unmeasured — print-check before extending the rule).
 #
 # `fit` picks the tier: "normal" (default) = the print-tested slide fit;
@@ -741,9 +767,10 @@ def joint_clearances(tenon, mortise, fit="normal", override=None):
     """The library's clearance POLICY — (clearance, back_clearance) for a
     joint between two PrintSpecs. `clearance` dilates the mortise laterally
     (every family); `back_clearance` is the install-z T's DEPTH-face gap
-    (its mortise back wall) — 2× the base when either half is fiber-filled
-    (see the table note). `fit="loose"` doubles both. `override` replaces
-    the material-table base (the fiber and fit factors still apply)."""
+    (both the cavity-back and lip pairs) — 2× the base when either half is
+    fiber-filled (see the table note). `fit="loose"` doubles both.
+    `override` replaces the material-table base (the fiber and fit factors
+    still apply)."""
     if fit not in _FIT_FACTORS:
         raise ValueError("fit must be one of %s, got %r"
                          % (sorted(_FIT_FACTORS), fit))
@@ -876,7 +903,8 @@ class _SlideJoint:
                               self.clearance, root)
         if self.family == "dovetail":
             return dovetail_tenon(self.width, self.depth, self.length,
-                                  self.nozzle, self.clearance, root)
+                                  self.nozzle, self.clearance, root,
+                                  self.back_clearance)
         if self.family == "octagon":
             return octagon_tenon(self.width, self.length, self.nozzle,
                                  self.clearance, root, height=self.depth)
@@ -1321,6 +1349,11 @@ if __name__ == "__main__":
         ("seated",              (0, 0, 0),             "=0"),
         ("+y locked as before", (0, 0.15 + 0.2, 0),    ">0"),
         ("-y locked as before", (0, -(0.15 + 0.2), 0), ">0"),
+        # the LIP pair also runs at the depth gap: pulling out rides the
+        # full 0.3 before the lips engage (was `clearance` when only the
+        # back wall grew — user print finding, both depth faces bind)
+        ("pull rides depth gap", (0.25, 0, 0),         "=0"),
+        ("lips engage past it",  (0.35, 0, 0),         ">0"),
     ]
     for label, d, expect in gchecks:
         v = vol(ghost.translate(d), gten)
@@ -1333,13 +1366,20 @@ if __name__ == "__main__":
     # lateral shift probes can't isolate it — the lips bind at the base
     # clearance by design, so gate the cutter's extent directly), and the
     # swallow reports the deeper cavity
-    du_gf = dovetail_dims(DW, DD, NZ3, 0.15)[2]
+    du_gf = dovetail_dims(DW, DD, NZ3, 0.15, BC)[2]
     gbb = gj.mortise(drop=3).val().BoundingBox()
     ok = abs(gbb.xmax - (du_gf + BC)) < 1e-6
     print(f"  cavity back at du+bc      {gbb.xmax:.3f} vs {du_gf + BC:.3f}"
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"policy: GF cavity back {gbb.xmax}")
+    # tier survives the bigger gaps: tenon bar = mortise lip = (du − bc)/2
+    bar_gf = (du_gf - BC) / 2.0
+    ok = bar_gf >= _bead(NZ3) - 1e-9
+    print(f"  GF bar / mortise lip      {bar_gf:.3f} (>= bead)"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"policy: GF bar {bar_gf}")
     pbb = (slide_joint(DW, 14, up_pl, up_pl, install="z", depth=DD)
            .mortise(drop=3).val().BoundingBox())
     du_pl = dovetail_dims(DW, DD, NZ3, 0.15)[2]
@@ -1423,7 +1463,8 @@ if __name__ == "__main__":
         ("side+up -> arrow", side, up, "x",
          arrow_tenon(5.6, 12, 0.8, CGF).val().Volume()),
         ("up+up z -> dovetail", up, up, "z",
-         dovetail_tenon(6.0, 3.0, 12, 0.8, CGF).val().Volume()),   # default depth = width/2
+         dovetail_tenon(6.0, 3.0, 12, 0.8, CGF,                    # default depth = width/2;
+                        back_clearance=2 * CGF).val().Volume()),   # GF → depth faces 2×
     ]
     for label, tspec, mspec, inst, want_vol in cases:
         w = 6.0 if tspec.facing == "up" else 5.6
