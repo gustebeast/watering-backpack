@@ -396,21 +396,33 @@ def octagon_mortise_arc(width, radius, sweep_deg, nozzle=0.8, clearance=0.1,
     return _arc_wire(pts, radius, clearance).revolve(sweep_deg, (0, 0), (0, 1))
 
 
-# ─────────────────── DOVETAIL (install ∥ print-Z) slide joint ─────────────────
+# ──────────── T-SLOT (install ∥ print-Z) slide joint — was the dovetail ──────
 # Third family, unlocked by the INSTALL AXIS rather than a print trick: print
 # orientation alone under-determines a slide joint — the INSTALL direction (the
 # one axis deliberately left without retention) matters just as much. When that
 # axis is Z, the same axis both hosts print in, the profile lies flat in the
-# X-Y plane and every working face is a printed VERTICAL WALL. No overhangs
-# anywhere, so no arrow ramp and no octagon roof bridge: the classic sharp
-# dovetail prints as drawn.
+# X-Y plane and every working face is a printed VERTICAL WALL.
+#
+# The profile is a SQUARE-SHOULDERED T: neck through the mating plane, short
+# lips, then a parallel-sided head bar. It REPLACED the classic angled
+# dovetail (print finding at a 0.8 nozzle, retractable-cable-spool): the
+# dovetail concentrates its engagement in sharp plan corners, and the nozzle
+# radius rounds the tenon's acute corners DOWN while rounding the mortise's
+# inner corners UP — the corners collide before the faces seat and most of
+# the wedge detail is gone. Square 90° corners round compatibly on both
+# halves; retention becomes flat shoulder bearing, which also removes the
+# dovetail's lateral cam component (pull-out no longer levers the mortise
+# lips apart). The one dovetail virtue lost — wedge take-up of clearance —
+# was never used: these are SLIDE joints running print-tested clearances.
+# (Function names keep "dovetail_" — they are the install-z family entry
+# points; only the profile changed.)
 # Convention: profile in the local (x, y) PLAN plane — width across Y (like the
-# other families), the head flares toward +X (rotate about Z to aim it), mating
+# other families), the head toward +X (rotate about Z to aim it), mating
 # plane at x=0 — and the prism extrudes along +Z, the INSTALL axis. The joint
-# constrains ±X (neck lips / head end wall) and ±Y (flank walls) by shape; ±Z
-# is free by design. The caller closes ONE Z-end with a hard stop (un-cut host
-# material past the cavity's far end) and guards the other with a preload or
-# the next part in the stack.
+# constrains ±X (neck lips / head end wall) and ±Y (neck + head side walls)
+# by shape; ±Z is free by design. The caller closes ONE Z-end with a hard
+# stop (un-cut host material past the cavity's far end) and guards the other
+# with a preload or the next part in the stack.
 
 # The joint is sized by the ROOM it MAY occupy — the caller passes the mortise's
 # AVAILABLE space, not the joint's dimensions:
@@ -418,51 +430,68 @@ def octagon_mortise_arc(width, radius, sweep_deg, nozzle=0.8, clearance=0.1,
 #            taller is always stronger)
 #   depth  — available depth into the host, past the mating plane
 #   width  — available width across the host's face
-# The profile is then OPTIMIZED, not inscribed: the pull-out capacity is
-# min(tenon NECK tension, the two face LIPS shearing along the flanks, the two
-# shoulders BEARING), per unit engagement, same material, shear ≈ 0.6·tensile,
-# bearing ≈ 1.5·tensile:
-#   neck tension  ∝ 1.0 · neck
-#   lip shear     ∝ 2 · 0.6 · depth_used            → parity at neck = 1.2·d
-#   shoulder bearing ∝ 2 · 1.5 · o (overhang/side)  → parity at o = neck/3
-# Growing the weakest link until a BOUND binds:
-#   neck = min(0.6·width, 1.2·depth)   (head = neck + 2·o must fit width)
-#   o    = max(nozzle, neck/3)
-#   depth_used = neck/1.2  — parity depth; surplus available depth is NOT used
-#   (it would add nothing the neck can deliver — it stays host material).
+# The profile is then MAX-MIN OPTIMIZED, not inscribed: pull-out capacity is
+# the WEAKEST of four links, per unit engagement, same material, shear ≈
+# 0.6·tensile, bearing ≈ 1.5·tensile — note the T has TWO stacked shear
+# elements SHARING the depth (the angled dovetail's single flank was both):
+#   neck tension       ∝ 1.0 · neck
+#   mortise LIP shear  ∝ 2 · 0.6 · lip   (face → head channel, mortise side)
+#   tenon BAR shear    ∝ 2 · 0.6 · bar   (the head bar off the stem)
+#   shoulder bearing   ∝ 2 · 1.5 · o     → parity at o = neck/3
+# Strongest joint in the given box (user's rule):
+#   neck = 0.6·min(width, depth)  — shear parity across both stacked elements;
+#          floored at 2·nozzle (printable tension member), capped at
+#          width − 2·bead
+#   o    = max(bead, min(neck/3, (width − neck)/2))
+#   lip  = bar = max(bead, min(neck/1.2, depth/2));  depth_used = lip + bar
+#   (surplus room beyond parity stays host material)
+# where bead = ONE NOZZLE — EVERY tenon wall segment is floored there (the
+# mortise is the dilated copy, always larger, so it needs no separate
+# check; Arachne slicing keeps exactly-nozzle lines, so no buffer).
 
 _DT_SHEAR_RATIO = 1.2    # lip-shear parity: neck = 1.2·depth_used (τ ≈ 0.6·σ, 2 planes)
 _DT_BEAR_FRAC   = 3.0    # bearing parity: shoulder overhang o = neck/3 (σ_c ≈ 1.5·σ, 2 sides)
 
 
+def _bead(nozzle):
+    """One printed wall: exactly ONE NOZZLE. (An earlier +0.05 buffer guarded
+    against classic wall generators dropping exactly-nozzle lines; the
+    projects slice with ARACHNE now, which handles them — buffer removed,
+    user's call 2026-07-22.) Floor for EVERY tenon wall segment of the T —
+    the mortise is the dilated copy, always larger, no separate check."""
+    return nozzle
+
+
 def dovetail_width_min(nozzle=0.8):
-    """Smallest available `width` that fits a printable joint: a 2-nozzle neck
-    + one nozzle of shoulder per side."""
-    return 4.0 * nozzle
+    """Smallest available `width` that fits a printable joint: a 2-nozzle
+    neck + one nozzle of shoulder per side."""
+    return 2.0 * nozzle + 2.0 * _bead(nozzle)
 
 
 def dovetail_dims(width, depth, nozzle=0.8):
-    """OPTIMIZE the plan profile inside the available room (`width` across the
-    face, `depth` into the host): returns (neck_w, head_w, depth_used) per the
-    strength-parity model above. Unused room stays host material. Raises when
-    the room can't fit a printable joint."""
+    """MAX-MIN the plan profile inside the available room (`width` across the
+    face, `depth` into the host): returns (neck_w, head_w, depth_used) per
+    the model above; the profile's lip and head bar each take depth_used/2
+    (the T's two stacked shear elements are balanced by construction).
+    Unused room stays host material. Raises when the room can't fit a
+    printable joint."""
+    b = _bead(nozzle)
     wmin = dovetail_width_min(nozzle)
     if width < wmin - 1e-9:
         raise ValueError(f"width {width:.3f} is below the printable minimum "
-                         f"{wmin:.3f} mm (a 2-nozzle neck + a nozzle of shoulder "
-                         "per side) — give the joint more room, or use a finer nozzle")
-    neck = min(0.6 * width, _DT_SHEAR_RATIO * depth)
-    if neck < 2.0 * nozzle - 1e-9:
-        raise ValueError(f"depth {depth:.3f} is too shallow: the balanced neck "
-                         f"{neck:.3f} drops under 2 beads ({2 * nozzle:.2f}) — "
-                         "deepen the mortise")
-    o = max(nozzle, neck / _DT_BEAR_FRAC)
+                         f"{wmin:.3f} mm (a 2-nozzle neck + a nozzle of "
+                         "shoulder per side) — give the joint more room, or use "
+                         "a finer nozzle")
+    if depth < 2.0 * b - 1e-9:
+        raise ValueError(f"depth {depth:.3f} is too shallow for the T profile: "
+                         f"no room for a one-bead lip + a one-bead head bar "
+                         f"(2 × {b:.2f}) — deepen the mortise")
+    neck = 0.6 * min(width, depth)              # shear parity, both elements
+    neck = min(max(neck, 2.0 * nozzle), width - 2.0 * b)
+    o = max(b, min(neck / _DT_BEAR_FRAC, (width - neck) / 2.0))
     head = neck + 2.0 * o
-    if head > width + 1e-9:                     # nozzle-floored shoulders on a tight width
-        neck = width - 2.0 * nozzle
-        o = nozzle
-        head = width
-    depth_used = neck / _DT_SHEAR_RATIO
+    lip = max(b, min(neck / _DT_SHEAR_RATIO, depth / 2.0))
+    depth_used = 2.0 * lip
     return neck, head, depth_used
 
 
@@ -473,31 +502,37 @@ def dovetail_height(width, depth, nozzle=0.8, clearance=0.1):
 
 
 def _dovetail_profile(width, depth, nozzle, back):
-    """Closed (x, y) plan-view points for the TENON: optimized neck at the
-    mating plane (x=0), head at x=depth_used, `back` extension behind the plane
-    (tenon root / mortise opening drop)."""
+    """Closed (x, y) plan-view points for the TENON: the SQUARE-SHOULDERED T
+    — optimized neck through the mating plane (x=0), a short LIP step, then
+    the parallel-sided head bar out to depth_used. Every corner is 90°: the
+    nozzle rounds tenon and mortise corners COMPATIBLY (the angled dovetail's
+    acute corners rounded into interference). `back` = extension behind the
+    plane (tenon root / mortise opening drop)."""
     neck_w, head_w, d_used = dovetail_dims(width, depth, nozzle)
+    lip = d_used / 2.0                           # lip = bar (balanced shear)
     neck, head = neck_w / 2.0, head_w / 2.0
-    return [(-back, -neck), (0.0, -neck), (d_used, -head),
-            (d_used, head), (0.0, neck), (-back, neck)]
+    return [(-back, -neck), (lip, -neck), (lip, -head), (d_used, -head),
+            (d_used, head), (lip, head), (lip, neck), (-back, neck)]
 
 
 def dovetail_tenon(width, depth, length, nozzle=0.8, clearance=0.1, root=1.0):
-    """Dovetail TENON: a plan-view trapezoid prism along +Z (the INSTALL axis),
-    mating plane at x=0, head toward +X, extended `root` behind the plane for
-    volumetric fusion into its host. Both hosts print -Z→+Z; every face is a
-    vertical wall. (`clearance` is applied on the mortise side only; it sits in
-    the signature so slide_joint can pass one set of knobs to both halves.)"""
+    """Install-z TENON (square-shouldered T; the name predates the profile
+    swap): a plan-view T prism along +Z (the INSTALL axis), mating plane at
+    x=0, head toward +X, extended `root` behind the plane for volumetric
+    fusion into its host. Both hosts print -Z→+Z; every face is a vertical
+    wall and every corner 90°. (`clearance` is applied on the mortise side
+    only; it sits in the signature so slide_joint can pass one set of knobs
+    to both halves.)"""
     pts = _dovetail_profile(width, depth, nozzle, abs(root))
     return cq.Workplane("XY").polyline(pts).close().extrude(length)
 
 
 def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0):
     """Cavity CUTTER — the tenon plan profile DILATED `clearance` per side
-    (mitred → angles preserved) and extended `drop` behind the mating plane so
-    it opens through the host's face. Extrude PAST the host's open Z-end (pass a
-    longer `length` / translate) so the tenon can enter; the far end left inside
-    the host is the hard stop."""
+    (mitred → the square corners stay square) and extended `drop` behind the
+    mating plane so it opens through the host's face. Extrude PAST the host's
+    open Z-end (pass a longer `length` / translate) so the tenon can enter;
+    the far end left inside the host is the hard stop."""
     pts = _dovetail_profile(width, depth, nozzle, abs(drop))
     return (cq.Workplane("XY").polyline(pts).close()
             .offset2D(abs(clearance), "intersection")
@@ -1059,25 +1094,53 @@ if __name__ == "__main__":
     print(f"  profile Y-symmetric   {'ok' if ok else 'ASYMMETRIC  <-- FAIL'}")
     if not ok:
         fails.append("dovetail: profile not Y-symmetric")
-    # OPTIMIZER gates — parity model on the strength links, bounds as ROOM:
-    # width-bound room (6, 4): neck=min(0.6·6, 1.2·4)=3.6, o=max(0.8, 1.2)=1.2,
-    # head=6.0 (=width), depth_used=3.0 < the 4.0 available (surplus unused)
+    # SQUARE corners: every edge axis-parallel (the reason the T replaced the
+    # angled dovetail — 90° corners round compatibly on both halves)
+    ok = all(abs(a[0] - b[0]) < 1e-9 or abs(a[1] - b[1]) < 1e-9
+             for a, b in zip(dpts, dpts[1:] + dpts[:1]))
+    print(f"  square corners        {'ok' if ok else 'ANGLED EDGE  <-- FAIL'}")
+    if not ok:
+        fails.append("dovetail: non-axis-parallel edge")
+    # every tenon wall segment >= one nozzle (Arachne handles exact-nozzle
+    # lines — no buffer) across a spread of rooms: lip, bar, shoulder
+    BEAD = NZ3
+    for w, d in ((DW, DD), (10.0, 2.0), (dovetail_width_min(NZ3), 3.0),
+                 (30.0, 30.0)):
+        n2, h2, du2 = dovetail_dims(w, d, NZ3)
+        lip2 = du2 / 2.0
+        o2 = (h2 - n2) / 2.0
+        worst = min(lip2, o2, n2)
+        ok = worst >= BEAD - 1e-9 and du2 <= d + 1e-9 and h2 <= w + 1e-9
+        print(f"  bead floors @({w:5.2f},{d:5.2f}) lip={lip2:.2f} o={o2:.2f} "
+              f"neck={n2:.2f}{'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"dovetail: bead floors at ({w},{d})")
+    # OPTIMIZER gates — max-min with TWO stacked shear elements sharing depth:
+    # (6, 4): neck=0.6·4=2.4, o=max(0.8, 0.8)=0.8, head=4.0,
+    # lip=bar=2.0 → depth_used=4.0 (depth-parity uses the full 4)
     neck, head, dused = dovetail_dims(DW, DD, NZ3)
-    ok = (abs(neck - 3.6) < 1e-9 and abs(head - 6.0) < 1e-9
-          and abs(dused - 3.0) < 1e-9 and dused < DD)
+    ok = (abs(neck - 2.4) < 1e-9 and abs(head - 4.0) < 1e-9
+          and abs(dused - 4.0) < 1e-9)
     print(f"  optimizer @room(6,4)  neck={neck:.2f} head={head:.2f} "
           f"depth_used={dused:.2f}{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"dovetail: optimizer (6,4) → {neck},{head},{dused}")
-    # depth-bound room (10, 2): neck=2.4, head=4.0 < the 10 available — the
-    # joint declines width it can't convert into strength
+    # depth-bound room (10, 2): parity neck 1.2 rides its 2-nozzle floor →
+    # neck=1.6, o=bead, head=3.2, lip=bar=1.0 — width surplus declined
     neck, head, dused = dovetail_dims(10.0, 2.0, NZ3)
-    ok = (abs(neck - 2.4) < 1e-9 and abs(head - 4.0) < 1e-9
+    ok = (abs(neck - 1.6) < 1e-9 and abs(head - 3.2) < 1e-9
           and abs(dused - 2.0) < 1e-9 and head < 10.0)
     print(f"  optimizer @room(10,2) neck={neck:.2f} head={head:.2f} "
           f"depth_used={dused:.2f}{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"dovetail: optimizer (10,2) → {neck},{head},{dused}")
+    # depth-rich room: parity caps depth_used (surplus stays host material)
+    neck, head, dused = dovetail_dims(6.0, 30.0, NZ3)
+    ok = abs(dused - 2.0 * (0.6 * 6.0) / 1.2) < 1e-9 and dused < 30.0
+    print(f"  optimizer @room(6,30) depth_used={dused:.2f} (parity-capped)"
+          f"{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"dovetail: depth-rich cap → {dused}")
     # width floor raises
     try:
         dovetail_tenon(dovetail_width_min(NZ3) - 0.2, 4.0, 10, nozzle=NZ3)
@@ -1085,13 +1148,14 @@ if __name__ == "__main__":
         print("  width floor           did NOT raise  <-- FAIL")
     except ValueError:
         print(f"  width floor           raises below {dovetail_width_min(NZ3):.2f} mm (ok)")
-    # too-shallow depth raises (balanced neck would drop under 2 beads)
-    try:
-        dovetail_tenon(6.0, 1.0, 10, nozzle=NZ3)
-        fails.append("dovetail: too-shallow depth did not raise")
-        print("  depth floor           did NOT raise  <-- FAIL")
-    except ValueError:
-        print("  depth floor           raises (ok)")
+    # too-shallow depth raises (no room for a one-bead lip + head bar)
+    for bad_d in (1.0, 1.4):
+        try:
+            dovetail_tenon(6.0, bad_d, 10, nozzle=NZ3)
+            fails.append(f"dovetail: depth {bad_d} did not raise")
+            print(f"  depth floor {bad_d}       did NOT raise  <-- FAIL")
+        except ValueError:
+            print(f"  depth floor {bad_d}       raises (ok)")
 
     # ── hook (single-flank dovetail): EDGE-BOUNDED faces too short for the dovetail ──
     print("-- hook --")
@@ -1247,6 +1311,7 @@ if __name__ == "__main__":
         print("OK — all variants: seat clear, only the band-guarded +x is free; "
               "hook locks the up-ramp diagonal; octagon locks +-y/+-z, fat stem, "
               "tenon floor >= nozzle, mortise roof one nozzle at any width; "
-              "edge-bounded z-sites adapt dovetail->single-flank hook with "
-              "one-nozzle walls and lip.")
+              "install-z T: square corners, every tenon wall >= one nozzle, "
+              "max-min allocation in the box; edge-bounded z-sites "
+              "adapt T->single-flank hook with one-nozzle walls and lip.")
     sys.exit(len(fails))

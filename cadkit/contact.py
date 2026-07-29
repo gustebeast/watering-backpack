@@ -2,9 +2,11 @@
 
 A printed mechanism wants its moving parts to rub on the SMALLEST reliable
 surface: a single extruder bead. `contact_rib_size(nozzle)` is that rule -
-nozzle + 0.05 (the buffer keeps the slicer from dropping a feature that is
-exactly one nozzle wide) - and every generator here sizes its contact face
-with it, BOTH across (width) and along (proud) the touch direction.
+exactly ONE NOZZLE - and every generator here sizes its contact face with
+it, BOTH across (width) and along (proud) the touch direction. (An earlier
++0.05 buffer guarded against classic wall generators dropping
+exactly-nozzle lines; the projects slice with ARACHNE now, which handles
+them - buffer removed, user's call 2026-07-22.)
 
 `contact_ring(bore_d, axis_point, axis_dir, nozzle, print_up)` is the
 annular THRUST RING around a pivot bore on a wall face - a lever's only
@@ -26,9 +28,6 @@ except ImportError:                    # run directly as a script (self-test)
 
 __all__ = ["contact_rib_size", "contact_ring"]
 
-_RIB_BUFFER = 0.05      # one bead + this = a line the slicer never drops
-
-
 def _unit(v):
     n = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
     if n < 1e-12:
@@ -37,11 +36,12 @@ def _unit(v):
 
 
 def contact_rib_size(nozzle=0.8):
-    """The one-bead contact dimension: nozzle + 0.05 - use it for BOTH the
-    width and the proud of any deliberate rub feature."""
+    """The one-bead contact dimension: exactly one nozzle (Arachne keeps
+    exact-nozzle lines) - use it for BOTH the width and the proud of any
+    deliberate rub feature."""
     if nozzle <= 0.0:
         raise ValueError("nozzle must be > 0")
-    return nozzle + _RIB_BUFFER
+    return nozzle
 
 
 def contact_ring(bore_d, axis_point=(0.0, 0.0, 0.0), axis_dir=(1.0, 0.0, 0.0),
@@ -80,8 +80,8 @@ if __name__ == "__main__":
     import sys
 
     fails = []
-    ok = abs(contact_rib_size(0.8) - 0.85) < 1e-12 and \
-        abs(contact_rib_size(0.4) - 0.45) < 1e-12
+    ok = abs(contact_rib_size(0.8) - 0.8) < 1e-12 and \
+        abs(contact_rib_size(0.4) - 0.4) < 1e-12
     print(f"rib size      0.8->{contact_rib_size(0.8)} 0.4->{contact_rib_size(0.4)}"
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     if fails:
         print("FAIL:", *fails, sep="\n  ")
     else:
-        print("OK - contact ribs are one bead + 0.05 wide AND proud; ring "
+        print("OK - contact ribs are exactly one nozzle wide AND proud; ring "
               "fuses its sideways teardrop tail; flat rings skip it; "
               "validation raises.")
     sys.exit(len(fails))

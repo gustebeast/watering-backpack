@@ -23,7 +23,7 @@ ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the
 # around it without knowing internals
 
 jz = slide_joint(width=7, length=20, depth=3.5, tenon=up, mortise=up,
-                 install="z")   # → dovetail; width/depth/length = AVAILABLE room
+                 install="z")   # → the square T; width/depth/length = AVAILABLE room
 
 jb = slide_joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
                  bounded=True)  # EDGE-BOUNDED site: width = the face's FULL
@@ -41,11 +41,12 @@ jb = slide_joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
   without retention (print orientation alone under-determines a slide joint).
   `'x'` (default) slides ⊥ print-Z — the profile faces are overhangs, so the
   facings pick a print-compromise family. `'z'` slides ∥ print-Z — the profile
-  lies flat in the plan plane and prints as vertical walls, so the **plain
-  dovetail** applies (both hosts must face `'up'`; a side host would overhang).
+  lies flat in the plan plane and prints as vertical walls, so the
+  **square-shouldered T** applies (the `dovetail_*` functions — the angled
+  dovetail was retired, see the T section; both hosts must face `'up'`).
 - **Facings + install pick the family:** `x`: `up + up` → the octagon; `side + up`
-  → the arrow ramp+hook. `z`: `up + up` → the dovetail — or, with
-  `bounded=True`, the ROOM picks between the dovetail and the single-flank
+  → the arrow ramp+hook. `z`: `up + up` → the T — or, with
+  `bounded=True`, the ROOM picks between the T and the single-flank
   HOOK (see its section). Any unmodelled combo
   **raises** with an "add the variant" pointer — no silent unprintable
   improvisation.
@@ -291,7 +292,7 @@ _____________          ____________
 |__|  |__|          |__|     |__|     opening — z-entry, no retention
 ```
 
-## Dovetail joint — install ∥ print-Z (`install="z"`)
+## T-slot joint — install ∥ print-Z (`install="z"`; the `dovetail_*` functions)
 
 The third family exists because of a dimension the other two ignore: the
 **install axis** — the one direction a slide joint deliberately leaves without
@@ -299,15 +300,26 @@ retention. The arrow and octagon assume it is X (⊥ print-Z), which is what
 makes their profiles overhang problems needing ramps, hooks, and bridge caps.
 When the joint instead installs **along Z — the same axis both hosts print
 in** — the profile lies flat in the plan (X-Y) plane and every working face is
-a printed **vertical wall**. Nothing overhangs, so the classic sharp dovetail
-prints as drawn:
+a printed **vertical wall**.
+
+The profile is a **square-shouldered T**. It REPLACED the classic angled
+dovetail (print finding, 0.8 nozzle, retractable-cable-spool): the dovetail
+concentrates its engagement in sharp plan corners, and the nozzle radius
+rounds the tenon's acute corners DOWN while rounding the mortise's inner
+corners UP — the halves collide at the corners before the faces seat and most
+of the wedge detail is gone off the print. Square 90° corners round
+COMPATIBLY on both halves; retention becomes flat shoulder bearing, which
+also removes the dovetail's lateral cam (pull-out no longer levers the
+mortise lips apart). The one dovetail virtue lost — wedge take-up of
+clearance — was never used: these are SLIDE joints running print-tested
+clearances. The functions keep the `dovetail_` names (family entry points).
 
 ```
- ____
- \     \        plan view (looking down Z): neck = width/2 at the mating
-  \     \       plane, head = width at depth width/2 — sharp flanks are
-  /     /       fine here, every face is a vertical printed wall
- /___/
+ ______
+ |__    |       plan view (looking down Z): neck through the mating plane,
+    |   |       a LIP step at depth_used/2, then the parallel-sided head
+  __|   |       bar out to depth_used — every corner 90°, every tenon wall
+ |______|       segment ≥ one nozzle
 ```
 
 ```python
@@ -323,30 +335,37 @@ beam = beam.cut(cut.translate(...))      # far Z-end left inside = the hard stop
 
 Conventions: profile in the plan plane, width across Y, head toward +X (rotate
 about Z to aim it radially), mating plane at x=0; the prism extrudes along +Z.
-The joint locks ±X (neck lips / head end wall) and ±Y (flanks); **±Z is free by
-design** — the caller closes one end with a stop (un-cut host material past the
-cavity's far end) and guards the other with a preload or the next part in the
-stack.
+The joint locks ±X (neck lips / head end wall) and ±Y (neck + head side
+walls); **±Z is free by design** — the caller closes one end with a stop
+(un-cut host material past the cavity's far end) and guards the other with a
+preload or the next part in the stack.
 
-**Sizing = room in, optimized profile out.** The three parameters are the
+**Sizing = room in, max-min profile out.** The three parameters are the
 mortise's AVAILABLE space — `length` (tall, the Z engagement — used fully;
 taller is always stronger), `depth` (into the host), `width` (across the face)
-— NOT the joint's dimensions. The profile is derived by growing the pull-out
-capacity `min(neck tension, lip shear, shoulder bearing)` until a bound binds
-(shear ≈ 0.6·σ, bearing ≈ 1.5·σ):
+— NOT the joint's dimensions. The T has FOUR failure links — and unlike the
+old dovetail's single flank, its TWO shear elements (the mortise lips at the
+face, the tenon's head bar off the stem) STACK in the depth. The profile is
+the strongest joint the box admits (shear ≈ 0.6·σ, bearing ≈ 1.5·σ):
 
-    neck       = min(0.6·width, 1.2·depth)
-    shoulder o = max(nozzle, neck/3)
-    head       = neck + 2·o          (≤ width)
-    depth_used = neck/1.2            — parity depth; SURPLUS ROOM IS NOT USED
-                                       (it stays host material)
+    neck       = 0.6·min(width, depth)   — shear parity across both stacked
+                 elements; floored at 2·nozzle, capped at width − 2·bead
+    shoulder o = max(bead, min(neck/3, (width − neck)/2))
+    head       = neck + 2·o              (≤ width)
+    lip = bar  = max(bead, min(neck/1.2, depth/2)); depth_used = lip + bar
+                 — parity depth; SURPLUS ROOM IS NOT USED (host material)
 
-so a width-rich site gets a depth-bound joint and vice versa — no dimension is
-filled just because it's there. `dovetail_dims(width, depth, nozzle)` exposes
-the derived `(neck, head, depth_used)`; `dovetail_height` reports what the host
-must actually swallow (depth_used + clearance). Floors: width ≥ 4·nozzle, and
-too-shallow depth (balanced neck < 2 beads) raises. Clearance policy is the
-same print-tested table as the other families; it dilates the mortise only.
+where `bead = one nozzle`: **every tenon wall segment is floored at one
+nozzle** (Arachne slicing keeps exactly-nozzle lines — the old +0.05 buffer
+predates Arachne and is gone; the mortise is the dilated copy — always
+larger, no separate check). `dovetail_dims(width, depth, nozzle)` exposes
+the derived `(neck, head, depth_used)` (lip = bar = depth_used/2);
+`dovetail_height` reports what the host must actually swallow
+(depth_used + clearance).
+Floors: width ≥ 4·nozzle, depth ≥ 2·nozzle — both raise. Clearance
+policy is the same print-tested table as the other families; it dilates the
+mortise only (the T profile itself is print-UNVALIDATED as of 2026-07-22 —
+A/B the first print like the arrow rows above).
 
 ## Hook (single-flank dovetail) — EDGE-BOUNDED install ∥ print-Z sites
 
