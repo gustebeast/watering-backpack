@@ -9,7 +9,7 @@ REM   %~dp0  = THIS file's folder (3D/freecad), so freecad_view.py sits beside i
 setlocal
 set "PROJ=%~1"
 if "%PROJ%"=="" set "PROJ=%CD%\"
-py -3.12 "%~dp0freecad_view.py" --step "%PROJ%assembly.step"
+py -3.12 "%~dp0freecad_view.py" --step "%PROJ%assembly.step" --raise
 if errorlevel 1 (
   echo.
   echo Could not open the viewer -- see the message above.
