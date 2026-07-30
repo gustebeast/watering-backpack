@@ -150,6 +150,25 @@ def _heartbeat_age():
         return None
 
 
+def _code_is_stale():
+    """True if the running hub was launched from an OLDER freecad_viewer.py than
+    the one on disk. FreeCAD runs that file once at launch and keeps it in memory,
+    so a code change reaches a live hub only by restarting it — and nothing used to
+    notice, which let a two-day-old hub keep raising its window long after that was
+    deleted. Unknown/absent stamp reads as NOT stale: this may only ever cost a
+    restart, never suppress one incorrectly on a healthy hub."""
+    viewer = os.path.join(_HERE, "freecad_viewer.py")
+    try:
+        running = float(open(_HEARTBEAT + ".codestamp").read().strip())
+    except (OSError, ValueError):
+        return False
+    try:
+        on_disk = os.path.getmtime(viewer)
+    except OSError:
+        return False
+    return on_disk > running + 1.0          # 1 s slack for filesystem granularity
+
+
 def _kill_hub():
     """Force a wedged hub process down and clear its markers so the next launch
     starts a clean one. Never raises."""
@@ -166,7 +185,7 @@ def _kill_hub():
                 os.kill(pid, 9)
         except Exception:
             pass
-    for p in (_MARKER, _HEARTBEAT):
+    for p in (_MARKER, _HEARTBEAT, _HEARTBEAT + ".codestamp"):
         try:
             os.remove(p)
         except OSError:
@@ -206,21 +225,27 @@ def show(step_path=None, project=None, freecad_exe=None):
 
         if _hub_running():
             age = _heartbeat_age()
-            if age is not None and age <= _HEARTBEAT_STALE_S:
-                # Hub alive and ticking — hand it the project as a tab. One file
-                # per request (unique name) so concurrent builds never clobber
-                # each other; the hub opens it, or ignores it if that project is
-                # already a tab, then deletes it.
+            why = None
+            if _code_is_stale():
+                why = "is running older viewer code"
+            elif age is None:
+                why = "has no heartbeat"
+            elif age > _HEARTBEAT_STALE_S:
+                why = "watcher unresponsive (%.0fs since last tick)" % age
+            if why is None:
+                # Hub alive, ticking, and running the code that is on disk — hand it
+                # the project as a tab. One file per request (unique name) so
+                # concurrent builds never clobber each other; the hub opens it, or
+                # ignores it if that project is already a tab, then deletes it.
                 req = os.path.join(_INBOX, uuid.uuid4().hex + ".txt")
                 with open(req, "w", encoding="utf-8") as f:
                     f.write(step)
                 return True
-            # Process is alive but its watch loop has stopped (stale/absent
-            # heartbeat): dropped requests would pile up unseen — the exact bug
-            # this guards against. Tear it down and relaunch a working one.
-            why = "no heartbeat" if age is None else "%.0fs since last tick" % age
-            print("[freecad] hub watcher unresponsive (%s) - restarting viewer" % why,
-                  file=sys.stderr)
+            # Two ways a live hub is still useless, and both are fixed by a restart:
+            # its watch loop has stopped (requests would pile up unseen), or it
+            # predates the viewer code on disk — FreeCAD runs that file once at
+            # launch, so an old hub keeps its old behaviour no matter what we edit.
+            print("[freecad] hub %s - restarting viewer" % why, file=sys.stderr)
             _kill_hub()
 
         # No (working) hub: start one. Clear stale requests so a previous session's
