@@ -357,6 +357,17 @@ def start_hub(inbox_dir=None, initial_step=None):
         _hub["inbox"] = os.path.abspath(inbox_dir)
     _hub["heartbeat"] = (os.environ.get("FREECAD_VIEW_HEARTBEAT")
                          or os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat"))
+    # Stamp the mtime of the code THIS process is running. FreeCAD executes this
+    # file once, at launch, and keeps it in memory — so editing it changes nothing
+    # for a hub that is already up. That bit us: a hub from the 28th went on
+    # raising its window for two days after the behaviour was narrowed and then
+    # deleted, because neither version ever ran. The launcher compares this stamp
+    # to the file on disk and restarts a hub running stale code.
+    try:
+        with open(_hub["heartbeat"] + ".codestamp", "w") as _f:
+            _f.write("%.6f" % os.path.getmtime(os.path.abspath(__file__)))
+    except Exception:
+        pass
     _write_heartbeat()   # stamp immediately so the launcher sees a live hub at once
 
     App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("AntiAliasing", 3)
