@@ -653,31 +653,49 @@ def dovetail_mortise(width, depth, length, nozzle=0.8, clearance=0.1, drop=2.0,
 # about the install axis allowed.
 
 
-def hook_width_min(nozzle=0.8, clearance=0.1):
-    """Smallest edge-to-edge `width` that fits the hook: a nozzle of wall per
-    free edge (post-dilation), a nozzle of stem, a nozzle of hook."""
-    return 4.0 * nozzle + 2.0 * clearance
+def _hook_seg(width, nozzle, clearance):
+    """The hook profile's TIER size — the edge walls, the hook and the
+    minimum stem all print at this: TARGETS 2·nozzle (quality — two clean
+    perimeters, same rule as the T) and degrades toward the one-nozzle
+    hard floor when the edge-to-edge width is tight. EQUAL-SPLIT parity:
+    the stem is the tension link, the hook the shear link, the edge walls
+    the host face's flesh — none is worth starving before the others."""
+    return min(max((width - 2.0 * abs(clearance)) / 4.0, nozzle),
+               2.0 * nozzle)
+
+
+def hook_width_min(nozzle=0.8, clearance=0.1, quality=False):
+    """Smallest edge-to-edge `width` that fits the hook at the tier: one
+    tier-segment each of edge wall ×2, stem and hook. quality=False → the
+    one-nozzle hard floor; quality=True → the width at which EVERY segment
+    (both halves — the mortise lip mirrors the tier) reaches 2·nozzle."""
+    seg = 2.0 * nozzle if quality else nozzle
+    return 4.0 * seg + 2.0 * clearance
 
 
 def hook_dims(width, nozzle=0.8, clearance=0.1):
     """(stem_h, notch_depth, full_depth) of the hook profile inside the
-    edge-to-edge `width`. The hook, lip and edge walls are bead-fixed; ALL
-    surplus width goes into the STEM — the tension link. Raises when the
-    width can't fit a printable joint."""
+    edge-to-edge `width`. The hook, lip and edge walls print at the TIER
+    (_hook_seg: 2·nozzle target, one-nozzle floor — was bead-FIXED; the
+    tier grew with the T's, user print finding: sub-1.6 TPU rails tear);
+    beyond the quality width ALL surplus goes into the STEM — the tension
+    link. Raises when the width can't fit a printable joint."""
     wmin = hook_width_min(nozzle, clearance)
     if width < wmin - 1e-9:
         raise ValueError(f"width {width:.3f} is below the printable minimum "
                          f"{wmin:.3f} mm for the hook (a nozzle each of edge "
                          "wall x2, stem, and hook) — the site is too short "
                          "even for the single-flank profile")
-    stem_h = width - 3.0 * nozzle - 2.0 * clearance
-    return stem_h, nozzle + clearance, 2.0 * nozzle + clearance
+    seg = _hook_seg(width, nozzle, clearance)
+    stem_h = width - 3.0 * seg - 2.0 * clearance
+    return stem_h, seg + clearance, 2.0 * seg + clearance
 
 
-def hook_depth(nozzle=0.8, clearance=0.1):
+def hook_depth(width, nozzle=0.8, clearance=0.1):
     """Protrusion past the mating plane (what the mortise host must swallow):
-    the bead-fixed full depth + clearance."""
-    return 2.0 * nozzle + 2.0 * clearance
+    the tier-sized full depth + clearance. Width-dependent now — the depth
+    tracks the tier the width affords."""
+    return 2.0 * _hook_seg(width, nozzle, clearance) + 2.0 * clearance
 
 
 def _hook_profile(width, nozzle, clearance, back):
@@ -685,11 +703,12 @@ def _hook_profile(width, nozzle, clearance, back):
     flare toward +Y, `back` extension behind the mating plane (tenon root /
     mortise opening drop). y=0 is the FACE CENTRE — the free edges sit at
     ±width/2. The mortise (this dilated `clearance`) lands exactly one
-    nozzle inside each edge."""
+    tier-segment inside each edge."""
     stem_h, d1, d2 = hook_dims(width, nozzle, clearance)
-    y0 = -width / 2.0 + nozzle + clearance       # stem bottom
+    seg = d1 - clearance                         # the tier the width affords
+    y0 = -width / 2.0 + seg + clearance          # stem bottom
     y1 = y0 + stem_h                             # stem top = the lip's seat
-    y2 = y1 + nozzle                             # hook top
+    y2 = y1 + seg                                # hook top
     return [(-back, y0), (d2, y0), (d2, y2), (d1, y2), (d1, y1), (-back, y1)]
 
 
@@ -861,7 +880,7 @@ class _SlideJoint:
                                      "the `depth` bound for this site")
                 self.family = "hook"
                 hook_dims(width, self.nozzle, self.clearance)   # width floor
-                self.height = hook_depth(self.nozzle, self.clearance)
+                self.height = hook_depth(width, self.nozzle, self.clearance)
                 self.width_min = hook_width_min(self.nozzle, self.clearance)
                 return
             self.family = "dovetail"
@@ -1419,8 +1438,9 @@ if __name__ == "__main__":
         print(f"  {label:<34} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
         if not ok:
             fails.append(f"hook: {label} = {v:.3f}")
-    # bead budget: the dilated cavity leaves EXACTLY one nozzle of wall at
-    # each free edge, and the lip (notch minus dilation) is one nozzle
+    # tier budget: the dilated cavity leaves EXACTLY one tier-segment of
+    # wall at each free edge, and the lip (notch minus dilation) matches
+    seg4 = _hook_seg(HW, NZ4, CLR4)
     hpts2 = _hook_profile(HW, NZ4, CLR4, 1.0)
     y_lo = min(y for _x, y in hpts2)              # stem bottom (tenon)
     y_hi = max(y for _x, y in hpts2)              # hook top (tenon)
@@ -1428,22 +1448,31 @@ if __name__ == "__main__":
     top_wall = HW / 2.0 - (y_hi + CLR4)
     stem_h2, hd1, hd2 = hook_dims(HW, NZ4, CLR4)
     lip = hd1 - CLR4
-    ok = (abs(bot_wall - NZ4) < 1e-9 and abs(top_wall - NZ4) < 1e-9
-          and abs(lip - NZ4) < 1e-9 and abs(hd2 - hd1 - NZ4) < 1e-9
-          and stem_h2 >= NZ4 - 1e-9)
-    print(f"  bead budget           walls={bot_wall:.2f}/{top_wall:.2f} lip={lip:.2f} "
-          f"hook={hd2 - hd1:.2f} stem={stem_h2:.2f} (walls/lip/hook = nozzle)"
+    ok = (abs(bot_wall - seg4) < 1e-9 and abs(top_wall - seg4) < 1e-9
+          and abs(lip - seg4) < 1e-9 and abs(hd2 - hd1 - seg4) < 1e-9
+          and stem_h2 >= seg4 - 1e-9)
+    print(f"  tier budget           walls={bot_wall:.2f}/{top_wall:.2f} lip={lip:.2f} "
+          f"hook={hd2 - hd1:.2f} stem={stem_h2:.2f} (all = tier {seg4:.2f})"
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
-        fails.append(f"hook: bead budget walls {bot_wall:.2f}/{top_wall:.2f} "
+        fails.append(f"hook: tier budget walls {bot_wall:.2f}/{top_wall:.2f} "
                      f"lip {lip:.2f} stem {stem_h2:.2f}")
-    # surplus width goes into the STEM alone
-    stem_w6, _d1w, _d2w = hook_dims(6.0, NZ4, CLR4)
-    ok = abs((stem_w6 - stem_h2) - (6.0 - HW)) < 1e-9
-    print(f"  stem takes surplus    {stem_h2:.2f} -> {stem_w6:.2f} for width {HW} -> 6.0"
-          f"{'' if ok else '  <-- FAIL'}")
+    # QUALITY WIDTH: every segment lands exactly at 2·nozzle
+    wq = hook_width_min(NZ4, CLR4, quality=True)
+    stem_q, d1_q, d2_q = hook_dims(wq, NZ4, CLR4)
+    ok = (abs(stem_q - 2 * NZ4) < 1e-9 and abs(d1_q - CLR4 - 2 * NZ4) < 1e-9
+          and abs(d2_q - d1_q - 2 * NZ4) < 1e-9)
+    print(f"  quality width {wq:.2f}    stem={stem_q:.2f} lip={d1_q - CLR4:.2f} "
+          f"hook={d2_q - d1_q:.2f} (all = 2·nozzle){'' if ok else '  <-- FAIL'}")
     if not ok:
-        fails.append(f"hook: stem surplus {stem_w6:.2f} vs {stem_h2:.2f}")
+        fails.append(f"hook: quality width → {stem_q},{d1_q},{d2_q}")
+    # beyond the quality width, surplus goes into the STEM alone
+    stem_w8, _d1w, _d2w = hook_dims(wq + 1.4, NZ4, CLR4)
+    ok = abs((stem_w8 - stem_q) - 1.4) < 1e-9
+    print(f"  stem takes surplus    {stem_q:.2f} -> {stem_w8:.2f} for width "
+          f"{wq:.2f} -> {wq + 1.4:.2f}{'' if ok else '  <-- FAIL'}")
+    if not ok:
+        fails.append(f"hook: stem surplus {stem_w8:.2f} vs {stem_q:.2f}")
     # width floor raises
     try:
         hook_tenon(hook_width_min(NZ4, CLR4) - 0.2, 10, nozzle=NZ4, clearance=CLR4)
@@ -1490,7 +1519,7 @@ if __name__ == "__main__":
     if not ok:
         fails.append(f"slide_joint: bounded 8.0 -> {jb.family}/{jb.width}")
     jb = slide_joint(4.2, 12, up, up, install="z", bounded=True)
-    ok = jb.family == "hook" and abs(jb.height - hook_depth(0.8, CGF)) < 1e-9
+    ok = jb.family == "hook" and abs(jb.height - hook_depth(4.2, 0.8, CGF)) < 1e-9
     print(f"  bounded 4.2 -> hook (height {jb.height:.1f}) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"slide_joint: bounded 4.2 -> {jb.family}")
