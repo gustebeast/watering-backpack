@@ -432,9 +432,16 @@ arm = arm.cut(cut.rotate(...).translate(...))     # far Z-end inside = stop
   install axis: close one end with a stop, and site the stop DOWN-LOAD of
   the working force so the joint self-tightens (the brake pad's stop sits
   where braking drag pushes).
-- **Bead-fixed depth:** notch = nozzle + clearance, full depth = 2·nozzle +
-  clearance; `hook_depth()` = what the mortise host swallows. Floors:
-  `hook_width_min` = 4·nozzle + 2·clearance (stem would drop under a bead).
+- **Tier-sized** (was bead-fixed; grew with the T's quality tier — print
+  finding: sub-1.6 TPU rails tear): the edge walls, hook, mortise lip and
+  minimum stem all print at `_hook_seg` = (width − 2·clearance)/4 clamped
+  [nozzle, 2·nozzle] — equal-split parity, no segment starves first. Depths
+  track the tier: notch = seg + clearance, full depth = 2·seg + clearance;
+  `hook_depth(width, …)` = what the mortise host swallows (width-dependent
+  now). Floors: `hook_width_min(nozzle, clearance)` = 4·nozzle +
+  2·clearance (hard); `quality=True` → 8·nozzle + 2·clearance = the width
+  where every segment on both halves reaches 2·nozzle — SIZE THE HOSTING
+  FACE to this when the site can grow (the brake-pad band did).
 - **Print story = the dovetail's:** install ∥ print-Z, every wall vertical,
   any rotation about the install axis allowed. (In the first consumer both
   hosts print along an axis ~9° off the channel — near-vertical walls, fine.)
