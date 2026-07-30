@@ -227,22 +227,24 @@ def _scan_inbox():
     for f in sorted(glob.glob(os.path.join(inbox, "*.txt"))):
         try:
             # utf-8-sig so a BOM (e.g. from PowerShell Set-Content) is stripped.
-            step = open(f, encoding="utf-8-sig").read().strip()
+            lines = open(f, encoding="utf-8-sig").read().split("
+")
         except OSError:
             continue
+        step = lines[0].strip()
+        want_raise = any(x.strip() == "raise" for x in lines[1:])
         if step:
             doc = _open_project(step)
-            if doc is not None:
+            if doc is not None and want_raise:
                 focused = doc
         try:
             os.remove(f)            # processed (or already open) — drop the request
         except OSError:
             pass
     if focused is not None:
-        # An inbox request is user-initiated (View Assembly.cmd or a build's
-        # show()): switch to that project's tab and bring the window forward —
-        # otherwise a double-click with FreeCAD in the background looks like
-        # a silent no-op.
+        # Raise ONLY for requests flagged "raise" (View Assembly.cmd — a
+        # direct user action). Builds' show() requests carry no flag, so a
+        # rebuild never yanks the user away from the tab they're reading.
         try:
             App.setActiveDocument(focused.Name)
         except Exception:
