@@ -190,14 +190,13 @@ def _resolve_step(step_path=None, project=None):
     raise ValueError("multiple .step files in %s - pass an explicit step path" % proj)
 
 
-def show(step_path=None, project=None, freecad_exe=None, raise_window=False):
+def show(step_path=None, project=None, freecad_exe=None):
     """Make a STEP viewable in the shared FreeCAD hub (open a tab, launching the
     hub window first if needed). Returns True if a viewer is up/queued, False on
     any handled problem. Never raises.
 
-    `raise_window` — bring the hub forward and switch to this tab. ONLY for
-    direct user actions (View Assembly.cmd); builds must leave it False so a
-    rebuild never steals focus from the tab the user is looking at."""
+    Opening a tab is all this does — it never brings the window forward or
+    changes which tab is showing (user). There is no flag for that any more."""
     try:
         step = _resolve_step(step_path, project)
         if not os.path.exists(step):
@@ -214,8 +213,7 @@ def show(step_path=None, project=None, freecad_exe=None, raise_window=False):
                 # already a tab, then deletes it.
                 req = os.path.join(_INBOX, uuid.uuid4().hex + ".txt")
                 with open(req, "w", encoding="utf-8") as f:
-                    f.write(step + ("
-raise" if raise_window else ""))
+                    f.write(step)
                 return True
             # Process is alive but its watch loop has stopped (stale/absent
             # heartbeat): dropped requests would pile up unseen — the exact bug
@@ -271,9 +269,6 @@ def _cli(argv=None):
     ap.add_argument("--freecad", help="path to the FreeCAD executable (this run only)")
     ap.add_argument("--set-path", metavar="EXE",
                     help="save the FreeCAD executable path to the cadkit config and exit")
-    ap.add_argument("--raise", dest="raise_window", action="store_true",
-                    help="bring the hub window forward and switch to this tab "
-                         "(for direct user actions, e.g. View Assembly.cmd)")
     a = ap.parse_args(argv)
     if a.set_path:
         exe = os.path.abspath(os.path.expanduser(a.set_path))
@@ -282,8 +277,7 @@ def _cli(argv=None):
         _write_config(exe)
         print("saved FreeCAD path -> %s" % _config_path())
         return 0
-    return 0 if show(step_path=a.step, project=a.project, freecad_exe=a.freecad,
-                     raise_window=a.raise_window) else 1
+    return 0 if show(step_path=a.step, project=a.project, freecad_exe=a.freecad) else 1
 
 
 if __name__ == "__main__":
