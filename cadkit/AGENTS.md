@@ -258,6 +258,38 @@ the bare solid, for fusing into a larger cut. They take a direction **vector**
 mouth face; `overshoot=` extends the cutter backwards out of the material to dodge
 coincident-face booleans without moving any real feature.
 
+## Minimum material
+
+**Default to two beads.** At a 0.8 nozzle that is **1.6 mm**, and it is the number
+to size new geometry from. Two perimeters bond to each other and behave like a
+wall; one bead is a single extrusion that splits along a layer line and has
+nothing to bond to. `min_wall` is a statement about what the printer can just
+about produce, not a target — designing to it is how a part ends up technically
+printable and actually fragile.
+
+A single bead (`min_wall(0.8)` = 0.85) is a **deviation you can name a reason
+for**: a feature that cannot be thicker without breaking something else. Say which
+in the comment. Same for dropping to a 0.4 nozzle — last resort, and only for the
+parts that need it, not the whole build.
+
+`cadkit.printing` owns both numbers — never hard-code `0.85` or `1.6`:
+```python
+from cadkit.printing import min_wall, quality_wall
+NOZZLE_D = 0.8                       # set ONCE per project
+MIN_FEAT = quality_wall(NOZZLE_D)    # 1.6 — SIZE FROM THIS
+MIN_WALL = min_wall(NOZZLE_D)        # 0.85 — the exception, not the default
+```
+Why the single-bead floor carries a 0.05 buffer but multi-bead walls do not:
+material exactly one nozzle wide sometimes lands under the slicer's
+extrusion-width threshold and gets DROPPED, leaving a gap where you drew solid. A
+wall built as an integer number of beads needs no such pad — the slicer lays
+exactly that many, and padding would knock the perimeters out of register.
+
+It bites hardest at **hidden** thin spots — a boss ceiling over a cross-bore, a
+web between two pockets — where the nominal numbers look fine but the finished
+solid is a razor. The overlap gate does NOT catch thin material, so **verify on
+the real solid** with a point-probe or cross-section, not on paper.
+
 ## Don't
 - Don't re-add Onshape (push scripts, credentials, `_push_onshape`) — removed on
   purpose.

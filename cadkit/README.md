@@ -17,6 +17,10 @@ cadkit/
   holes.py           teardrop_hole() — cutter for SIDEWAYS round holes: 45°
                      teardrop ceiling replaces the sagging round top; round
                      lower half untouched (pins/rods bear as in a round bore)
+  printing.py        FDM minimum-material rule. quality_wall(nozzle) = 2 beads
+                     = the DEFAULT for new geometry (1.6 at a 0.8 nozzle);
+                     min_wall(nozzle) = the absolute floor, one bead + 0.05.
+                     Aim at the first, treat the second as a named exception.
   contact.py         minimal-contact rub features: contact_rib_size(nozzle)
                      = exactly one nozzle (width AND proud; Arachne keeps
                      exact-nozzle lines); contact_ring() = ring + teardrop tail
