@@ -285,6 +285,13 @@ without sag.
 - **`nozzle`** the physical constant; `clearance` = fit gap; `root`/`drop` = fusion
   / cavity-opening depth.
 
+The **mortise neck survives the dilation at the tier**: the mitred clearance
+offset SHORTENS the cavity's neck vertical by `clearance·(√2−1)` at the reflex
+shoulder corner, so the tenon post is pre-grown by exactly that (print-caught:
+a mount-channel neck measured 1.54 at clearance 0.15 before the relief). Same
+lesson as the arrow's oversized `stem_h` and the T's pre-grown lip — the
+self-test measures the cutter's neck face directly.
+
 The **stem is width/2** and the **shoulder follows** — both *computed*, not knobs.
 width/2 is where the stem (tension) and the two mortise lips (shear) fail at the
 same load, so it's the deterministic strength optimum; wider starves retention,

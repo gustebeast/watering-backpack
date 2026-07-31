@@ -278,12 +278,20 @@ def _octagon_profile(width, nozzle, base_z, clearance, height=None):
                          "nozzle) — give the joint more room, or use a finer nozzle")
     n = nozzle
     pv = _bead_pref(n)                     # verticals: two-nozzle quality tier
+    # NECK PRE-GROWTH: the mitred clearance dilation SHORTENS the cavity's
+    # neck vertical by clearance·(√2−1) at the retention shoulder (a REFLEX
+    # corner of the cavity outline — both its edges retract when the
+    # outline offsets outward). The tenon post grows by exactly that, so
+    # the MORTISE's printed neck wall lands on the tier (user-caught at
+    # 1.54 on a mount channel at clr 0.15). Same lesson, third profile:
+    # the arrow oversizes stem_h, the T pre-grows its lip.
+    grow = abs(clearance) * (math.sqrt(2.0) - 1.0)
     roof_t = _tenon_roof(n, clearance)     # tenon roof → mortise roof = one nozzle
     hw = width / 2.0                       # half flat-to-flat (the waist)
     stem = _STEM_FRAC * width              # FAT stem (strength optimum, = width/2)
     orange = hw - stem / 2.0               # lower diagonal run = shoulder overhang / side
     green = hw - roof_t / 2.0              # upper diagonal run (set by width)
-    h_min = pv + orange + pv + green       # the width-driven minimal height
+    h_min = pv + grow + orange + pv + green   # the width-driven minimal height
     extra = 0.0
     if height is not None:
         if height < h_min - 1e-9:
@@ -291,7 +299,8 @@ def _octagon_profile(width, nozzle, base_z, clearance, height=None):
                              f"{h_min:.3f} mm (45° diagonals + two-nozzle verticals "
                              "are incompressible) — raise height or shrink width")
         extra = height - h_min
-    post_h = pv + extra / 2.0              # stem standoff above the mating plane
+    post_h = pv + grow + extra / 2.0       # stem standoff above the mating plane
+                                           # (pre-grown: mortise neck = pv)
     z_neck = post_h
     z_wb = z_neck + orange                 # lower (orange) diagonal → waist bottom
     z_wt = z_wb + pv + extra / 2.0         # vertical (grows with height) → waist top
@@ -1225,6 +1234,22 @@ if __name__ == "__main__":
           f"vert={vert:.3f} green={green:.3f} (min >= {NZ}){'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"octagon: tenon segment {worst:.3f} < nozzle {NZ}")
+    # the MORTISE NECK survives the mitred dilation at the tier: the reflex
+    # shoulder corner shortens the cavity's neck vertical by clr·(√2−1), and
+    # the tenon post pre-grows by exactly that (user print-caught: a mount
+    # channel neck measured 1.54 at clr 0.15) — measure the CUTTER's
+    # stem-wall face top directly
+    for cc in (CLR2, 0.15):
+        m = _octagon_mortise(WIDTH, 6, nozzle=NZ, clearance=cc, drop=3)
+        sy = _STEM_FRAC * WIDTH / 2.0 + cc
+        zt = max(f.BoundingBox().zmax for f in m.val().Faces()
+                 if abs(abs(f.normalAt().y) - 1.0) < 1e-6
+                 and abs(abs(f.Center().y) - sy) < 1e-6)
+        ok = zt >= 2.0 * NZ - 1e-6
+        print(f"  mortise neck @clr={cc:.2f}  {zt:.3f} (must be >= {2.0 * NZ})"
+              f"{'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"octagon: mortise neck {zt:.3f} at clr {cc}")
     # the fat stem: stem = width/2 (computed optimum), and the lower (orange)
     # diagonal is SHORTER than the upper (green) so the stem stays thick
     tpts, _ = _octagon_profile(WIDTH, NZ, 0.0, CLR2)
@@ -1254,9 +1279,11 @@ if __name__ == "__main__":
     hpts, _ = _octagon_profile(W3, NZ, 0.0, CLR2, H3)
     seg = lambda i: math.hypot(hpts[i + 1][0] - hpts[i][0], hpts[i + 1][1] - hpts[i][1])
     post, vert = hpts[1][1], seg(2)              # stem post height, waist vertical
+    grow3 = CLR2 * (2.0 ** 0.5 - 1.0)            # neck pre-growth (mortise relief)
     want = 2.0 * NZ + (H3 - h0) / 2.0            # verticals base = quality tier
-    ok = abs(post - want) < 1e-6 and abs(vert - want) < 1e-6
-    print(f"  verticals             post={post:.3f} vert={vert:.3f} (want {want:.3f} each)"
+    ok = abs(post - (want + grow3)) < 1e-6 and abs(vert - want) < 1e-6
+    print(f"  verticals             post={post:.3f} (+{grow3:.3f} neck grow) "
+          f"vert={vert:.3f} (want {want:.3f})"
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"octagon-h: verticals {post:.3f}/{vert:.3f} != {want:.3f}")
