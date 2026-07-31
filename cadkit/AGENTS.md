@@ -36,13 +36,11 @@ Two layers of reusable capability back a cadkit project:
     `cut_thread` (long screw from a smooth blank), and `teardrop_thread_cutter` (a
     **SIDEWAYS/horizontal-axis female thread** — full round bore + a self-supporting
     hexagon peak on the +Y print-up side; print-tested clean, Ø6 in PETG)
-  - `cadkit.joinery` — **printable mortise-and-tenon slide joints**;
-    read **`cadkit/JOINERY_README.md`** first. ONE entrypoint: `joint(width,
-    length, tenon, mortise, install=…, depth=…, bounded=…)` — tenon/mortise
-    are PrintSpecs; you describe the SITE (print settings, install axis,
-    bounding box) and the library picks and sizes the optimal profile.
-    Never ask for a shape and never re-model a joint — call the library
-    (`joint_box_min` sizes the hosting geometry before the joint exists).
+  - `cadkit.joinery` — **printable mortise-and-tenon slide joints** (dull arrowhead);
+    read **`cadkit/JOINERY_README.md`** first. THE recipe for a tenon printed SIDEWAYS
+    (+Y build) mating a mortise printed flat (−Z→+Z) is `ramp=True, hook_h=…`
+    (print-validated); plain 45°-everywhere profiles cam apart along the up-ramp
+    diagonal — don't reinvent this joint, call the library.
   - `cadkit.fasteners` — shared M2/M4 hole/insert dims · `cadkit.cq_colors` — baked STEP colours
   - `cadkit.freecad` — the FreeCAD viewer hub (`from cadkit.freecad import show`) + `view_assembly.cmd` launcher
   - `cadkit/tools/agent_sync.py` — the multi-agent worktree/merge CLI (run as a script)
@@ -260,37 +258,32 @@ the bare solid, for fusing into a larger cut. They take a direction **vector**
 mouth face; `overshoot=` extends the cutter backwards out of the material to dodge
 coincident-face booleans without moving any real feature.
 
-## Minimum material
+## Minimum material — count it in whole beads
+Design printed material as an **integer number of nozzle beads.** The projects
+slice with a variable-width wall generator (**Arachne**), which fills exact nozzle
+multiples cleanly — so there is **NO buffer.** (An earlier `nozzle + 0.05` pad
+guarded against classic generators dropping exactly-one-nozzle lines; retired once
+everything moved to Arachne — user's call 2026-07-22. If you see `0.85`/`+0.05`
+anywhere, it's a leftover to clear.)
 
-**Default to two beads.** At a 0.8 nozzle that is **1.6 mm**, and it is the number
-to size new geometry from. Two perimeters bond to each other and behave like a
-wall; one bead is a single extrusion that splits along a layer line and has
-nothing to bond to. `min_wall` is a statement about what the printer can just
-about produce, not a target — designing to it is how a part ends up technically
-printable and actually fragile.
+**One bead is the hard floor; two beads (`2 × nozzle`) is the QUALITY TARGET** — a
+lone bead slices a bit mushy, two clean perimeters print crisp. **Prefer two beads**
+on anything load- or seal-bearing; drop to one only in a genuinely tight room.
 
-A single bead (`min_wall(0.8)` = 0.85) is a **deviation you can name a reason
-for**: a feature that cannot be thicker without breaking something else. Say which
-in the comment. Same for dropping to a 0.4 nozzle — last resort, and only for the
-parts that need it, not the whole build.
-
-`cadkit.printing` owns both numbers — never hard-code `0.85` or `1.6`:
+`cadkit.printing` owns the rule — never hard-code `0.8`/`1.6`:
 ```python
-from cadkit.printing import min_wall, quality_wall
-NOZZLE_D = 0.8                       # set ONCE per project
-MIN_FEAT = quality_wall(NOZZLE_D)    # 1.6 — SIZE FROM THIS
-MIN_WALL = min_wall(NOZZLE_D)        # 0.85 — the exception, not the default
+from cadkit.printing import min_wall
+NOZZLE_D    = 0.8                        # set ONCE per project (this repo runs 0.8)
+MIN_WALL    = min_wall(NOZZLE_D)         # 0.8 — one-bead HARD floor
+MIN_WALL_2P = min_wall(NOZZLE_D, beads=2)   # 1.6 — two-bead quality target (prefer this)
 ```
-Why the single-bead floor carries a 0.05 buffer but multi-bead walls do not:
-material exactly one nozzle wide sometimes lands under the slicer's
-extrusion-width threshold and gets DROPPED, leaving a gap where you drew solid. A
-wall built as an integer number of beads needs no such pad — the slicer lays
-exactly that many, and padding would knock the perimeters out of register.
-
-It bites hardest at **hidden** thin spots — a boss ceiling over a cross-bore, a
-web between two pockets — where the nominal numbers look fine but the finished
-solid is a razor. The overlap gate does NOT catch thin material, so **verify on
-the real solid** with a point-probe or cross-section, not on paper.
+Size features from these (e.g. a boss ceiling over a cross-bore = `axis_z + bore_r
++ MIN_WALL_2P`). Same rule lives in `joinery._bead`/`_bead_pref` and
+`contact.contact_rib_size`. It bites hardest at **hidden** thin spots — a boss
+ceiling over a horizontal set-screw bore, a web between two pockets — where the
+nominal numbers look fine but the finished solid is a razor. The overlap gate
+does NOT catch thin material (see its caveats), so **verify these on the real
+solid** with a point-probe / cross-section, not on paper.
 
 ## Don't
 - Don't re-add Onshape (push scripts, credentials, `_push_onshape`) — removed on
