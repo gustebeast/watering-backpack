@@ -36,11 +36,13 @@ Two layers of reusable capability back a cadkit project:
     `cut_thread` (long screw from a smooth blank), and `teardrop_thread_cutter` (a
     **SIDEWAYS/horizontal-axis female thread** — full round bore + a self-supporting
     hexagon peak on the +Y print-up side; print-tested clean, Ø6 in PETG)
-  - `cadkit.joinery` — **printable mortise-and-tenon slide joints** (dull arrowhead);
-    read **`cadkit/JOINERY_README.md`** first. THE recipe for a tenon printed SIDEWAYS
-    (+Y build) mating a mortise printed flat (−Z→+Z) is `ramp=True, hook_h=…`
-    (print-validated); plain 45°-everywhere profiles cam apart along the up-ramp
-    diagonal — don't reinvent this joint, call the library.
+  - `cadkit.joinery` — **printable mortise-and-tenon slide joints**;
+    read **`cadkit/JOINERY_README.md`** first. ONE entrypoint: `joint(width,
+    length, tenon, mortise, install=…, depth=…, bounded=…)` — tenon/mortise
+    are PrintSpecs; you describe the SITE (print settings, install axis,
+    bounding box) and the library picks and sizes the optimal profile.
+    Never ask for a shape and never re-model a joint — call the library
+    (`joint_box_min` sizes the hosting geometry before the joint exists).
   - `cadkit.fasteners` — shared M2/M4 hole/insert dims · `cadkit.cq_colors` — baked STEP colours
   - `cadkit.freecad` — the FreeCAD viewer hub (`from cadkit.freecad import show`) + `view_assembly.cmd` launcher
   - `cadkit/tools/agent_sync.py` — the multi-agent worktree/merge CLI (run as a script)

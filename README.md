@@ -42,7 +42,7 @@ can't break a build.
 ```python
 from cadkit.fasteners import cut_anchor, M2, M4
 from cadkit.threads import cut_thread, threaded_rod
-from cadkit.joinery import arrow_tenon, arrow_mortise
+from cadkit.joinery import PrintSpec, joint
 from cadkit.step_export import export_step
 from cadkit.overlap_check import run
 from cadkit import cq_colors
