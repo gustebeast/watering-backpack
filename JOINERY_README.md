@@ -52,8 +52,12 @@ joint_box_min(up, up, install="z", quality=True)   # -> (4.8, 3.5): the room a
                             # same site inputs, no solids
 ```
 
-- **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
-  (−Y→+Y). `material` picks the fit clearance from a print-validated table
+- **`PrintSpec(nozzle, material, facing)`** — `facing` is the host's BUILD
+  DIRECTION in the joint's local frame (the axis alone under-determines a
+  print — the direction along it matters just as much, user finding):
+  `'up'` (builds local −Z→+Z), `'down'` (builds local +Z→−Z — the part
+  prints inverted relative to the joint), or `'side'` (builds −Y→+Y).
+  `material` picks the fit clearance from a print-validated table
   (`PETG-GF → 0.15`), falling back to a **default (0.15)** when unknown; override
   any time with `joint(…, clearance=…)`.
 - **Materials pick the clearances** (`joint_clearances(tenon, mortise, fit,
@@ -65,8 +69,8 @@ joint_box_min(up, up, install="z", quality=True)   # -> (4.8, 3.5): the room a
   fine, the depth sandwich bound until its face gap reached 0.3. Other
   families' fiber behavior is unmeasured — they use the base value.
 - **`fit`** — `"normal"` (default) is the print-tested slide fit; `"loose"`
-  doubles BOTH clearances for joints that must slide with zero effort (glued
-  assemblies, frequently-serviced parts). Retention geometry is unchanged —
+  doubles BOTH clearances for joints that must slide with zero effort
+  (frequently-serviced parts, joints mated blind). Retention geometry is unchanged —
   only the gaps grow.
 - **`install`** — the slide/install axis: the ONE direction deliberately left
   without retention (print orientation alone under-determines a slide joint).
@@ -79,7 +83,12 @@ joint_box_min(up, up, install="z", quality=True)   # -> (4.8, 3.5): the room a
   `.tenon_arc(radius, sweep_deg)` / `.mortise_arc(…)` instead of
   `.tenon()` / `.mortise()` — up+up sites only.
 - **How the profile gets picked** (informational — you never ask for one):
-  `x`: `up + up` → the octagon; `side + up` → the arrow ramp+hook. `z`:
+  `x`: `up + up` → the octagon; `side + up` → the arrow ramp+hook;
+  `up + down` → the flat-top MUSHROOM (the mortise host builds TOWARD the
+  cavity opening, so the cavity's wide flat end prints FIRST as a
+  supported floor — no bridge — and the profile drops the octagon's
+  tapers and one-nozzle roof entirely: stem, two 45° flares, short waist,
+  flat top; shorter swallow, more contact). `z`:
   `up + up` → the T — or, with `bounded=True`, the library sizes both the T
   and the single-flank HOOK for the room and keeps the higher-TIER one
   (tie → the T: it retains both pull directions). Any unmodelled combo
