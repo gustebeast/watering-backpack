@@ -34,9 +34,9 @@ ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the
 # informational only, never an input, never something to branch on.
 
 jz = joint(width=7, length=20, depth=3.5, tenon=up, mortise=up,
-           install="z")     # width/depth/length = the AVAILABLE room
+           install="-z")     # width/depth/length = the AVAILABLE room
 
-jb = joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
+jb = joint(width=4.15, length=8.5, tenon=up, mortise=up, install="-z",
            bounded=True)    # EDGE-BOUNDED site: width = the face's FULL
                             # extent between free edges — the library sizes
                             # every candidate profile for the room and keeps
@@ -47,7 +47,7 @@ ja = joint(width=5.0, length=None, tenon=up, mortise=up)   # rotational install:
 ring = ring.union(ja.tenon_arc(radius=40, sweep_deg=8))    # profile revolved
 top  = top.cut(ja.mortise_arc(radius=40, sweep_deg=30))    # about the Z axis
 
-joint_box_min(up, up, install="z", quality=True)   # -> (4.8, 3.5): the room a
+joint_box_min(up, up, install="-z", quality=True)   # -> (4.8, 3.5): the room a
                             # joint NEEDS here before you have geometry —
                             # same site inputs, no solids
 ```
@@ -72,8 +72,12 @@ joint_box_min(up, up, install="z", quality=True)   # -> (4.8, 3.5): the room a
   doubles BOTH clearances for joints that must slide with zero effort
   (frequently-serviced parts, joints mated blind). Retention geometry is unchanged —
   only the gaps grow.
-- **`install`** — the slide/install axis: the ONE direction deliberately left
-  without retention (print orientation alone under-determines a slide joint).
+- **`install`** — a SIGNED axis (`'+x'`/`'-x'`/`'+z'`/`'-z'`): the one
+  motion left without shape retention, with its sign fixed by the STOP
+  (user's rule — a stop makes every install one-way; a bare axis raises).
+  The tenon travels along +install to seat; the caller closes the
+  mortise's far (+install) end as the stop and opens the −install end as
+  the entry. (Print orientation alone under-determines a slide joint.)
   `'x'` (default) slides ⊥ print-Z — the profile faces are overhangs, so the
   facings pick a print-compromise profile. `'z'` slides ∥ print-Z — the
   profile lies flat in the plan plane and prints as vertical walls, so the
@@ -369,7 +373,7 @@ clearances. (Internally this is the `_tee_*` profile.)
 ```python
 # width/depth are the AVAILABLE room (across the face / into the host) — the
 # profile inside is OPTIMIZED for strength, and may use less than the room.
-j = joint(width=7, length=20, depth=3.5, tenon=up, mortise=up, install="z")
+j = joint(width=7, length=20, depth=3.5, tenon=up, mortise=up, install="-z")
 wall = wall.union(j.tenon(root=1.0).translate(...))   # prism along +Z
 beam = beam.cut(j.mortise(drop=2.0, length=24).translate(...))  # far Z-end
                                                       # left inside = the stop
@@ -443,7 +447,7 @@ The HOOK spends the scarce width on ONE flank: a fat stem (all surplus width
 the mortise side filling the notch behind the hook.
 
 ```python
-j = joint(width=4.15, length=8.5, tenon=up, mortise=up, install="z",
+j = joint(width=4.15, length=8.5, tenon=up, mortise=up, install="-z",
           bounded=True, clearance=0.1)            # short face -> the hook
 pad = pad.union(j.tenon(root=1.0).rotate(...).translate(...))
 arm = arm.cut(j.mortise(drop=1.0, length=9.5).rotate(...).translate(...))

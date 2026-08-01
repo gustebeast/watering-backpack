@@ -56,7 +56,7 @@ the one-nozzle bridge CAP on the mortise roof. See the README's "Octagon joint".
 A third FAMILY, `_tee_tenon` / `_tee_mortise`, exists because print
 orientation alone under-determines the joint — the INSTALL AXIS (the direction
 deliberately left without retention) matters too. When the install axis is Z
-(`joint(..., install="z")`, both hosts -Z→+Z), the profile lies flat in
+(`joint(..., install="-z")`, both hosts -Z→+Z), the profile lies flat in
 the plan plane and prints as vertical walls, so the classic sharp dovetail
 needs none of the families' print compromises.
 
@@ -931,7 +931,9 @@ class Joint:
     `.tenon(root=…)` / `.mortise(drop=…)` for the solids (`.tenon_arc` /
     `.mortise_arc` when the install path is a rotation). Metadata:
     `.height` (how deep the mortise host must actually be), `.width_min`
-    (this site's printable floor), `.clearance` / `.back_clearance`,
+    (this site's printable floor), `.install` (signed — the tenon seats
+    travelling +install; `.install_axis`/`.install_sign` split it),
+    `.clearance` / `.back_clearance`,
     `.nozzle` (the coarser half — it drives the minimum feature), `.dims`
     (the picked profile's numbers), and `.family` — which internal profile
     the optimizer chose. `.family` is INFORMATIONAL (labels, debugging);
@@ -941,17 +943,24 @@ class Joint:
                  bounded=False, back_clearance=None):
         self.back_clearance = (clearance if back_clearance is None
                                else back_clearance)
-        if install not in ("x", "z"):
-            raise ValueError("install must be 'x' or 'z', got %r" % (install,))
-        if bounded and install != "z":
-            raise ValueError("bounded=True is modelled for install='z' only "
+        if install not in ("+x", "-x", "+z", "-z"):
+            raise ValueError(
+                "install must be a SIGNED axis: '+x', '-x', '+z' or '-z' "
+                "(got %r). The sign is the SEATING direction — the tenon "
+                "travels along +install into the cavity and the STOP closes "
+                "the far (+install) end; a bare axis under-specifies the "
+                "site (user's rule: a stop makes every install one-way)."
+                % (install,))
+        self.install, self.install_axis = install, install[1]
+        self.install_sign = 1.0 if install[0] == "+" else -1.0
+        if bounded and self.install_axis != "z":
+            raise ValueError("bounded=True is modelled for install ±z only "
                              "(the x-slide profiles assume host material past "
                              "the profile — add the variant if a site needs it)")
         self.width, self.length, self.clearance = width, length, clearance
-        self.install = install
         self.nozzle = max(tenon.nozzle, mortise.nozzle)   # coarser drives the min feature
         kind = (tenon.facing, mortise.facing)
-        if install == "z":
+        if self.install_axis == "z":
             # Slide axis ∥ print-Z: the profile lies in the plan plane, so its
             # faces are vertical printed walls — but ONLY for hosts printing
             # -Z→+Z. A side-printed host would see the profile's -Y-normal
@@ -1149,7 +1158,7 @@ class Joint:
                                     self.clearance, drop, height=self.depth)
 
 
-def joint(width, length, tenon, mortise, clearance=None, install="x",
+def joint(width, length, tenon, mortise, clearance=None, install="+x",
           depth=None, bounded=False, fit="normal"):
     """THE joinery entrypoint. Names name the HALVES (`tenon`, `mortise`) —
     never the shape: describe the SITE and the library builds the optimal
@@ -1157,11 +1166,16 @@ def joint(width, length, tenon, mortise, clearance=None, install="x",
 
       • how each half PRINTS — `tenon` / `mortise` are PrintSpecs (nozzle,
         material, print orientation);
-      • the INSTALL axis — the one direction deliberately left without
-        retention: 'x' slides ⊥ print-Z, 'z' slides ∥ print-Z (both hosts
-        must print 'up'; the profile lies in the plan plane as vertical
-        walls). For a rotational install path use `.tenon_arc` /
-        `.mortise_arc` on the result (up+up sites);
+      • the INSTALL direction — a SIGNED axis ('+x'/'-x'/'+z'/'-z'):
+        the one motion deliberately left without shape retention, with
+        its sign fixed by the STOP (user's rule — a stop makes every
+        install one-way). The tenon travels along +install to seat; the
+        caller closes the mortise's far (+install) end as the stop and
+        opens/overshoots the −install end as the entry. ±x slides ⊥
+        print-Z; ±z slides ∥ print-Z (both hosts must print 'up'; the
+        profile lies in the plan plane as vertical walls). For a
+        rotational install path use `.tenon_arc` / `.mortise_arc` on the
+        result (up+up sites);
       • the BOUNDING BOX the joint may occupy — `width` across the face,
         `length` of engagement (may be None when only arc solids will be
         drawn, or overridden per solid), `depth` past the mating plane
@@ -1185,7 +1199,7 @@ def joint(width, length, tenon, mortise, clearance=None, install="x",
                  bounded, back_clearance=bc)
 
 
-def joint_box_min(tenon, mortise, install="x", bounded=False, quality=False,
+def joint_box_min(tenon, mortise, install="+x", bounded=False, quality=False,
                   fit="normal", clearance=None):
     """The smallest (width, depth) BOUNDING BOX a joint needs at this site —
     the sizing counterpart of `joint` (same site inputs, no geometry).
@@ -1195,7 +1209,8 @@ def joint_box_min(tenon, mortise, install="x", bounded=False, quality=False,
     that width (None where the site's profile takes no depth bound)."""
     c, bc = joint_clearances(tenon, mortise, fit, clearance)
     nz = max(tenon.nozzle, mortise.nozzle)
-    if install == "z":
+    axis = install[1] if install[:1] in ("+", "-") else install
+    if axis == "z":
         if bounded:
             w = _hook_width_min(nz, c, quality)
             return w, _hook_depth(w, nz, c)
@@ -1606,11 +1621,11 @@ if __name__ == "__main__":
     # (±y probes unchanged), but the tenon can float an extra base-worth
     # of depth toward the cavity's back before touching.
     BC = 0.30                                     # = 2 × the GF base 0.15
-    gj = joint(DW, 14, up_gf, up_gf, install="z", depth=DD)
+    gj = joint(DW, 14, up_gf, up_gf, install="-z", depth=DD)
     if abs(gj.clearance - 0.15) > 1e-9 or abs(gj.back_clearance - BC) > 1e-9:
         fails.append(f"policy: joint GF clr ({gj.clearance}, {gj.back_clearance})")
     gten = gj.tenon(root=1.0)
-    gj_cut = joint(DW, 22, up_gf, up_gf, install="z", depth=DD)
+    gj_cut = joint(DW, 22, up_gf, up_gf, install="-z", depth=DD)
     ghost = (cq.Workplane("XY").box(Dh + 6, DW + 8, 20, centered=(False, True, False))
              .translate((0, 0, -3))
              .cut(gj_cut.mortise(drop=3).translate((0, 0, -4))))
@@ -1649,7 +1664,7 @@ if __name__ == "__main__":
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"policy: GF bar {bar_gf}")
-    pbb = (joint(DW, 14, up_pl, up_pl, install="z", depth=DD)
+    pbb = (joint(DW, 14, up_pl, up_pl, install="-z", depth=DD)
            .mortise(drop=3).val().BoundingBox())
     du_pl = _tee_dims(DW, DD, NZ3, 0.15)[2]
     ok = abs(pbb.xmax - (du_pl + 0.15)) < 1e-6
@@ -1799,11 +1814,11 @@ if __name__ == "__main__":
     side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")
     CGF = _MATERIAL_CLEARANCE["PETG-GF"]          # 0.15 — the table's GF base
     cases = [
-        ("up+up -> octagon", up, up, "x",
+        ("up+up -> octagon", up, up, "+x",
          _octagon_tenon(6.0, 12, 0.8, CGF).val().Volume()),
-        ("side+up -> arrow", side, up, "x",
+        ("side+up -> arrow", side, up, "+x",
          _arrow_tenon(5.6, 12, 0.8, CGF).val().Volume()),
-        ("up+up z -> tee", up, up, "z",
+        ("up+up z -> tee", up, up, "-z",
          _tee_tenon(6.0, 3.0, 12, 0.8, CGF,                    # default depth = width/2;
                         back_clearance=2 * CGF).val().Volume()),   # GF → depth faces 2×
     ]
@@ -1829,7 +1844,7 @@ if __name__ == "__main__":
         fails.append("joint_box_min: up+down")
     # install='z' with a side-printed host must raise (plan profile would overhang)
     try:
-        joint(6, 12, side, up, install="z")
+        joint(6, 12, side, up, install="-z")
         fails.append("joint: install='z' with side host did not raise")
         print("  z-install side host   did NOT raise  <-- FAIL")
     except NotImplementedError:
@@ -1839,24 +1854,24 @@ if __name__ == "__main__":
     # shallow default depth caps a wall at ~1.38 while the hook sits at the
     # full 1.6 quality tier → HOOK. 12.0 GF: the tee reaches the 1.6 tier
     # too → tie → TEE (it retains both pull directions).
-    jb = joint(8.0, 12, up, up, install="z", bounded=True)
+    jb = joint(8.0, 12, up, up, install="-z", bounded=True)
     ok = jb.family == "hook" and abs(jb.height - _hook_depth(8.0, 0.8, CGF)) < 1e-9
     print(f"  bounded 8.0 -> hook (tier beats shallow tee) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"joint: bounded 8.0 -> {jb.family}/{jb.width}")
-    jb = joint(12.0, 12, up, up, install="z", bounded=True)
+    jb = joint(12.0, 12, up, up, install="-z", bounded=True)
     ok = (jb.family == "tee"
           and abs(jb.width - (12.0 - 2 * (0.8 + CGF))) < 1e-9)
     print(f"  bounded 12.0 -> tee (usable {jb.width:.1f}, tie at tier) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"joint: bounded 12.0 -> {jb.family}/{jb.width}")
     # a DEEP depth bound lifts the tee to the tier at 8.0 too → tee wins the tie
-    jb = joint(8.0, 12, up, up, install="z", bounded=True, depth=3.8)
+    jb = joint(8.0, 12, up, up, install="-z", bounded=True, depth=3.8)
     ok = jb.family == "tee"
     print(f"  bounded 8.0 deep -> tee (depth room lifts its tier) {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append(f"joint: bounded 8.0 deep -> {jb.family}")
-    jb = joint(4.2, 12, up, up, install="z", bounded=True)
+    jb = joint(4.2, 12, up, up, install="-z", bounded=True)
     ok = jb.family == "hook" and abs(jb.height - _hook_depth(4.2, 0.8, CGF)) < 1e-9
     print(f"  bounded 4.2 -> hook (height {jb.height:.1f}) {'ok' if ok else 'FAIL'}")
     if not ok:
@@ -1874,7 +1889,7 @@ if __name__ == "__main__":
     except ValueError:
         print("  bounded x-install     raises (ok)")
     try:
-        joint(3.0, 12, up, up, install="z", bounded=True)
+        joint(3.0, 12, up, up, install="-z", bounded=True)
         fails.append("joint: bounded sub-minimum did not raise")
         print("  bounded width floor   did NOT raise  <-- FAIL")
     except ValueError:
@@ -1888,7 +1903,7 @@ if __name__ == "__main__":
         print("  x-install depth       raises (ok)")
     # pocket on a non-octagon family must raise
     try:
-        joint(6, 12, up, up, install="z").mortise(pocket=True)
+        joint(6, 12, up, up, install="-z").mortise(pocket=True)
         fails.append("joint: pocket on tee did not raise")
         print("  tee pocket            did NOT raise  <-- FAIL")
     except NotImplementedError:
@@ -1896,13 +1911,13 @@ if __name__ == "__main__":
     # joint_box_min: the sizing counterpart of joint — same site inputs.
     # Unbounded z at quality = the T's quality box; bounded z at quality =
     # the hook's quality width + its swallow; x sites report width floors.
-    bm = joint_box_min(up, up, install="z", quality=True)
+    bm = joint_box_min(up, up, install="-z", quality=True)
     ok = abs(bm[0] - 4.8) < 1e-9 and abs(bm[1] - 3.5) < 1e-9
     print(f"  box_min z quality     ({bm[0]:.2f}, {bm[1]:.2f}) (want 4.80, 3.50)"
           f"{'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append(f"joint_box_min: z quality {bm}")
-    bm = joint_box_min(up, up, install="z", bounded=True, quality=True,
+    bm = joint_box_min(up, up, install="-z", bounded=True, quality=True,
                        clearance=0.1)
     ok = (abs(bm[0] - 6.6) < 1e-9
           and abs(bm[1] - _hook_depth(6.6, 0.8, 0.1)) < 1e-9)
@@ -1917,7 +1932,7 @@ if __name__ == "__main__":
     if not ok:
         fails.append("joint_box_min: x floors")
     # .dims mirrors the picked profile's numbers
-    jd = joint(DW, 12, up, up, install="z", depth=DD)
+    jd = joint(DW, 12, up, up, install="-z", depth=DD)
     nd, hd2, dud = _tee_dims(DW, DD, NZ3, 0.15, 0.30)
     ok = (abs(jd.dims["neck"] - nd) < 1e-9 and abs(jd.dims["head"] - hd2) < 1e-9
           and abs(jd.dims["depth_used"] - dud) < 1e-9
@@ -1947,6 +1962,12 @@ if __name__ == "__main__":
     if not ok:
         fails.append("joint: clearance default/override")
     # unsupported facing combo raises
+    try:
+        joint(6, 12, up, up, install="z")     # bare axis — under-specified
+        fails.append("joint: bare install axis did not raise")
+        print("  bare install axis     did NOT raise  <-- FAIL")
+    except ValueError:
+        print("  bare install axis     raises (ok)")
     try:
         joint(6, 12, up, side)          # tenon up, mortise side — not modelled
         fails.append("joint: unsupported combo did not raise")
