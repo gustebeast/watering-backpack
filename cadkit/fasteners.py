@@ -412,6 +412,78 @@ def screw(spec, length=None):
 # ════════════════════════════════════════════════════════════════════════════
 # MEASUREMENT — a nominal depth cannot see a thin wall. The solid can.
 # ════════════════════════════════════════════════════════════════════════════
+def headed_screw(spec, length, head_d, head_h, socket_af=2.0, socket_depth=None):
+    """Dummy HEADED cap screw (button/socket head), axis Z, HEAD TOP at z=0,
+    shank extends -Z. Unlike headless `screw()`, this one has a head disk
+    (Ø head_d × head_h at z in [-head_h, 0]) with the drive HEX SOCKET sunk into
+    the head TOP (across-flats socket_af) — so the socket is never buried when
+    the head seats in a counterbore. The Ø screw_d × length shank hangs below
+    (z in [-head_h-length, -head_h]). Translate so the head top lands where you
+    want it (e.g. the counterbore mouth)."""
+    if length is None or length <= 0:
+        raise ValueError("headed_screw(%s): length must be > 0, got %r"
+                         % (spec.name, length))
+    if head_d <= spec.screw_d or head_h <= 0:
+        raise ValueError("headed_screw(%s): head_d must exceed screw_d and head_h > 0"
+                         % spec.name)
+    body = _cyl(head_d, head_h, (0, 0, -head_h), (0, 0, 1))
+    body = body.fuse(_cyl(spec.screw_d, length, (0, 0, -head_h - length), (0, 0, 1)))
+    depth = socket_depth if socket_depth else max(0.6, 0.6 * head_h)
+    hexd = socket_af / math.cos(math.radians(30))
+    socket = cq.Workplane("XY").polygon(6, hexd).extrude(-depth).translate((0, 0, 0.01))
+    return cq.Workplane(obj=body).cut(socket)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MEASUREMENT — a nominal depth cannot see a thin wall. The solid can.
+# ════════════════════════════════════════════════════════════════════════════
+def measured_bite(solid, pnt, direction, spec, has_pocket=True, max_scan=40.0, step=0.02):
+    """REAL self-tap length left in a finished solid, below the pocket.
+
+    A nominal `depth` says nothing about a through-bore crossing a thin wall —
+    e.g. a full-width Ø2.2 bore through a 4.6 mm wall nominally has 20 mm of
+    'bite' but really has 1.1 mm. Only the solid knows.
+
+    Walks the finished solid just past the pocket and counts the contiguous run
+    where BOTH hold: inside the bore radius is VOID (the self-tap hole is really
+    there) and just outside it is MATERIAL (there is plastic for the thread to
+    cut). Either condition failing ends the bite — so a bore that runs out of
+    wall, and a wall that runs out of bore, both report honestly.
+
+    `solid` is a cq.Shape/Solid (pass `part.val()`). `pnt`/`direction` are the
+    anchor's mouth and bore direction, as handed to cut_anchor().
+    """
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.TopAbs import TopAbs_IN, TopAbs_ON
+    from OCP.gp import gp_Pnt
+
+    clf = BRepClass3d_SolidClassifier(solid.wrapped)
+
+    def inside(v):
+        clf.Perform(gp_Pnt(v.x, v.y, v.z), 1e-7)
+        return clf.State() in (TopAbs_IN, TopAbs_ON)
+
+    ax = _unit(direction)
+    perp = cq.Vector(0, 0, 1) if abs(ax.z) < 0.9 else cq.Vector(1, 0, 0)
+    perp = ax.cross(perp).normalized()
+    mouth = cq.Vector(*pnt)
+    r_in = 0.40 * spec.selftap_d / 2.0                                  # inside the bore
+    r_out = 0.5 * (spec.selftap_d / 2.0 + spec.insert_pilot_d / 2.0)    # bore..pocket annulus
+    o_in = mouth + perp.multiply(r_in)
+    o_out = mouth + perp.multiply(r_out)
+
+    t = (spec.insert_depth if has_pocket else 0.0) + step / 2.0
+    bite = 0.0
+    while t <= max_scan:
+        if inside(o_in + ax.multiply(t)):          # bore ended — no hole left
+            break
+        if not inside(o_out + ax.multiply(t)):     # wall ended — no plastic left
+            break
+        bite += step
+        t += step
+    return round(bite, 3)
+
+
 def measured_bite(solid, pnt, direction, spec, has_pocket=True, max_scan=40.0, step=0.02):
     """REAL self-tap length left in a finished solid, below the pocket.
 
