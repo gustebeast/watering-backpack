@@ -23,6 +23,12 @@ from .fasteners import M2, cut_anchor
 _EDGES = {"+x", "-x", "+y", "-y"}
 
 
+# FR4 is 1.6 mm — the industry-standard 2-layer/4-layer board thickness, and a
+# PHYSICAL constant, not a print one. It must never be tied to the nozzle: change
+# the printer and FR4 does not move. Exported because consumers were repeating it.
+PCB_T = 1.6
+
+
 def _block(w, l, h, cx, cy, z0):
     return cq.Workplane("XY").add(cq.Solid.makeBox(w, l, h, cq.Vector(cx - w / 2, cy - l / 2, z0)))
 
@@ -31,7 +37,7 @@ def _cyl(d, h, cx, cy, z0):
     return cq.Workplane("XY").add(cq.Solid.makeCylinder(d / 2, h, cq.Vector(cx, cy, z0)))
 
 
-def pcb_cradle(board_w, board_l, screw_xy, *, board_t=1.6, standoff=2.5, wall_t=1.6,
+def pcb_cradle(board_w, board_l, screw_xy, *, board_t=PCB_T, standoff=2.5, wall_t=1.6,
                wall_over=0.8, clr=0.3, pad=3.2, base_t=None, open_edge="+x", spec=M2):
     r"""A 3-wall drop-in PCB cradle. `board_w` x `board_l` = board footprint (X x Y),
     centred on the origin; board bottom rests at z=`standoff`. Walls (thickness `wall_t`)
@@ -70,7 +76,7 @@ def pcb_cradle(board_w, board_l, screw_xy, *, board_t=1.6, standoff=2.5, wall_t=
     return solid
 
 
-def pcb_board(board_w, board_l, *, board_t=1.6, standoff=2.5):
+def pcb_board(board_w, board_l, *, board_t=PCB_T, standoff=2.5):
     """Fit-check dummy of the seated board (a plain slab at the rest plane) for the assembly."""
     return _block(board_w, board_l, board_t, 0.0, 0.0, standoff)
 

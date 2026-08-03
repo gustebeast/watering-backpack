@@ -209,9 +209,9 @@ def printable_bore(diameter, length, axis_point=(0.0, 0.0, 0.0),
                      axis_dir, print_up)
 
 
-def contact_rib(mean_diameter, proud=0.85, thickness=0.85,
+def contact_rib(mean_diameter, proud=None, thickness=None,
                 axis_point=(0.0, 0.0, 0.0), axis_dir=(0.0, 1.0, 0.0),
-                print_up=(0.0, 0.0, 1.0)):
+                print_up=(0.0, 0.0, 1.0), nozzle=0.8):
     """A thin proud RING standing off a face — a CONTACT/THRUST rib. UNION it.
 
     Why a ring and not the whole face: when a rotating part has to bottom out
@@ -222,14 +222,21 @@ def contact_rib(mean_diameter, proud=0.85, thickness=0.85,
     gives the printer a small, well-defined face to lay down flat instead of a
     wide one that only touches on its high spots.
 
-    Defaults are the house size: 0.85 wide × 0.85 proud — about one nozzle
-    each way, the smallest rib that still prints as a solid wall.
+    proud/thickness DEFAULT to the QUALITY tier — TWO nozzles (2*nozzle) — because
+    two clean perimeters print crisp where a lone bead slices mushy. A space-bound
+    callsite may pass proud=/thickness= DOWN to one nozzle explicitly, but a rub
+    feature is a PLACED feature: prefer giving it the room. (Same preset as
+    joinery._bead_pref and contact.contact_rib_size; whole nozzle beads, no buffer.)
 
     When the ring's axis runs SIDEWAYS in the print (proud of a vertical
     wall), its own underside overhangs, so the teardrop support is fused on
     automatically; when it stands on a horizontal face nothing is needed and
     the bare ring comes back.
     """
+    if proud is None:
+        proud = 2.0 * nozzle
+    if thickness is None:
+        thickness = 2.0 * nozzle
     md = float(mean_diameter)
     t = float(thickness)
     h = float(proud)
