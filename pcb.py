@@ -55,7 +55,8 @@ def pcb_cradle(board_w, board_l, screw_xy, *, board_t=PCB_T, standoff=2.5, wall_
     inner_x, inner_y = hw + clr, hl + clr          # wall inner faces (clr fit to the board)
     out_x, out_y = inner_x + wall_t, inner_y + wall_t
     if base_t is None:
-        base_t = max(1.2, spec.anchor_min_wall - standoff)   # screw anchor reaches z >= -base_t
+        base_t = max(1.6, spec.anchor_min_wall - standoff)   # screw anchor reaches z >= -base_t; floor at
+                                                             # 2 beads (0.8 nozzle) so the base isn't sub-1.6
 
     solid = _block(2 * out_x, 2 * out_y, base_t, 0.0, 0.0, -base_t)   # base plate = mounting area
     walls = {
