@@ -70,8 +70,6 @@ import math
 
 import cadquery as cq
 
-_TIP_W = 1.6      # dull-tip flat: ~2 bead widths of a 0.8 mm nozzle
-
 
 def _profile(stem_w, head_w, stem_h, tip_w, ramp, base_z, hook_h=None, nozzle=0.8):
     """Closed profile points in the local (y, z) plane, base at z=base_z.
