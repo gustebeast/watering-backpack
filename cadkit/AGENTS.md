@@ -455,6 +455,19 @@ editing anything:
 4. Hand off: `py -3.12 cadkit/tools/agent_sync.py submit "<summary>"` — commits your
    branch and files a merge request. That request itself wakes the lead, so you
    don't ping anyone. Then loop back to step 3 (`sync` first!) for the next round.
+5. **Ask questions DIRECTLY — the lead is not a relay.** A merge request carries
+   WORK, not correspondence.
+   - **For the human: ask in YOUR OWN chat.** You have your own human-facing
+     session; that is where a question belongs, and you can wait there for the
+     answer. Never bury a question for the human in a submit summary hoping the
+     lead forwards it — the lead can't answer for them, and it adds a whole round
+     trip (you → lead → human → lead → you) to something you could have asked
+     directly.
+   - **For another agent: `msg <who> "<text>"`** (`<who>` = their name, or `lead`).
+     It lands in their context on their next prompt — the hook delivers it in
+     every session, so nobody polls and the lead isn't in the middle. Read yours
+     with `mail` (the hook shows them automatically; `mail` is for checking early).
+   Keep the submit summary about the change itself: what moved, why, how verified.
 
 **► You're the LEAD** (original/only chat; the human said "multi-agent" or named
 another agent alongside you). Keep working in the main worktree on `main`. You OWN
@@ -489,6 +502,13 @@ Rules that keep it from clobbering:
 - **The merge request IS the notification.** `submit` writing the request file is
   exactly what ends the lead's background `wait` and re-invokes it — fully
   hands-free, no human in the loop.
+- **The lead is not a message relay.** If a contributor needs something from YOU,
+  they `msg` you and it arrives on your next prompt; if they need something from
+  the human, they ask in their own chat. When YOU need something from a
+  contributor — a re-measure, a rationale, a heads-up that their datum moved —
+  `msg <name> "<text>"` them directly rather than saving it up for the next merge.
+  A question routed through a third party costs an extra round trip each way and
+  arrives without the asker's context.
 - **Shared `cadkit/` edits are now normal tracked diffs** (cadkit is a git subtree,
   not the old on-disk `freecad/`). A contributor who changes a shared util just commits
   `cadkit/*` and `submit`s like any other change — the lead `take`s it normally. (The
