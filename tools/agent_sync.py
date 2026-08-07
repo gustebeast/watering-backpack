@@ -17,8 +17,19 @@ Only the lead ever writes assembly.step / calls show(), so there is exactly one
 FreeCAD tab and one build at a time. Contributors verify with `check_overlaps`
 (which never writes the assembly or opens the viewer) or ask the lead to build.
 
+THE LEAD IS NOT A RELAY. Merge requests carry WORK, not correspondence:
+  * A question for the HUMAN goes to YOUR OWN chat -- every agent has its own
+    human-facing session, so ask there and wait for the answer. Do NOT bury it in
+    a submit summary hoping the lead passes it along: the lead cannot answer for
+    the human, and routing through it adds a whole round trip to every question.
+  * A question for ANOTHER AGENT goes direct:  `msg <who> "<text>"`. It lands in
+    their context on their next prompt (the hook delivers it, in every session --
+    lead and contributor alike). Nobody polls, and the lead is not in the middle.
+Keep the submit summary about the change: what moved, why, and how you verified.
+
 Coordination state lives in  <git-common-dir>/agent-sync/  -- inside .git, so it
 is shared by every worktree and never committed:
+    mail/<branch>/*.json  direct messages awaiting that agent's next prompt
     inbox/<branch>.json   one pending merge request per contributor branch
     build.lock            single-build mutex (auto-stolen if stale)
 
@@ -30,6 +41,8 @@ COMMANDS
     done                 (after all merged) remove this worktree
   Lead:
     inbox                list pending merge requests
+    msg <who> "<text>"   send a DIRECT message to another agent ('lead' = the lead)
+    mail                 read (and consume) messages sent to you
     wait                 BLOCK until a request arrives, then print it (run in the BACKGROUND)
     take <name>          merge agent/<name> into the current branch
     drop <name>          discard a merge request without merging
@@ -215,18 +228,95 @@ def _load_reqs(paths=None):
     return [json.loads(p.read_text()) for p in (_requests() if paths is None else paths)]
 
 
+# ── direct agent-to-agent messages ────────────────────────────────────────────
+# The lead is NOT a relay. Merge requests carry WORK; questions between agents go
+# here, and questions for the HUMAN go straight to that agent's own chat. Without
+# this channel the only way to reach another agent was to bury a question in a
+# submit summary and hope the lead passed it on -- slow, lossy, and it made the
+# lead a bottleneck on conversations it wasn't part of.
+def _mail_dir(branch: str, make=False) -> Path:
+    d = sync_dir() / "mail" / slug(branch) if make else \
+        common_dir() / "agent-sync" / "mail" / slug(branch)
+    if make:
+        d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _resolve_branch(who: str) -> str:
+    """'lead'/'main' -> main; 'branner'/'agent/branner' -> agent/branner."""
+    if who in ("lead", "main"):
+        return "main"
+    return who if who.startswith("agent/") else f"agent/{who}"
+
+
+def cmd_msg(to: str, text: str):
+    dest = _resolve_branch(to)
+    if not git("rev-parse", "--verify", "--quiet", dest, check=False).strip():
+        raise SystemExit(f"no such recipient: {to} (branch '{dest}' does not exist).\n"
+                         f"Agents currently on this repo:\n  " +
+                         "\n  ".join(b.strip().lstrip("* ") for b in
+                                     git("branch", "--list", "agent/*").splitlines()) or "  (none)")
+    me = cur_branch()
+    if dest == me:
+        raise SystemExit("that's your own mailbox.")
+    box = _mail_dir(dest, make=True)
+    (box / f"{int(time.time() * 1000)}-{slug(me)}.json").write_text(
+        json.dumps({"from": me, "to": dest, "text": text,
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S")}), encoding="utf-8")
+    print(f"message delivered to {dest} — it lands in their context on their NEXT prompt.\n"
+          f"They do NOT get it while mid-turn, so don't block waiting on a reply.")
+
+
+def _mail_paths(branch: str):
+    d = _mail_dir(branch)
+    return sorted(d.glob("*.json")) if d.is_dir() else []
+
+
+def cmd_mail(peek=False):
+    paths = _mail_paths(cur_branch())
+    if not paths:
+        print("no messages.")
+        return
+    for p in paths:
+        try:
+            m = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        print(f"from {m.get('from','?')}  {m.get('time','')}\n  {m.get('text','')}\n")
+        if not peek:
+            p.unlink(missing_ok=True)      # printed == delivered (it is in the context now)
+
+
+def _hook_mail(common: Path, branch: str):
+    """Read-only mail glob for the hook's hot path (no mkdir). Returns [(path, dict)]."""
+    d = common / "agent-sync" / "mail" / slug(branch)
+    out = []
+    for p in (sorted(d.glob("*.json")) if d.is_dir() else []):
+        try:
+            out.append((p, json.loads(p.read_text(encoding="utf-8"))))
+        except Exception:
+            pass
+    return out
+
+
 def _hook_reqs():
     """Hot path -- runs on EVERY lead prompt. ONE git call for branch + common-dir (not two),
-    and a READ-ONLY inbox glob (no mkdir, unlike sync_dir()). Returns (branch, [request paths]);
-    ("", []) if git can't answer, so the hook stays silent instead of erroring."""
+    and a READ-ONLY inbox glob (no mkdir, unlike sync_dir()). Returns
+    (branch, [request paths], common_dir); ("", [], None) if git can't answer, so the
+    hook stays silent instead of erroring. The common dir comes back because the
+    hook ALSO delivers mail, and re-deriving it would cost a second git call."""
     out = git("rev-parse", "--path-format=absolute", "--abbrev-ref", "HEAD",
               "--git-common-dir", check=False)
     lines = out.splitlines()
     if len(lines) < 2:
-        return "", []
-    inbox = Path(lines[1]) / "agent-sync" / "inbox"
+        return "", [], None
+    common = Path(lines[1])
+    inbox = common / "agent-sync" / "inbox"
     paths = sorted(inbox.glob("*.json")) if inbox.is_dir() else []
-    return lines[0], _prune_merged(paths)      # self-heal stale (already-merged) entries
+    # self-heal stale (already-merged) entries -- but only the LEAD's inbox is
+    # meaningful, and _prune_merged shells out to git per entry, so skip that
+    # work entirely in a contributor worktree (where the hook only wants mail).
+    return lines[0], (_prune_merged(paths) if lines[0] == "main" else paths), common
 
 
 def _print_pending_banner():
@@ -363,9 +453,27 @@ def cmd_hook():
     `wait`. This is how a DOWN `wait` self-heals the moment the lead is prompted for anything,
     with no human relay. Stays SILENT (no output) when the inbox is empty or this isn't the
     lead session, so a normal turn is never cluttered. ALWAYS exits 0 -- a hook must never
-    block or fail the prompt."""
+    block or fail the prompt.
+
+    It ALSO delivers direct messages, and that half runs in EVERY session (lead and
+    contributor alike) -- it is what makes agent-to-agent mail arrive without anyone
+    polling. A message is unlinked once printed: it is in the recipient's context at
+    that point, so re-printing it every prompt would just be noise."""
     try:
-        branch, paths = _hook_reqs()
+        branch, paths, common = _hook_reqs()
+        if common is not None and branch:
+            mail = _hook_mail(common, branch)
+            if mail:
+                bar = "=" * 68
+                print(bar)
+                print(f"[agent_sync] {len(mail)} direct message(s) for you "
+                      f"({branch}). Reply with:  py -3.12 cadkit/tools/agent_sync.py "
+                      f"msg <who> \"<text>\"")
+                for p, m in mail:
+                    print(f"  from {m.get('from','?')}  {m.get('time','')}\n"
+                          f"    {m.get('text','')}")
+                    p.unlink(missing_ok=True)          # printed == delivered
+                print(bar)
         if branch != "main" or not paths:     # only the lead acts; silent when nothing waits
             return
         bar = "=" * 68
@@ -407,13 +515,19 @@ def main():
     sub.add_parser("drop").add_argument("name")
     b = sub.add_parser("build"); b.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("status")
-    sub.add_parser("hook")          # the lead's UserPromptSubmit hook (see .claude/settings.json)
+    m = sub.add_parser("msg")       # direct agent -> agent message (NOT via the lead)
+    m.add_argument("to", help="agent name, or 'lead'")
+    m.add_argument("text")
+    sub.add_parser("mail").add_argument("--peek", action="store_true",
+                                        help="show without consuming")
+    sub.add_parser("hook")          # UserPromptSubmit hook (see .claude/settings.json)
     a = ap.parse_args()
     {"join": lambda: cmd_join(a.name), "submit": lambda: cmd_submit(a.summary),
      "sync": cmd_sync, "done": cmd_done, "inbox": cmd_inbox,
      "wait": lambda: cmd_wait(a.timeout, a.poll),
      "take": lambda: cmd_take(a.name), "drop": lambda: cmd_drop(a.name),
-     "build": lambda: cmd_build(a.args), "status": cmd_status, "hook": cmd_hook}[a.cmd]()
+     "build": lambda: cmd_build(a.args), "status": cmd_status, "hook": cmd_hook,
+     "msg": lambda: cmd_msg(a.to, a.text), "mail": lambda: cmd_mail(a.peek)}[a.cmd]()
 
 
 if __name__ == "__main__":
