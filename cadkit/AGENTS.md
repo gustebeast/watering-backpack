@@ -317,10 +317,36 @@ is indistinguishable from an oversight:
 - **domain** — scale length, string pitch, a mounting standard. The printer
   doesn't get a vote.
 
-Anything else off-grid is an oversight. Enforce it per project by walking your
-own constants with `on_grid()` — see the pedal-steel's `tools/check_beads.py`:
-an exemption table keyed by name, every entry carrying its reason, non-zero exit
-for off-grid values that have none.
+Anything else off-grid is an oversight. Enforce it with **`cadkit.bead_check`**,
+the shared audit engine (bare literals checked by VALUE, derived constants by
+the OFFSETS they add — the result may sit anywhere, it inherits its datum).
+Each project ships a thin `tools/check_beads.py` driver supplying its constants
+package and an exemption table keyed by name, every entry carrying its reason;
+non-zero exit for off-grid values that have none (the overlap-gate pattern; the
+pedal-steel's is the reference driver). Counts (`N_*`), angles (`*_DEG`,
+`THROW*`) and `n × BEAD` coefficients are skipped automatically.
+
+**The grid governs DIFFERENCES, not positions.** The printer quantises one
+thing only: the distance between opposing surfaces that bound material.
+Positions are continuous — no lattice, and the slicer prints a perfect circle;
+the grid is a worst-case guarantee about thin-wall fill, not a voxel model. So:
+**snap where free, chain where coupled** — an isolated feature goes on the
+absolute grid (`70 × BEAD`, and always written as a count, never `56.0`); a
+feature sharing material with an off-grid datum (hardware, scale length) is
+sized `datum ± N × BEAD` so the *web between them* is what lands on-grid.
+Snapping it absolutely instead moves the remainder onto the load-bearing web.
+**Joinery: fit beats grid** — a tenon is `mortise − clearance`, sub-bead by
+necessity, so one side is off-grid *by construction*; put the nominal profile
+on the grid and the whole clearance on ONE side (cadkit.joinery: the tenon).
+Parts print separately — their frames share no grid at print time.
+
+What a full audit actually finds (pedal-steel, 264 findings → 0): mostly not
+walls but **stale spelled datums** — literal copies of a chain whose parents
+had since snapped, each silently wrong by a fraction of a bead. Fix by
+referencing the live datum (or, where import direction forbids, spelling it
+via the same shared constants and saying so). And expect a few constants that
+**cannot** snap because a model assert pins them at a limit — those are tuned
+knobs: exempt them citing the assert, don't fight it.
 
 **The grid is a property of the PART, not the project.** A project sets a default
 nozzle because most of it is structure, but a part whose detail is finer than a
