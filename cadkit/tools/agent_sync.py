@@ -37,11 +37,24 @@ COMMANDS
   Either:
     status               role, branch, worktrees, pending requests
 
-HANDS-FREE NOTIFICATION (no human relay). The lead arms `wait` as a BACKGROUND
-command; the cheap shell poll (not the model) sits idle until a contributor's
-`submit` drops a request file, then exits -- which auto re-invokes the lead. The
-lead then `take`s + `build`s and re-arms `wait`. The contributor never has to ping
-anyone; writing the request IS the notification.
+NOTIFICATION -- two layers, no desktop pop-ups, the human is NEVER the relay:
+  1. AUTO WAKE (fully hands-free, WHEN ARMED). The lead arms `wait` as a BACKGROUND
+     command; the cheap shell poll (not the model) sits idle until a contributor's
+     `submit` drops a request file, then exits -- which auto re-invokes the lead. Its
+     one blind spot is a `wait` that is NOT armed (never started, died, or a missed
+     re-arm) -- then a fresh request just sits in the inbox.
+  2. PROMPT-TIME NUDGE (covers the blind spot). The `hook` command, wired as the
+     lead's `UserPromptSubmit` hook, runs on the lead's NEXT prompt -- whatever it is
+     about -- and, if the inbox holds a request, injects a loud notice into the lead's
+     context: take it AND (re-)arm `wait`. So a down `wait` self-heals the instant the
+     lead is prompted for anything; no human has to notice or forward. (We cannot wake
+     a truly idle, unarmed session with no prompt -- nothing on one machine can -- but
+     the request is never lost and surfaces the moment the lead does ANYTHING.)
+Plus a loud PENDING banner on every lead command (`status`/`build`/`take`). The
+contributor never pings anyone by hand; `submit` files the request and both layers
+carry it from there. SELF-HEAL: a request whose work already reached `main` — merged by
+hand, not via `take` (the only thing that unlinks it) — is pruned on the next inbox read,
+so a manual merge never leaves the hook/banner nagging forever.
 
 Typical flow (<name> is the contributor's task, e.g. the subsystem they own)
   human: "let's go multi-agent; the second chat is a sub-agent named <name>"
@@ -141,7 +154,8 @@ def cmd_submit(summary: str):
     path.write_text(json.dumps(req, indent=2))
     print(f"merge request filed for {branch} @ {sha[:8]}\n"
           f"  \"{summary}\"\n"
-          f"Tell the LEAD (or it will see it in `inbox`):\n"
+          f"If the LEAD's `wait` is armed it just woke; otherwise the `hook` surfaces this on\n"
+          f"the LEAD's next prompt. Take with:\n"
           f"  py -3.12 cadkit/tools/agent_sync.py take {name}")
 
 
@@ -165,9 +179,73 @@ def cmd_done():
 
 
 # ── lead commands ─────────────────────────────────────────────────────────────
+def _is_ancestor(sha: str, ref: str = "main") -> bool:
+    """True if <sha> is already in <ref>'s history — i.e. the request was merged, whether via
+    `take` (which unlinks it) or MANUALLY (which doesn't). The basis for self-healing the inbox."""
+    return subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref],
+                          cwd=os.getcwd(), capture_output=True).returncode == 0
+
+
+def _prune_merged(paths):
+    """Keep only the still-PENDING requests, UNLINKING any whose sha already reached main. Self-heal:
+    an MR resolved OUTSIDE `take` (merged by hand) no longer nags the hook/banner forever — the next
+    inbox read clears it. An unreadable file is left alone (never guessed away)."""
+    live = []
+    for p in paths:
+        try:
+            sha = json.loads(p.read_text()).get("sha", "")
+        except Exception:
+            live.append(p)
+            continue
+        if sha and _is_ancestor(sha):
+            p.unlink(missing_ok=True)          # merged -> done -> stop reporting it
+        else:
+            live.append(p)
+    return live
+
+
 def _requests():
     box = sync_dir() / "inbox"
-    return sorted(box.glob("*.json"))
+    return _prune_merged(sorted(box.glob("*.json")))
+
+
+def _load_reqs(paths=None):
+    """Read each pending request file -> list of dicts. The single place that knows the
+    request schema; callers just format the dicts differently."""
+    return [json.loads(p.read_text()) for p in (_requests() if paths is None else paths)]
+
+
+def _hook_reqs():
+    """Hot path -- runs on EVERY lead prompt. ONE git call for branch + common-dir (not two),
+    and a READ-ONLY inbox glob (no mkdir, unlike sync_dir()). Returns (branch, [request paths]);
+    ("", []) if git can't answer, so the hook stays silent instead of erroring."""
+    out = git("rev-parse", "--path-format=absolute", "--abbrev-ref", "HEAD",
+              "--git-common-dir", check=False)
+    lines = out.splitlines()
+    if len(lines) < 2:
+        return "", []
+    inbox = Path(lines[1]) / "agent-sync" / "inbox"
+    paths = sorted(inbox.glob("*.json")) if inbox.is_dir() else []
+    return lines[0], _prune_merged(paths)      # self-heal stale (already-merged) entries
+
+
+def _print_pending_banner():
+    """Loud, impossible-to-miss banner of every queued request. Printed by the lead's
+    routine commands so a pending merge can't be walked past even if `wait` never fired."""
+    reqs = _requests()
+    if not reqs:
+        return
+    bar = "!" * 64
+    print(bar)
+    print(f"  {len(reqs)} PENDING MERGE REQUEST(S) -- take them before you move on:")
+    for r in _load_reqs(reqs):
+        print(f"    * agent/{r['name']:12s} {r['sha'][:8]}  \"{r['summary']}\"")
+    print(f"  ->  py -3.12 cadkit/tools/agent_sync.py take <name>")
+    print(bar)
+
+
+_REARM = ("RE-ARM the notifier (its trip consumed it) or the NEXT submit is silent:\n"
+          "  py -3.12 cadkit/tools/agent_sync.py wait      # in the BACKGROUND")
 
 
 def cmd_wait(timeout, poll):
@@ -180,6 +258,7 @@ def cmd_wait(timeout, poll):
     while True:
         if _requests():
             cmd_inbox()
+            print(_REARM)
             return
         if deadline and time.time() >= deadline:
             print("wait: timed out, no requests yet -- re-arm `wait` to keep listening.")
@@ -193,14 +272,21 @@ def cmd_inbox():
         print("inbox empty -- no pending merge requests.")
         return
     print(f"{len(reqs)} pending merge request(s):")
-    for p in reqs:
-        r = json.loads(p.read_text())
+    for r in _load_reqs(reqs):
         print(f"  • {r['branch']:20s} {r['sha'][:8]}  {r['time']}  \"{r['summary']}\"")
     print("Take one with:  py -3.12 cadkit/tools/agent_sync.py take <name>")
 
 
 def cmd_take(name: str):
-    branch = f"agent/{name}"
+    # accept both `take branner` and `take agent/branner` -- the inbox banner
+    # prints the FULL branch name, so pasting it used to build 'agent/agent/branner'
+    # and (with check=False below) fail SILENTLY, printing "merged" for a no-op.
+    branch = name if name.startswith("agent/") else f"agent/{name}"
+    name = branch[len("agent/"):]
+    if not git("rev-parse", "--verify", "--quiet", branch, check=False).strip():
+        print(f"no such branch: {branch}. Pending requests:")
+        cmd_inbox()
+        raise SystemExit(2)
     if cur_branch() != "main":
         print(f"WARNING: you are on '{cur_branch()}', not main. Merges normally land on main.")
     git("merge", "--no-ff", branch, "-m", f"Merge {branch}", check=False)
@@ -211,9 +297,18 @@ def cmd_take(name: str):
               "conflicted:")
         print("  " + "\n  ".join(sorted(set(l.split()[-1] for l in git("ls-files", "-u").splitlines()))))
         return
+    # PROVE it landed before clearing the request: `git merge` above runs with
+    # check=False (a conflict is a normal, handled outcome), so any OTHER failure
+    # would otherwise be reported as a successful merge.
+    if not _is_ancestor(branch, "HEAD"):
+        print(f"MERGE DID NOT LAND: {branch} is still not an ancestor of HEAD. "
+              f"Request kept. Investigate with:\n  git log --oneline -5 {branch}")
+        raise SystemExit(1)
     (sync_dir() / "inbox" / f"{slug(branch)}.json").unlink(missing_ok=True)
     print(f"merged {branch} into {cur_branch()}. Now build:\n"
           f"  py -3.12 cadkit/tools/agent_sync.py build")
+    _print_pending_banner()      # surface any OTHER queued requests before you move on
+    print(_REARM)
 
 
 def cmd_drop(name: str):
@@ -228,6 +323,7 @@ def cmd_drop(name: str):
 def cmd_build(extra):
     if Path(os.getcwd()).resolve() != main_worktree().resolve():
         raise SystemExit("build only runs in the MAIN worktree (the lead owns the single tab/build).")
+    _print_pending_banner()      # a queued request the lead hasn't taken is easy to miss mid-build
     lock = sync_dir() / "build.lock"
     holder = f"{cur_branch()} pid={os.getpid()}"
     if lock.exists():
@@ -257,6 +353,36 @@ def cmd_status():
     for line in git("worktree", "list").splitlines():
         print("  " + line)
     print(f"pending merge requests: {len(_requests())}  (see `inbox`)")
+    _print_pending_banner()
+
+
+def cmd_hook():
+    """The LEAD's `UserPromptSubmit` hook (wire it in .claude/settings.json). It runs on the
+    lead's NEXT prompt -- whatever that prompt is about -- and, if the inbox holds a request,
+    prints a loud notice that Claude Code injects into the lead's context: take it AND re-arm
+    `wait`. This is how a DOWN `wait` self-heals the moment the lead is prompted for anything,
+    with no human relay. Stays SILENT (no output) when the inbox is empty or this isn't the
+    lead session, so a normal turn is never cluttered. ALWAYS exits 0 -- a hook must never
+    block or fail the prompt."""
+    try:
+        branch, paths = _hook_reqs()
+        if branch != "main" or not paths:     # only the lead acts; silent when nothing waits
+            return
+        bar = "=" * 68
+        out = [bar,
+               f"[agent_sync] ACTION REQUIRED before you continue: {len(paths)} merge "
+               f"request(s) are waiting in your inbox.",
+               "Your `wait` listener did NOT catch them (they would be merged already), so it "
+               "is down. Do BOTH now:",
+               "  1. take each below:   py -3.12 cadkit/tools/agent_sync.py take <name>",
+               "  2. RE-ARM the listener IN THE BACKGROUND so future ones auto-wake you:",
+               "        py -3.12 cadkit/tools/agent_sync.py wait",
+               "pending:"]
+        out += [f"  * agent/{r['name']}  {r['sha'][:8]}  \"{r['summary']}\"" for r in _load_reqs(paths)]
+        out.append(bar)
+        print("\n".join(out))
+    except Exception:
+        pass                              # a hook must never fail the prompt -> swallow everything
 
 
 def main():
@@ -281,12 +407,13 @@ def main():
     sub.add_parser("drop").add_argument("name")
     b = sub.add_parser("build"); b.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("status")
+    sub.add_parser("hook")          # the lead's UserPromptSubmit hook (see .claude/settings.json)
     a = ap.parse_args()
     {"join": lambda: cmd_join(a.name), "submit": lambda: cmd_submit(a.summary),
      "sync": cmd_sync, "done": cmd_done, "inbox": cmd_inbox,
      "wait": lambda: cmd_wait(a.timeout, a.poll),
      "take": lambda: cmd_take(a.name), "drop": lambda: cmd_drop(a.name),
-     "build": lambda: cmd_build(a.args), "status": cmd_status}[a.cmd]()
+     "build": lambda: cmd_build(a.args), "status": cmd_status, "hook": cmd_hook}[a.cmd]()
 
 
 if __name__ == "__main__":
