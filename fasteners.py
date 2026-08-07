@@ -409,6 +409,28 @@ def screw(spec, length=None):
     return body.cut(socket)
 
 
+def headed_screw(spec, length, head_d, head_h, socket_af=2.0, socket_depth=None):
+    """Dummy HEADED cap screw (button/socket head), axis Z, HEAD TOP at z=0,
+    shank extends -Z. Unlike headless `screw()`, this one has a head disk
+    (Ø head_d × head_h at z in [-head_h, 0]) with the drive HEX SOCKET sunk into
+    the head TOP (across-flats socket_af) — so the socket is never buried when
+    the head seats in a counterbore. The Ø screw_d × length shank hangs below
+    (z in [-head_h-length, -head_h]). Translate so the head top lands where you
+    want it (e.g. the counterbore mouth)."""
+    if length is None or length <= 0:
+        raise ValueError("headed_screw(%s): length must be > 0, got %r"
+                         % (spec.name, length))
+    if head_d <= spec.screw_d or head_h <= 0:
+        raise ValueError("headed_screw(%s): head_d must exceed screw_d and head_h > 0"
+                         % spec.name)
+    body = _cyl(head_d, head_h, (0, 0, -head_h), (0, 0, 1))
+    body = body.fuse(_cyl(spec.screw_d, length, (0, 0, -head_h - length), (0, 0, 1)))
+    depth = socket_depth if socket_depth else max(0.6, 0.6 * head_h)
+    hexd = socket_af / math.cos(math.radians(30))
+    socket = cq.Workplane("XY").polygon(6, hexd).extrude(-depth).translate((0, 0, 0.01))
+    return cq.Workplane(obj=body).cut(socket)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # MEASUREMENT — a nominal depth cannot see a thin wall. The solid can.
 # ════════════════════════════════════════════════════════════════════════════
@@ -608,6 +630,12 @@ _M4_SET_SCREW_REASON = "set screw: must never self-tap — it holds position und
 def set_screw():
     """Dummy M4×10 cup-tip set screw, axis Z, top at z=0 (extends -Z)."""
     return screw(M4)
+
+
+def m4_button_screw(length, head_d=7.6, head_h=2.2):
+    """Dummy M4 button-head cap screw (ISO 7380-ish: head Ø7.6 × 2.2, 2.5 mm hex
+    drive). Head top at z=0, shank extends -Z. Turn/seat from the head end."""
+    return headed_screw(M4, length, head_d=head_d, head_h=head_h, socket_af=2.5)
 
 
 def m4_insert():
