@@ -13,7 +13,8 @@ and each worker loads them ONCE (~0.3 s, vs tens of seconds to rebuild), then th
 bbox-surviving PAIRS are handed out with dynamic scheduling (``imap_unordered``) so
 the few expensive booleans spread across cores. ``is_intended`` is applied in the
 PARENT, so the verdict is identical to a serial scan and workers stay project-
-agnostic (they never import the project).
+agnostic — they never import the project, not even the caller's ``__main__``
+(see ``_detached_main``), so ``run()`` is safe to call FROM the build script.
 
 NOTE: OCCT booleans on complex shapes are memory-bandwidth-bound, so the realistic
 speedup is ~2-3x, not linear in core count.
@@ -27,8 +28,10 @@ Typical use from a project's tools/check_overlaps.py::
 
 from __future__ import annotations
 
+import contextlib
 import multiprocessing as mp
 import os
+import sys
 import tempfile
 import time
 
@@ -99,6 +102,31 @@ def _pair_vol(ij):
     return (vol, i, j) if vol > VOL_EPS else None
 
 
+@contextlib.contextmanager
+def _detached_main():
+    """Stop spawned workers from re-importing the CALLER's ``__main__``.
+
+    Windows uses spawn, and spawn's bootstrap re-imports the parent's main module
+    (as ``__mp_main__``) purely to resolve pickled references. This engine never
+    needs it: the pool's initializer and task function both live in THIS module,
+    which the workers import by name. But if the caller's ``__main__`` is the
+    project build script, that re-import re-runs its module-level geometry in
+    EVERY worker. Hiding ``__spec__``/``__file__`` for the duration of the pool
+    makes multiprocessing skip the main fixup entirely.
+    """
+    main = sys.modules.get("__main__")
+    saved = {}
+    for attr in ("__spec__", "__file__"):
+        if main is not None and hasattr(main, attr):
+            saved[attr] = getattr(main, attr)
+            setattr(main, attr, None)
+    try:
+        yield
+    finally:
+        for attr, val in saved.items():
+            setattr(main, attr, val)
+
+
 def _scan(components, jobs):
     """Return raw [(vol, name_a, name_b), ...] for interpenetrating pairs."""
     names = [n for n, _ in components]
@@ -113,7 +141,8 @@ def _scan(components, jobs):
         os.close(fd)
         try:
             _serialize(shapes, path)
-            with mp.Pool(jobs, initializer=_worker_load, initargs=(path,)) as pool:
+            with _detached_main(), \
+                    mp.Pool(jobs, initializer=_worker_load, initargs=(path,)) as pool:
                 raw = [r for r in pool.imap_unordered(_pair_vol, cands, chunksize=1)
                        if r]
         finally:
