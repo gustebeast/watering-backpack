@@ -63,10 +63,12 @@ indistinguishable from an oversight:
   DOMAIN     a dimension the physical problem sets — scale length, string pitch,
              a gear ratio, a mounting standard. The printer does not get a vote.
 
-Anything else off-grid is an oversight. A project that wants this enforced can
-walk its own constants with on_grid() (see the pedal-steel's tools/check_beads.py
-for the shape: an exemption table keyed by name, each entry carrying its reason,
-and a non-zero exit for anything off-grid that has none).
+Anything else off-grid is an oversight. Enforce it with cadkit.bead_check — the
+shared audit engine (AST walk of every module-level UPPERCASE constant; bare
+literals checked by VALUE, derived constants by the OFFSETS they add). Each
+project ships a thin tools/check_beads.py that supplies its constants package
+and an exemption table keyed by name, every entry carrying its reason; exit
+code = off-grid values that have none (the overlap_check pattern).
 
 THE GRID IS A PROPERTY OF THE PART, NOT THE PROJECT (user, 2026-08-06). A
 project sets a DEFAULT nozzle because most of it is structure, but a part whose
@@ -91,6 +93,52 @@ clearance-side pocket or a cosmetic relief — snap DOWN or nearest. When a snap
 would move a MATING face, move the mate with it or you have traded a slicer
 problem for a fit problem: that is why the rule is phrased "another feature ± N
 beads" rather than "round every number independently".
+
+WHAT THE GRID ACTUALLY GOVERNS: DIFFERENCES, NOT POSITIONS (user, 2026-08-07).
+The printer quantises exactly one thing: the distance between two opposing
+surfaces that bound material — that is where the slicer must fit a whole number
+of beads. POSITIONS are continuous: there is no lattice, a part lands on the
+bed wherever the slicer puts it, and a perimeter follows any contour — the
+slicer prints a perfect circle, not a pixelated one. The grid is a WORST-CASE
+guarantee about thin-wall fill, not a voxel model of the printer. Two idioms
+follow, chosen by whether a feature shares critical material with an off-grid
+datum:
+
+  SNAP WHERE FREE      an isolated feature (bulk material all around) constrains
+                       nothing — put its coordinate on the absolute grid
+                       (`70 * BEAD`), so every future DERIVED difference lands
+                       on-grid for free.
+  CHAIN WHERE COUPLED  next to hardware (or any legitimately off-grid datum) the
+                       printer only sees the material BETWEEN the features. Size
+                       that web as `datum ± N * BEAD` and let the absolute
+                       coordinate fall where it falls. Snapping such a feature
+                       absolutely moves the off-grid remainder onto the
+                       load-bearing web — the worst trade available.
+
+Write lengths as COUNTS either way — `70 * BEAD`, not `56.0` — even when the
+decimal happens to sit on the grid: the count is what you read and what you
+edit, and a bare decimal hides that it is a grid value at all.
+
+JOINERY: FIT BEATS GRID. A tenon is `mortise − clearance`, and a working
+clearance is sub-bead BY NECESSITY — so if the mortise flats are on-grid, the
+tenon flats are off-grid BY CONSTRUCTION, permanently, and that is fine: mating
+parts print separately, so their frames share no grid at print time, and a
+−0.15 on a 2–3-bead tenon means beads at ~0.93 width, well inside Arachne's
+modulation. The failure mode is the ~half-bead REMAINDER (a starved extra
+bead), never a small deviation. Put the NOMINAL profile on the grid and push
+the whole clearance onto ONE side (cadkit.joinery puts it on the tenon); never
+round the two halves independently toward their own grids.
+
+WHAT AN OFF-GRID AUDIT ACTUALLY FINDS (pedal-steel conversion, 2026-08-07:
+264 findings → 0): the best catches were not walls — they were STALE SPELLED
+DATUMS, values like a bed height copied years of edits ago from a chain whose
+parents had since snapped, leaving every copy silently wrong by a fraction of
+a bead. An off-grid derived value is often a dead literal of a datum that
+moved: fix it by referencing the LIVE datum, and where import direction
+forbids that, spell it via the same shared constants and say so. Also expect
+a few constants that CANNOT snap because a model assert pins them (a pocket
+divider at its tier, an exactly-at-limit band): those are tuned knobs —
+exempt them citing the assert, don't fight it.
 
 ONE bead is the hard floor, but a lone bead slices a bit mushy; TWO beads
 (2*nozzle) is the QUALITY TARGET — two clean perimeters print crisp. Aim for two

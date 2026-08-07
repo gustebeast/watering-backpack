@@ -761,6 +761,18 @@ class ArcCrossing:
         overshoot — the minimum install offset before the z-mate."""
         return self.ten + self.over
 
+    @property
+    def cavity_span(self):
+        """The cavity's PLAN angular span (lo, hi), degrees, for this
+        crossing's hand — exactly what `mortise()` cuts, relative to the
+        arm centred on plan angle 0. Callers building geometry that must
+        ABUT the cavity (the cable-spool's ring-groove arcs between the
+        crossings) read this instead of re-deriving the hand mirror —
+        `_handed` is private and free to change."""
+        lo = self.arm - self.ten - self.seat
+        hi = self.arm + self.over
+        return (lo, hi) if self.hand == "cw" else (-hi, -lo)
+
     def _handed(self, w):
         """hand="ccw" is the hand="cw" arrangement mirrored about the arm's
         centreline plane (the profile is symmetric along the sweep, so the
@@ -1414,6 +1426,27 @@ class Joint:
             stem, d1, d2 = _hook_dims(self.width, self.nozzle, self.clearance)
             return {"stem": stem, "notch_depth": d1, "full_depth": d2}
         return {"height": self.height}
+
+    @property
+    def cavity_depth(self):
+        """The z-extent the mortise cavity swallows above the mating
+        plane — the ONE number every mortise host must clear, which the
+        height/clearance pair under-specifies: the octagon's uniform
+        dilation adds `clearance` on top of its (relief-inclusive)
+        height, while the mushroom's split-clearance cavity tops out at
+        height + back_clearance. Callers were branching on family by
+        hand to know which rule applied (cable-spool review) — read
+        this instead. x-slide bulb families only; the install-z
+        families publish their depths via `dims`."""
+        if self.family == "mushroom":
+            split = abs(self.back_clearance - self.clearance) > 1e-9
+            return self.height + (self.back_clearance if split
+                                  else self.clearance)
+        if self.family == "octagon":
+            return self.height + self.clearance
+        raise NotImplementedError(
+            "cavity_depth is modelled for the octagon/mushroom "
+            "families — the z-swallow question the x-slide sites ask")
 
     def tenon(self, root=1.0, length=None):
         """The tenon solid (union into its host; `root` sinks below the
@@ -2504,6 +2537,29 @@ if __name__ == "__main__":
     print(f"  box_min up+down       {'ok' if ok else 'FAIL'}")
     if not ok:
         fails.append("joint_box_min: up+down")
+    # cavity_depth: the one number a mortise host must clear — measured
+    # against the actual cutter's top for BOTH bulb families (their
+    # internal top rules differ; callers must not have to know which)
+    for lbl, jj in (("mushroom split", joint(6.4, 12, tenon=up, mortise=dn)),
+                    ("octagon split", joint(6.0, 12, tenon=up, mortise=up))):
+        zmax = jj.mortise(drop=2.0).val().BoundingBox().zmax
+        ok = abs(zmax - jj.cavity_depth) < 1e-6
+        print(f"  cavity_depth {lbl:15s} {jj.cavity_depth:.3f} == cutter "
+              f"{zmax:.3f} {'ok' if ok else 'FAIL'}")
+        if not ok:
+            fails.append(f"cavity_depth: {lbl} {jj.cavity_depth} != {zmax}")
+    # cavity_span: what mortise() cuts, hand applied — width and mirror
+    jc5 = joint(5.0, None, tenon=up, mortise=up)
+    Xcw = jc5.crossing(40.0, 10.0, seat=0.15, over=1.0, hand="cw")
+    Xcc = jc5.crossing(40.0, 10.0, seat=0.15, over=1.0, hand="ccw")
+    ok = (abs((Xcw.cavity_span[1] - Xcw.cavity_span[0])
+              - (Xcw.ten + Xcw.seat + Xcw.over)) < 1e-9
+          and abs(Xcc.cavity_span[0] + Xcw.cavity_span[1]) < 1e-9
+          and abs(Xcc.cavity_span[1] + Xcw.cavity_span[0]) < 1e-9)
+    print(f"  cavity_span           cw {Xcw.cavity_span[0]:.2f}.."
+          f"{Xcw.cavity_span[1]:.2f} = ccw mirrored {'ok' if ok else 'FAIL'}")
+    if not ok:
+        fails.append("cavity_span: width/mirror")
     # up+up + THROUGH → mushroom, cavity run = depth; tenon stays minimal
     jt = joint(6.4, 12, tenon=up, mortise=up, install="-x", depth=9.0,
                through=True)
