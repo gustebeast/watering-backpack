@@ -176,6 +176,23 @@ py -3.12 -m tools.check_overlaps        # exit code = unintended pairs; 0 = clea
 py -3.12 -m tools.check_overlaps --all  # also list the intended contacts
 ```
 
+**Know what a standalone gate run actually costs.** The time the gate prints
+(~13-20 s) is only the *pairwise scan*. Everything before it is
+`collect_components()` — a COMPLETE model build, the same one `src.build` does.
+Measured on this project: `check_overlaps` end-to-end is **5 m 51 s**, of which
+13 s is checking. So gate-then-build pays for **two** full model builds.
+
+The fix is to fold the scan into the build, which already has the components in
+memory: `src/build.py` runs it at the end of `_export_assembly()` (see
+`_report_overlaps`), making a whole-tree gate cost ~+15 s instead of ~+6 min, and
+the build's exit code non-zero on a NEW overlap (`OVERLAP_BASELINE` holds the
+accepted, separately-tracked ones). `--no-gate` / `--gate-full` override it.
+`tools/check_overlaps.gate(comps, ...)` is the shared entry point both use — a
+project's `main()` builds then calls it; the build calls it with what it has.
+This is only safe because `overlap_check._detached_main()` stops the spawned
+workers from re-importing the caller's `__main__` (which, called from the build
+script, would re-run its module-level geometry in EVERY worker).
+
 Caveats: it only finds *interpenetration* — NOT too-thin walls, too-tight
 clearances, or missing/should-touch contact (use point-probes / cross-sections for
 those), and a wrong whitelist entry can mask a real clash. OCCT booleans are
@@ -412,7 +429,20 @@ editing anything:
    work in the lead's main dir, `git stash` it BEFORE `join`, then `git stash pop`
    once you're in your worktree — that carries it over without losing anything.)
 2. **Never run `src.build` or open the viewer** — that's the lead's single tab.
-   Verify with `py -3.12 -m tools.check_overlaps` (writes no assembly, opens no tab).
+   **Validating your change is YOUR job, not the lead's** — the lead merges and
+   builds, and does not re-derive whether your geometry is right. Before every
+   `submit`, on your own branch:
+   - `py -3.12 -m tools.check_overlaps` — the full gate. Say the result in your
+     submit summary ("gate green, N inherited"). Inner-loop iterations can use
+     `--only <your,bases>`, which skips the pairwise cost but NOT the model build,
+     so it saves less than you'd think; the full gate is the one that counts.
+   - the project's other checks (bead/grid, min-wall, thread rules) — same rule.
+   - **anything that MOVES: probe it swept, by hand.** The gate only ever sees the
+     rest pose, and allowlisted pairs are invisible to it forever. A mechanism that
+     collides at 20° of throw passes a green gate.
+   If you genuinely can't verify something without a build, say so in the submit
+   summary rather than shipping it silently — the lead's build is a real failure
+   check, but only for import/geometry errors, not for your design intent.
 3. **`sync` BEFORE you start each task — not only between rounds.** Run
    `py -3.12 cadkit/tools/agent_sync.py sync` to pull the lead's latest `main` into
    your branch *before you edit anything*, every round. The lead is landing commits
@@ -436,6 +466,14 @@ take contributors' work **hands-free**:
    you, no human relay.
 2. When it wakes you: `take <name>` (resolve any conflicts) → `build` (announce the
    build #) → **re-arm** `wait` in the background for the next one.
+3. **Batch.** If several requests are queued, `take` them ALL first, then run ONE
+   `build`. A build is minutes; merging is seconds. Never build per-request.
+4. **Don't re-run the contributors' validation** — they gate their own branch and
+   report it (see the sub-agent block). What you owe is the thing none of them can
+   see: the **combination**. Two branches that are each green alone can collide
+   once merged, and only the post-merge whole-tree check catches it — which is why
+   the gate is folded into the build (above) and costs you ~15 s rather than a
+   second 6-minute model build. Read the gate line before you push.
 
 Rules that keep it from clobbering:
 - **Only the lead builds / opens the viewer.** `agent_sync.py build` refuses
