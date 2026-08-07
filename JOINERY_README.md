@@ -319,6 +319,21 @@ The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free,
 fat stem (`width/2`, orange < green), the **tenon floor** ≥ nozzle, and the
 **mortise roof** measured at three widths to prove it stays one nozzle.
 
+### Z-relief (split clearances — fiber-filled depth faces)
+
+With a split `back_clearance` (the policy hands one to any fiber-filled
+pairing) the octagon opens its **z-loaded flare sandwich** — the faces that
+grab in GF/CF prints — by the full depth gap, via its own mechanics
+(user-directed, cable-spool mount rings): the **tenon's stem post grows by
+`back_clearance`** (the whole stop sign rides away from the mating plane) and
+the **cavity's waist vertical grows by the same amount** (the room the
+displaced octagon moves into). Separating the hosts now rides the relief
+before the flares engage, while the laterals keep the base clearance, the
+mortise's printed neck wall keeps its tier size, and the roof bridge stays one
+nozzle. Relief in the cavity alone would thin the neck wall — the reason the
+tenon carries half the mechanism. `joint().height` includes the growth; the
+self-test gates the ride/engage split directly.
+
 ### Entry POCKET (`.mortise(pocket=True)`)
 
 When the slide travel is obstructed — a tenon site whose channel can't reach an
@@ -339,6 +354,33 @@ _____________          ____________
 |   \   /    |          |  |     |    |     waist walls drop STRAIGHT to the
 |__|  |__|          |__|     |__|     opening — z-entry, no retention
 ```
+
+## Ring↔arm CROSSING — the rotational-install site (`Joint.crossing()`)
+
+When two parts are already located on a shared axis, the one free install
+motion is **rotation** — the `.tenon_arc`/`.mortise_arc` solids revolved about
+Z. A real rotational site is a **ring crossing a radial arm** (the tenon rides
+the ring, the cavity tunnels the arm), and that arrangement came out identical
+at every such site the projects built, so it lives in the library once:
+
+```python
+X = j.crossing(radius, arm_w, tenon_l=None, seat=None, over=1.0)  # all mm
+host  = host.union(X.tenon(root=1.0).rotate(..., site_deg))
+other = other.cut(X.mortise(drop=2.0).rotate(..., site_deg))
+# X.arm / X.seat / X.over / X.ten (degrees); X.free = ten + over
+```
+
+Conventions (arm centred on plan angle 0): the **tenon anchors flush at the
+arm's CCW entry face** and spans `tenon_l` of arc inboard — default
+**half the crossing** (the 50% rule, user's call: the joint takes half, the
+stop-side half stays solid arm, and the constructor raises if the leftover
+stop wall drops under a tier wall). The **cavity** adds `seat` at the stop end
+(so an external stop — mating faces, screw pads — lands first) and sweeps
+`over` past the entry face, open. Seating is the tenon rotating CW relative to
+the mortise host. The same crossing serves every arc-capable profile — the
+full stop sign for matched print directions, the flat-top mushroom for opposed
+ones — which is exactly how the cable-spool's frame and mount joints share
+their install story.
 
 ## T-slot joint — install ∥ print-Z (`install="z"`)
 
