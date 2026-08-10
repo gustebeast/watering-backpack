@@ -27,7 +27,7 @@ Two layers of reusable capability back a cadkit project:
   (git subtree; canonical upstream github.com/gustebeast/cadkit). Imported as
   `cadkit.*` — NO sys.path hack, because every build runs via `-m` from the project
   root, so the vendored package is already importable:
-  - `cadkit.step_export` — `export_step()` (names the STEP product after the file stem)
+  - `cadkit.step_export` — `export_step()` (names the STEP product after the file stem) · `print_pose()` (per-part STEPs export print-oriented — see STEP conventions)
   - `cadkit.overlap_check` — the parallel interpenetration engine (see the overlap gate)
   - `cadkit.threads` — **self-supporting 45° screw threads**; read **`cadkit/THREADS_README.md`**
     before changing any thread (OCCT fails *silently* in ~7 documented ways — a smooth
@@ -114,6 +114,22 @@ from the project folder instead.)
   `.step` instead.
 - **One STEP per printed part** (`housing.step`, `axle.step`, …) — one printable
   solid each; the slicer imports these.
+- **Per-part STEPs export in PRINT POSE** (user, cable-spool #935): each file
+  lands in the slicer already print-oriented — rotated onto its documented bed
+  face, dropped to z = 0, centred on x/y — so nothing ever needs flipping in
+  Bambu. Use the shared helper, **at export ONLY**; the assembly keeps every
+  part as-modeled (add the untransformed part to `cq.Assembly`):
+  ```python
+  from cadkit.step_export import export_step, print_pose
+  PRINT_ROT = {              # one table beside PARTS: bed face declared once
+      "lid": "flip",                     # prints +z→−z (modeled top = bed)
+      "lever": ((1, 0, 0), -90),         # stands on its +y face
+      # parts that model as printed just get the drop-and-centre
+  }
+  export_step(print_pose(part, PRINT_ROT.get(name)), fname)
+  ```
+  When a part's print direction changes, update its `PRINT_ROT` entry in the
+  same commit — the table is the print-orientation record of the project.
 - **Name every product to match its filename.** A bare
   `cq.exporters.export(part, "housing.step")` names the STEP product *"Open
   CASCADE STEP translator 7.8 …"*, which is what Bambu/FreeCAD then display. Use
