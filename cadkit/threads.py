@@ -7,6 +7,15 @@ to cut a helical thread that OCCT won't silently mangle. Self-contained (only ne
     nut_cutter = threaded_rod(minor_d=11, major_d=13, pitch=4, length=20)   # short rods, nut cutters, coupons
     piston     = body.cut(nut_cutter)                                       # -> internal thread
 
+    # FINE PITCHES + NUT CUTTERS. Two defaults are tuned for a male rod and get in the
+    # way of an internal thread; both are now parameters:
+    #   overshoot   costs 2x itself out of every pitch, so at pitch 1.0 the 0.3 default
+    #               makes EVERY depth illegal. Cutting into solid stock there is no
+    #               coincident face to avoid, so a small value is safe.
+    #   bevel_ends  tapers the rod's ends to the minor Ø. On a nut cutter that leaves
+    #               the mating part's entry too small for its screw's crest to enter.
+    pilot = threaded_rod(4.2, 4.8, 1.0, 12, overshoot=0.05, bevel_ends=False)
+
     # A long screw: build a SMOOTH blank (crest-Ø rod + shaft + head), then subtract
     # the thread LAST, then mill any flat AFTER that:
     screw = cut_thread(blank, minor_d=11, major_d=13, pitch=4, length=146, z=64)
@@ -52,6 +61,12 @@ import cadquery as cq
 
 _SEG_LEN = 72.0          # segment tile length: < the ~100 mm single-sweep limit, a multiple of common pitches
 _OVERSHOOT = 0.3         # radial overshoot of the valley past the crest (avoids a coincident cut face)
+# ...but it is a DEFAULT, not a law, and on fine pitches it is the binding constraint.
+# The overshoot appears twice in the valley's width at the crest, so it costs 2x itself
+# out of every pitch; at pitch 1.0 that is 0.6 of the 1.0 available and NO depth can
+# satisfy the width check. Callers cutting a valley into SOLID stock (an internal
+# thread, where the cutter's outer edge is buried in material and there is no
+# coincident face to avoid) can and should pass a smaller one.
 
 
 def _cyl(d, h, z=0.0):
@@ -63,7 +78,7 @@ def _cone(d_bottom, d_top, h, z):
             .workplane(offset=h).circle(d_top / 2.0).loft())
 
 
-def _valley_profile(minor_d, major_d, spacing):
+def _valley_profile(minor_d, major_d, spacing, overshoot=_OVERSHOOT):
     """The 4-point 45° trapezoid valley quad, in (radius, axial) coordinates.
     `spacing` is the AXIAL ridge-to-ridge distance — the pitch for a
     single-start thread, lead/starts for a multi-start one. Raises on the two
@@ -77,17 +92,19 @@ def _valley_profile(minor_d, major_d, spacing):
             f"need depth ≤ spacing/2. Raise the spacing or the minor Ø.")
     flat = (spacing - 2.0 * depth) / 2.0         # equal crest + root flats (axial)
     hw_root = flat / 2.0                          # valley half-width at the root floor
-    hw_out = flat / 2.0 + (crest_r + _OVERSHOOT - core_r)   # at the overshoot
+    hw_out = flat / 2.0 + (crest_r + overshoot - core_r)    # at the overshoot
     if 2.0 * hw_out >= spacing - 1e-6:
         raise ValueError(
             f"valley {2 * hw_out:.2f} wide at the overshoot ≥ spacing {spacing}: "
             f"adjacent turns/starts would overlap into an invalid cutter "
-            f"(silent no-op). Raise the spacing or shrink the depth.")
-    return [(core_r, -hw_root), (crest_r + _OVERSHOOT, -hw_out),
-            (crest_r + _OVERSHOOT, hw_out), (core_r, hw_root)]
+            f"(silent no-op). Raise the spacing, shrink the depth, or — on a fine "
+            f"pitch, where the {overshoot:.2f} overshoot is what is eating it — pass a "
+            f"smaller `overshoot` (safe when cutting into solid stock).")
+    return [(core_r, -hw_root), (crest_r + overshoot, -hw_out),
+            (crest_r + overshoot, hw_out), (core_r, hw_root)]
 
 
-def thread_segments(minor_d, major_d, pitch, length):
+def thread_segments(minor_d, major_d, pitch, length, overshoot=_OVERSHOOT):
     """A LIST of ABUTTING (non-overlapping) helical valley cutters, base at z=0,
     tiling `length`. CUT THEM SEQUENTIALLY (`solid = solid.cut(seg)` in a loop) from
     a crest-Ø blank; don't union them first (unioning the overlapping helices fills).
@@ -97,7 +114,7 @@ def thread_segments(minor_d, major_d, pitch, length):
     start thread across the seams. Valley = 4-point 45° trapezoid, inner edge at
     minor_r (never reaches the core), width < pitch (turns never self-overlap)."""
     r_mid = (minor_d + major_d) / 4.0
-    gpts = _valley_profile(minor_d, major_d, pitch)
+    gpts = _valley_profile(minor_d, major_d, pitch, overshoot)
     segs = []
     for i in range(int(math.ceil(length / _SEG_LEN))):
         z0 = i * _SEG_LEN
@@ -111,7 +128,8 @@ def thread_segments(minor_d, major_d, pitch, length):
     return segs
 
 
-def threaded_rod(minor_d, major_d, pitch, length, z=0.0):
+def threaded_rod(minor_d, major_d, pitch, length, z=0.0, overshoot=_OVERSHOOT,
+                 bevel_ends=True):
     """A self-supporting 45° threaded ROD (crest-Ø solid with the valleys cut) plus
     lead-in chamfers at both ends. Use for SHORT rods, nut cutters and coupons. For a
     long screw, build a blank and use cut_thread() instead. The rod height is rounded
@@ -121,8 +139,13 @@ def threaded_rod(minor_d, major_d, pitch, length, z=0.0):
     crest_r = major_d / 2.0
     H = math.ceil(length / pitch - 1e-6) * pitch
     rod = _cyl(2.0 * crest_r, H)
-    for seg in thread_segments(minor_d, major_d, pitch, H):
+    for seg in thread_segments(minor_d, major_d, pitch, H, overshoot):
         rod = rod.cut(seg, clean=False)
+    if not bevel_ends:
+        # A NUT CUTTER wants full crest right to its ends: the bevels below taper the
+        # rod down to the minor Ø, and cutting that from a blank leaves the mating
+        # part's entry as a plain minor-Ø hole its screw's crest cannot even enter.
+        return rod.translate((0, 0, z))
     run = min(3.0, H / 4.0)
     bevel = crest_r + 1.0
     bot = _cyl(2 * bevel, run, z=0.0).cut(_cone(2 * core_r, 2 * bevel, run, 0.0))
