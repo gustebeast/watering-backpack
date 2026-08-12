@@ -237,7 +237,7 @@ def _wider_than_crest(blank, major_d, z_probe):
     return False
 
 
-def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0):
+def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0, allow_wider_above=False):
     """Subtract a self-supporting thread from an existing SMOOTH `blank` solid, over a
     whole number of turns starting at height z. Build the blank fully smooth first
     (crest-Ø rod + shaft + head), call this, THEN mill any flat afterwards — the flat
@@ -246,16 +246,26 @@ def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0):
     blank (overshooting into a smaller-Ø shaft above grazes it and leaves a thin
     degenerate face). GUARDED: raises if the span's top runs into blank material wider
     than major_d (e.g. a screw head) — that collision used to no-op SILENTLY and only
-    show up on the printed part (axle-screw bug, 2026-07-26). Returns the threaded
-    solid (un-healed; keep clean=False)."""
+    show up on the printed part (axle-screw bug, 2026-07-26). That check is a
+    conservative PROXIMITY test — it asks whether wider material sits just above the
+    span, not whether the cutter actually reaches it — so it can fire on a geometry
+    whose thread cuts perfectly well (a drive flange directly above a whole-turn span:
+    public-steel-guitar's knee-lever backstop, probed 2026-08-12, radius undulating
+    the full root..crest 0.76 at every sampled height). For those, pass
+    ``allow_wider_above=True`` — but PROBE FIRST. A silent no-op looks like a smooth
+    rod and reaches the printer. Returns the threaded solid (un-healed; keep
+    clean=False)."""
     turns_len = math.floor(length / pitch + 1e-6) * pitch
-    if _wider_than_crest(blank, major_d, z + turns_len + 0.05):
+    if not allow_wider_above and _wider_than_crest(blank, major_d, z + turns_len + 0.05):
         raise ValueError(
             f"cut_thread span [{z}, {z + turns_len}] runs into blank material wider "
             f"than major_d {major_d} just above its end — the helix cutter would "
             f"collide with that mass and the whole cut silently no-ops. End the span "
             f"inside the crest section or against a SUB-MINOR neck below the wider "
-            f"feature (see the axle-screw pattern).")
+            f"feature (see the axle-screw pattern). If you have PROBED this exact "
+            f"geometry and the thread really does cut (radius undulating root..crest "
+            f"at every sampled height), pass allow_wider_above=True — the check is a "
+            f"conservative proximity test, not proof of collision.")
     out = blank
     for seg in thread_segments(minor_d, major_d, pitch, turns_len):
         out = out.cut(seg.translate((0.0, 0.0, z)), clean=False, tol=_FUZZ)
