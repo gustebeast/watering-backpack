@@ -61,6 +61,15 @@ import cadquery as cq
 
 _SEG_LEN = 72.0          # segment tile length: < the ~100 mm single-sweep limit, a multiple of common pitches
 _OVERSHOOT = 0.3         # radial overshoot of the valley past the crest (avoids a coincident cut face)
+_FUZZ = 0.005            # fuzzy-boolean tolerance for every thread cut: a whole-turn cutter's
+                         # END PLANE often lands exactly on a blank feature plane (a crest→neck
+                         # shoulder, a rod end), and an exact-coincidence cut leaves a
+                         # DEGENERATE zero-area face there — rendered by STEP viewers as a
+                         # phantom paper-thin plane (user-caught on the axle screw's head,
+                         # 2026-07-27). The 5 µm fuzz merges coincident entities during the
+                         # boolean instead; ~40× smaller than any thread feature, so the form
+                         # is untouched. (Healing the artifact away afterwards is NOT an
+                         # option — rule 7: never heal a threaded solid.)
 # ...but it is a DEFAULT, not a law, and on fine pitches it is the binding constraint.
 # The overshoot appears twice in the valley's width at the crest, so it costs 2x itself
 # out of every pitch; at pitch 1.0 that is 0.6 of the 1.0 available and NO depth can
@@ -140,7 +149,7 @@ def threaded_rod(minor_d, major_d, pitch, length, z=0.0, overshoot=_OVERSHOOT,
     H = math.ceil(length / pitch - 1e-6) * pitch
     rod = _cyl(2.0 * crest_r, H)
     for seg in thread_segments(minor_d, major_d, pitch, H, overshoot):
-        rod = rod.cut(seg, clean=False)
+        rod = rod.cut(seg, clean=False, tol=_FUZZ)
     if not bevel_ends:
         # A NUT CUTTER wants full crest right to its ends: the bevels below taper the
         # rod down to the minor Ø, and cutting that from a blank leaves the mating
@@ -150,7 +159,8 @@ def threaded_rod(minor_d, major_d, pitch, length, z=0.0, overshoot=_OVERSHOOT,
     bevel = crest_r + 1.0
     bot = _cyl(2 * bevel, run, z=0.0).cut(_cone(2 * core_r, 2 * bevel, run, 0.0))
     top = _cyl(2 * bevel, run, z=H - run).cut(_cone(2 * bevel, 2 * core_r, run, H - run))
-    return rod.cut(bot, clean=False).cut(top, clean=False).translate((0, 0, z))
+    return (rod.cut(bot, clean=False, tol=_FUZZ)
+            .cut(top, clean=False, tol=_FUZZ).translate((0, 0, z)))
 
 
 _PK_OVER = 0.5          # peak overshoot past the rod ends (opens the teardrop at the socket mouth)
@@ -209,6 +219,24 @@ def teardrop_thread_cutter(minor_d, major_d, pitch, length, z=0.0, peak_h=None,
     return threaded_rod(minor_d, major_d, pitch, length, z=z).union(peak, clean=False)
 
 
+def _wider_than_crest(blank, major_d, z_probe):
+    """True if the axis-centered `blank` has material just BEYOND the crest Ø
+    on the ring at z_probe — the geometry that makes a helix cutter collide
+    and the whole thread cut silently no-op."""
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN, TopAbs_ON
+    shape = blank.val().wrapped if hasattr(blank, "val") else blank.wrapped
+    r = major_d / 2.0 + 0.05
+    for k in range(8):
+        a = 2.0 * math.pi * k / 8.0
+        c = BRepClass3d_SolidClassifier(
+            shape, gp_Pnt(r * math.cos(a), r * math.sin(a), z_probe), 1e-6)
+        if c.State() in (TopAbs_IN, TopAbs_ON):
+            return True
+    return False
+
+
 def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0):
     """Subtract a self-supporting thread from an existing SMOOTH `blank` solid, over a
     whole number of turns starting at height z. Build the blank fully smooth first
@@ -216,12 +244,40 @@ def cut_thread(blank, minor_d, major_d, pitch, length, z=0.0):
     must come after the thread, or the full-helix cutter overlaps the flat void and the
     cut no-ops. The span is rounded DOWN to a whole turn so the thread ends inside the
     blank (overshooting into a smaller-Ø shaft above grazes it and leaves a thin
-    degenerate face). Returns the threaded solid (un-healed; keep clean=False)."""
+    degenerate face). GUARDED: raises if the span's top runs into blank material wider
+    than major_d (e.g. a screw head) — that collision used to no-op SILENTLY and only
+    show up on the printed part (axle-screw bug, 2026-07-26). Returns the threaded
+    solid (un-healed; keep clean=False)."""
     turns_len = math.floor(length / pitch + 1e-6) * pitch
+    if _wider_than_crest(blank, major_d, z + turns_len + 0.05):
+        raise ValueError(
+            f"cut_thread span [{z}, {z + turns_len}] runs into blank material wider "
+            f"than major_d {major_d} just above its end — the helix cutter would "
+            f"collide with that mass and the whole cut silently no-ops. End the span "
+            f"inside the crest section or against a SUB-MINOR neck below the wider "
+            f"feature (see the axle-screw pattern).")
     out = blank
     for seg in thread_segments(minor_d, major_d, pitch, turns_len):
-        out = out.cut(seg.translate((0.0, 0.0, z)), clean=False)
+        out = out.cut(seg.translate((0.0, 0.0, z)), clean=False, tol=_FUZZ)
     return out
+
+
+def cut_step_lead(solid, minor_d, bore_d, z_step, sub=0.2, clean=True):
+    """Print-adapt a FEMALE-thread → larger smooth counterbore transition: the naive
+    step is a flat annulus facing down-print (an overhang ring where the top thread
+    ridge gets chopped — user-caught twice, 2026-07-27). This cuts a 45° LEAD CONE
+    from Ø(minor_d - sub) up to Ø bore_d at z_step, tapering the top female ridge at
+    the self-supporting limit. It only REMOVES female material, so the mating screw
+    strictly gains clearance; budget ~((bore_d - minor_d)/2 + sub/2) of engagement
+    loss. The cone's bottom rim starts `sub` UNDER the minor Ø (its rim ends in the
+    bore air, not tangent on it) and the cut runs with the fuzzy tolerance — both
+    guard against coincident-seam degenerate faces (see cadkit.geometry_lint).
+    Call on the SMOOTH blank, before the thread cut."""
+    ch = (bore_d - minor_d) / 2.0 + sub / 2.0
+    cone = (cq.Workplane("XY").workplane(offset=z_step - ch)
+            .circle((minor_d - sub) / 2.0)
+            .workplane(offset=ch).circle(bore_d / 2.0).loft())
+    return solid.cut(cone, clean=clean, tol=_FUZZ)
 
 
 # ── Multi-start (quarter-turn) threads ───────────────────────────────────────
@@ -278,11 +334,11 @@ def multistart_rod(minor_d, major_d, spacing, starts, length, z=0.0, bevel=2.0):
     rod = _cyl(major_d, length, z=z)
     for seg in multistart_valleys(minor_d, major_d, spacing, starts,
                                   length + 2.0 * spacing, z=z - spacing):
-        rod = rod.cut(seg, clean=False)
+        rod = rod.cut(seg, clean=False, tol=_FUZZ)
     if bevel:
         core_r, brim = minor_d / 2.0, major_d / 2.0 + 1.0
         bot = _cyl(2 * brim, bevel, z=z).cut(_cone(2 * core_r, 2 * brim, bevel, z))
-        rod = rod.cut(bot, clean=False)
+        rod = rod.cut(bot, clean=False, tol=_FUZZ)
     return rod
 
 
@@ -292,8 +348,18 @@ def cut_multistart_thread(blank, minor_d, major_d, spacing, starts, length, z=0.
     first, cut the thread LAST, mill any flat after — plus the multistart
     run-out rules from multistart_valleys: a shallow helical notch a groove
     half-width below z, and whole-lead run-out above z+length (air or
-    sub-minor-Ø only up there). Returns the threaded solid (un-healed)."""
+    sub-minor-Ø only up there — GUARDED: raises if that run-out zone holds
+    blank material wider than major_d, the silent-no-op collision).
+    Returns the threaded solid (un-healed)."""
+    lead = spacing * starts
+    for zp in (z + length + 0.05, z + length + lead - 0.05):
+        if _wider_than_crest(blank, major_d, zp):
+            raise ValueError(
+                f"cut_multistart_thread: the whole-lead run-out zone above the span "
+                f"(z {z + length}..{z + length + lead}) holds blank material wider "
+                f"than major_d {major_d} — the sweeps would collide there and the "
+                f"cut silently no-ops. Keep that zone air or ≤ sub-minor Ø.")
     out = blank
     for seg in multistart_valleys(minor_d, major_d, spacing, starts, length, z=z):
-        out = out.cut(seg, clean=False)
+        out = out.cut(seg, clean=False, tol=_FUZZ)
     return out
