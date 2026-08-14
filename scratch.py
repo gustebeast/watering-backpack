@@ -14,6 +14,7 @@ work, so the inner loop is seconds. On the pedal-steel that is 12 s against a
         context=lambda: __import__("src.build", fromlist=["e"]).collect_components(),
         live=lambda: __import__("src.leg_stack", fromlist=["e"]).assembly(),
         replaced=("leg_", "latch_"),        # context parts the live one supersedes
+        colors=lambda n: __import__("src.build", fromlist=["e"])._color_for(n),
         crop=(400.0, 400.0, 900.0, -614.0, 43.0, -375.0),   # optional
     )
     if __name__ == "__main__":
@@ -74,7 +75,7 @@ class ScratchView:
     def __init__(self, root, context, live, replaced=(), crop=None,
                  out="assembly.step", cache_dir=".scratch_cache",
                  live_color=(0.85, 0.45, 0.20), context_color=(0.32, 0.36, 0.40),
-                 pose=None):
+                 pose=None, colors=None):
         self.root = pathlib.Path(root)
         self.context = context          # () -> iterable of (name, Workplane)
         self.live = live                # () -> iterable of (name, Workplane)
@@ -85,6 +86,13 @@ class ScratchView:
         self.live_color = live_color
         self.context_color = context_color
         self.pose = pose                # optional (name, wp) -> wp for the live set
+        # THE LIVE SET WEARS ITS REAL COLOURS BY DEFAULT (user). `colors` is the
+        # project's own resolver, name -> cq.Color; pass the SAME one the full build
+        # uses and the part under work looks in here exactly as it will in the finished
+        # assembly. Without it the live set is one flat highlight colour, which reads
+        # every part as the same material and hides which piece is which. The CONTEXT
+        # stays deliberately grey -- that is what distinguishes cached from live.
+        self.colors = colors            # optional (name) -> cq.Color for the live set
 
     # ── cache ───────────────────────────────────────────────────────────────
     def _crop_solid(self):
@@ -141,8 +149,14 @@ class ScratchView:
 
         asm = cq.Assembly()
         for name, wp in self.live():
+            col = None
+            if self.colors is not None:
+                try:
+                    col = self.colors(name)
+                except Exception:
+                    col = None          # an unknown part falls back, never crashes
             asm.add(self.pose(name, wp) if self.pose else wp,
-                    name=name, color=cq.Color(*self.live_color))
+                    name=name, color=col or cq.Color(*self.live_color))
         for name, wp in ctx:
             asm.add(wp, name="cached_" + name,
                     color=cq.Color(*self.context_color))
