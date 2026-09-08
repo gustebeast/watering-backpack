@@ -107,9 +107,17 @@ STALE_LOCK_S = 1200          # a build.lock older than this is presumed dead and
 
 
 # ── git helpers ───────────────────────────────────────────────────────────────
+# CREATE_NO_WINDOW on every child. The background `watch` runs DETACHED, i.e. with
+# no console of its own, so on Windows each `git` it spawns allocated a fresh
+# console -- a terminal window flashing on screen every poll, forever (user,
+# 2026-09-07). Harmless to the logic and impossible to ignore on the desktop.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+
 def git(*args, check=True, capture=True):
     r = subprocess.run(["git", *args], text=True,
-                       capture_output=capture, cwd=os.getcwd())
+                       capture_output=capture, cwd=os.getcwd(),
+                       creationflags=_NO_WINDOW)
     if check and r.returncode != 0:
         sys.stderr.write((r.stderr or r.stdout or "").strip() + "\n")
         raise SystemExit(f"git {' '.join(args)} failed ({r.returncode})")
@@ -210,7 +218,8 @@ def _is_ancestor(sha: str, ref: str = "main") -> bool:
     """True if <sha> is already in <ref>'s history — i.e. the request was merged, whether via
     `take` (which unlinks it) or MANUALLY (which doesn't). The basis for self-healing the inbox."""
     return subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref],
-                          cwd=os.getcwd(), capture_output=True).returncode == 0
+                          cwd=os.getcwd(), capture_output=True,
+                          creationflags=_NO_WINDOW).returncode == 0
 
 
 def _prune_merged(paths):
@@ -417,7 +426,8 @@ def _spawn_successor():
     and every future request would be announced twice.""" 
     flags = 0
     if os.name == "nt":
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                 | _NO_WINDOW)
     try:
         subprocess.Popen([sys.executable, os.path.abspath(__file__),
                           "watch", "--takeover"],
@@ -708,15 +718,22 @@ def main():
                     help="CROPS key, to cache only a region of the instrument")
     sc.add_argument("--clear", action="store_true", help="give the portion up")
     sc.add_argument("--all", dest="list_all", action="store_true")
-    v = sub.add_parser("view")      # render YOUR portion into YOUR tab
-    v.add_argument("args", nargs=argparse.REMAINDER)
+    # `view` forwards flags to the project's scratch view. NOT nargs=REMAINDER:
+    # argparse refuses a LEADING option there, so `view --start` errored out --
+    # and --start/--merge ARE the cache lifecycle, i.e. every documented flow
+    # (branner, 2026-09-07). parse_known_args below collects them instead.
+    sub.add_parser("view")
     m = sub.add_parser("msg")       # direct agent -> agent message (NOT via the lead)
     m.add_argument("to", help="agent name, or 'lead'")
     m.add_argument("text")
     sub.add_parser("mail").add_argument("--peek", action="store_true",
                                         help="show without consuming")
     sub.add_parser("hook")          # UserPromptSubmit hook (see .claude/settings.json)
-    a = ap.parse_args()
+    a, extra = ap.parse_known_args()
+    if a.cmd == "view":
+        a.args = extra                      # everything else goes to scratch_view
+    elif extra:
+        ap.error(f"unrecognized arguments: {' '.join(extra)}")
     {"join": lambda: cmd_join(a.name), "submit": lambda: cmd_submit(a.summary),
      "sync": cmd_sync, "done": cmd_done, "inbox": cmd_inbox,
      "wait": lambda: cmd_wait(a.timeout, a.poll),
