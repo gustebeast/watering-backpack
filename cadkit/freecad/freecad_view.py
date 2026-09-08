@@ -151,22 +151,30 @@ def _heartbeat_age():
 
 
 def _code_is_stale():
-    """True if the running hub was launched from an OLDER freecad_viewer.py than
-    the one on disk. FreeCAD runs that file once at launch and keeps it in memory,
+    """True if the running hub is executing DIFFERENT freecad_viewer.py CODE than
+    the copy on disk (compared by content hash, not mtime -- propagating cadkit
+    rewrites identical bytes with a fresh mtime, and comparing timestamps meant every
+    propagate killed a healthy hub and closed every open tab). FreeCAD runs that file once at launch and keeps it in memory,
     so a code change reaches a live hub only by restarting it — and nothing used to
     notice, which let a two-day-old hub keep raising its window long after that was
     deleted. Unknown/absent stamp reads as NOT stale: this may only ever cost a
     restart, never suppress one incorrectly on a healthy hub."""
     viewer = os.path.join(_HERE, "freecad_viewer.py")
     try:
-        running = float(open(_HEARTBEAT + ".codestamp").read().strip())
-    except (OSError, ValueError):
-        return False
-    try:
-        on_disk = os.path.getmtime(viewer)
+        running = open(_HEARTBEAT + ".codestamp").read().strip()
     except OSError:
         return False
-    return on_disk > running + 1.0          # 1 s slack for filesystem granularity
+    if not running:
+        return False
+    try:
+        import hashlib
+        with open(viewer, "rb") as f:
+            on_disk = hashlib.sha1(f.read()).hexdigest()
+    except OSError:
+        return False
+    if len(running) != len(on_disk):
+        return False      # an mtime-era stamp: don't kill a healthy hub over a format change
+    return on_disk != running
 
 
 def _kill_hub():
