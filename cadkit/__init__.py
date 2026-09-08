@@ -10,6 +10,8 @@ depend only on CadQuery/OCP (no FreeCAD): import them directly, e.g.
     from cadkit.joinery import ...
     from cadkit.printing import min_wall        # min-material floor (whole nozzle beads, no buffer)
     from cadkit import cq_colors
+    from cadkit.agents import current_agent, get_scope   # multi-agent: who owns what
+    from cadkit.scratch import ScratchView               # fast per-part iteration loop
 
 FreeCAD-specific helpers (the viewer hub) live in the OPTIONAL `cadkit.freecad`
 subpackage, kept separate so the core never drags in a FreeCAD dependency:
