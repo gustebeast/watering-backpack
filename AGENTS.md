@@ -551,6 +551,11 @@ Rules that keep it from clobbering:
 - **The merge request IS the notification.** `submit` writing the request file is
   exactly what ends the lead's background `wait` and re-invokes it — fully
   hands-free, no human in the loop.
+- **INTEGRATION HAS ONE OWNER.** `take`/`drop` refuse outside main; an agent gets
+  another agent's work by `sync`ing main, never by merging their branch. Two agents
+  integrating independently produce two different `main`s, and neither is the one
+  that gets built and pushed. Agents message the LEAD, not each other, for the same
+  reason: side agreements the lead never sees cannot be reconciled at merge.
 - **The lead is not a message relay.** If a contributor needs something from YOU,
   they `msg` you and it arrives on your next prompt; if they need something from
   the human, they ask in their own chat. When YOU need something from a
