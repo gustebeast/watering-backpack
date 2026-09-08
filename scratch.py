@@ -57,6 +57,12 @@ And the boundary that makes the whole thing acceptable: THE CACHE IS FOR THE
 VIEW ONLY. The canonical build and the overlap gate must never read it, so a
 drift costs a surprise at merge — which is exactly when you are looking for
 surprises — instead of a wrong part.
+
+That boundary is also why the default output is `scratch.step` and NOT
+`assembly.step`. Writing the canonical name would let a scratch render overwrite
+the real build's output — a file the viewer, the gate tooling and the human all
+treat as the finished model. The two must be distinguishable on disk, not just by
+who remembers which command they last ran.
 """
 
 from __future__ import annotations
@@ -73,7 +79,7 @@ class ScratchView:
     """Config for a project's scratch loop. See the module docstring."""
 
     def __init__(self, root, context, live, replaced=(), crop=None,
-                 out="assembly.step", cache_dir=".scratch_cache",
+                 out="scratch.step", cache_dir=".scratch_cache",
                  live_color=(0.85, 0.45, 0.20), context_color=(0.32, 0.36, 0.40),
                  pose=None, colors=None):
         self.root = pathlib.Path(root)
