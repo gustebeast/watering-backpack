@@ -389,8 +389,8 @@ def _rearm_note() -> str:
     Reports the ACTUAL state rather than always saying "re-arm": advice that is
     usually wrong gets ignored on the one occasion it matters."""
     if _watch_lock_fresh():
-        return "listener: ARMED (watch re-arms itself)."
-    return ("listener: NONE - start one; it re-arms itself from then on:  "
+        return "listener: ARMED (one-shot -- re-arm after it wakes you)."
+    return ("listener: NONE - arm one in the BACKGROUND:  "
             "py -3.12 cadkit/tools/agent_sync.py watch   (in the BACKGROUND)")
 
 
@@ -684,7 +684,7 @@ def cmd_hook():
                f"request(s) are waiting in your inbox.",
                ("A listener is armed, so these are simply not taken yet."
                 if _watch_lock_fresh() else
-                "NO listener is armed - start one (it re-arms itself from then on):"
+                "NO listener is armed - arm one in the BACKGROUND:"
                 "  ->  py -3.12 cadkit/tools/agent_sync.py watch   (in the BACKGROUND)"),
                "  take each below:   py -3.12 cadkit/tools/agent_sync.py take <name>",
                "pending:"]
