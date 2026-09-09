@@ -489,7 +489,16 @@ def cmd_watch(poll=5.0, takeover=False, deadline=0.0, hours=8.0, stop=False):
     if not takeover and _watch_lock_fresh():
         print("a watcher is already armed (watch.lock is fresh) — nothing to do.")
         return
-    if not deadline:
+    # A deadline is only ever INHERITED by a successor. A top-level `watch` starts a
+    # fresh chain and must never adopt one -- otherwise a stale or already-expired
+    # value makes a hand-started listener exit on its first tick, looking armed in
+    # the log and covering nothing.
+    # A deadline is only ever INHERITED by a successor (--takeover). A top-level
+    # `watch` starts a FRESH chain and must never adopt one: a stale value would make
+    # a hand-started listener exit on its first tick, looking armed in the log while
+    # covering nothing. An EXPIRED deadline on a successor is honoured, though --
+    # that is exactly how the chain is meant to end.
+    if not takeover or not deadline:
         deadline = time.time() + hours * 3600.0
     while True:
         if (sync_dir() / "watch.stop").exists():
