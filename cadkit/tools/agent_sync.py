@@ -47,7 +47,6 @@ is shared by every worktree and never committed:
     scopes.json           who owns which portion of the model (see cadkit.agents)
     announced.json        request shas `watch` has already reported (no re-wake loop)
     watch.lock            single-listener heartbeat
-    watch.stop            `watch --stop` flag; ends the chain within one poll
     build.lock            single-build mutex (auto-stolen if stale), FULL builds only
 
 COMMANDS
@@ -62,8 +61,8 @@ COMMANDS
     inbox                list pending merge requests
     msg <who> "<text>"   send a DIRECT message to another agent ('lead' = the lead)
     mail                 read (and consume) messages sent to you
-    watch [--hours N]    SELF-RE-ARMING listener -- prefer this over `wait` (BACKGROUND)
-    watch --stop         end the running listener chain now
+    watch                block until a NEW request lands, print it, exit (BACKGROUND;
+                         RE-ARM after each wake -- see NOTIFICATION below)
     wait                 one-shot block until a request arrives (needs manual re-arming)
     take <name>          merge agent/<name> into the current branch
     drop <name>          discard a merge request without merging
@@ -72,18 +71,16 @@ COMMANDS
     status               role, branch, worktrees, pending requests
 
 NOTIFICATION -- two layers, no desktop pop-ups, the human is NEVER the relay:
-  1. AUTO WAKE (fully hands-free, and it STAYS armed). The lead runs `watch` once as a
-     BACKGROUND command; a cheap shell poll (not the model) sits idle until a
-     contributor's `submit` drops a request file, then exits -- which auto re-invokes
-     the lead. A listener MUST exit to wake anyone, so before exiting it SPAWNS A
-     DETACHED SUCCESSOR: the exiting process wakes the lead, the successor covers the
-     window while the lead works, and nobody re-arms anything. The chain is BOUNDED --
-     every watcher carries a deadline (default 8 h, `--hours`) that its successors
-     inherit, because a detached self-arming chain does NOT die with the session that
-     started it, and one polling forever with no reader is nobody's to stop. `--stop`
-     ends it immediately. (`wait` is the old
-     one-shot form; it covers exactly one request and then the repo is deaf, which in
-     practice meant the hook nagged about a down listener on nearly every prompt.)
+  1. AUTO WAKE. The lead runs `watch` as a BACKGROUND task; a cheap shell poll (not
+     the model) sits idle until a contributor's `submit` drops a request file, then
+     prints it and exits -- and the harness noticing that TRACKED task exit is what
+     re-invokes the lead. So the lead RE-ARMS after each wake. That is inherent: a
+     listener must exit to wake anyone, and only a task the harness tracks can wake
+     anything at all. (A previous version spawned a DETACHED successor so nobody had
+     to re-arm. It was worse than useless: an untracked process woke NOBODY when it
+     fired, and it still marked the request announced, so the next tracked watcher
+     stayed silent on it. Coverage was never the problem -- a merge request is a file
+     and waits indefinitely -- notification was.)
   2. PROMPT-TIME NUDGE (covers the blind spot). The `hook` command, wired as the
      lead's `UserPromptSubmit` hook, runs on the lead's NEXT prompt -- whatever it is
      about -- and, if the inbox holds a request, injects a loud notice into the lead's
@@ -389,32 +386,19 @@ def _print_pending_banner():
 
 def _rearm_note() -> str:
     """What to say about the listener AFTER a lead command. `watch` arms its own
-    successor, so the old unconditional "RE-ARM or the NEXT submit is silent" was
-    wrong most of the time -- and advice that is usually wrong gets ignored on the
-    one occasion it matters. Report the ACTUAL state instead."""
+    Reports the ACTUAL state rather than always saying "re-arm": advice that is
+    usually wrong gets ignored on the one occasion it matters."""
     if _watch_lock_fresh():
         return "listener: ARMED (watch re-arms itself)."
     return ("listener: NONE - start one; it re-arms itself from then on:  "
             "py -3.12 cadkit/tools/agent_sync.py watch   (in the BACKGROUND)")
 
 
-# ── the SELF-RE-ARMING listener ───────────────────────────────────────────────
-# `wait` has one structural flaw as a notifier: it must EXIT to wake the lead
-# (a finishing background command is the wake signal), so it covers exactly one
-# request and then the repo is deaf until somebody re-arms it by hand. In practice
-# that meant the hook nagged "your listener is down" on nearly every prompt.
-#
-# `watch` fixes it without pretending a loop can wake anyone: before exiting, it
-# SPAWNS A DETACHED SUCCESSOR. The exiting process wakes the lead; the successor
-# covers the window while the lead is busy. So a listener is always armed and
-# nobody re-arms anything.
-#
-# Two things keep that from running away:
-#   * ANNOUNCED SET -- a request is announced once, by sha. Without it the
-#     successor would see the still-pending request its parent just reported and
-#     fire instantly, forever.
-#   * SINGLE-WATCHER LOCK -- a heartbeat file. A second watcher started while one
-#     is alive exits quietly, so `watch` is safe to run twice by mistake.
+# ── the listener ──────────────────────────────────────────────────────────────
+# `watch` blocks until a NEW request lands, prints it, and exits -- the exit is what
+# wakes the lead, so it is ONE-SHOT and the lead re-arms. The ANNOUNCED SET (by sha,
+# pruned once merged) is what stops a re-armed watcher firing again on a request the
+# lead has already seen but not yet taken.
 _WATCH_LOCK_STALE_S = 30.0
 
 
@@ -454,83 +438,39 @@ def _touch_watch_lock():
         pass
 
 
-def _spawn_successor(deadline=0.0):
-    """Start the next watcher DETACHED, so coverage never lapses while the lead works.
+def cmd_watch(poll=5.0, **_ignored):
+    """Block until a NOT-YET-ANNOUNCED merge request lands, print it, and exit.
 
-    The successor is launched with --takeover, which skips the already-armed check.
-    The obvious alternative -- delete the lock so the successor passes that check --
-    leaves a ~1 s window with NO lock, during which a stray `watch` would double-arm
-    and every future request would be announced twice.""" 
-    flags = 0
-    if os.name == "nt":
-        flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                 | _NO_WINDOW)
-    try:
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), "watch",
-                          "--takeover", "--deadline", repr(deadline)],
-                         cwd=os.getcwd(), close_fds=True, creationflags=flags,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except Exception:
-        return False
+    RUN IT AS A TRACKED BACKGROUND TASK, and re-arm after each wake. That is not a
+    limitation to engineer around -- it is the only thing that works.
 
+    I previously had this spawn a DETACHED successor before exiting, so a listener
+    would always be armed without anyone re-arming it. That was wrong in a way that
+    made things WORSE than no listener at all (user, 2026-09-09):
 
-def cmd_watch(poll=5.0, takeover=False, deadline=0.0, hours=8.0, stop=False):
-    """Block until a NOT-YET-ANNOUNCED merge request lands, print it, arm a
-    successor, and exit — so the lead is woken AND the repo stays covered.
+      * The lead is woken by its harness noticing a TRACKED task exit. A detached
+        process is not tracked, so when the successor fired it woke NOBODY.
+      * And it still marked the request ANNOUNCED. So the next tracked watcher --
+        the one that could actually have woken the lead -- saw the sha already
+        announced and stayed silent on it. The mechanism meant to guarantee
+        notification was suppressing it.
 
-    BOUNDED ON PURPOSE. The successor is DETACHED, so unlike the background task
-    that starts the chain it does NOT die with the session — and a chain that
-    re-arms itself forever is a chain nobody can stop once the session it was
-    waking is gone. It would poll, and spawn, and hold this directory as its cwd,
-    with no reader at the other end. So every watcher carries a DEADLINE, inherited
-    by its successors: past it, the chain ends instead of re-arming. `--stop` ends
-    it now."""
-    if stop:
-        (sync_dir() / "watch.stop").write_text(str(time.time()))
-        (sync_dir() / "watch.lock").unlink(missing_ok=True)
-        print("stop requested — the running watcher exits within one poll, "
-              "and its successor will not arm.")
-        return
-    (sync_dir() / "watch.stop").unlink(missing_ok=True)   # a fresh `watch` clears it
-    if not takeover and _watch_lock_fresh():
-        print("a watcher is already armed (watch.lock is fresh) — nothing to do.")
-        return
-    # A deadline is only ever INHERITED by a successor. A top-level `watch` starts a
-    # fresh chain and must never adopt one -- otherwise a stale or already-expired
-    # value makes a hand-started listener exit on its first tick, looking armed in
-    # the log and covering nothing.
-    # A deadline is only ever INHERITED by a successor (--takeover). A top-level
-    # `watch` starts a FRESH chain and must never adopt one: a stale value would make
-    # a hand-started listener exit on its first tick, looking armed in the log while
-    # covering nothing. An EXPIRED deadline on a successor is honoured, though --
-    # that is exactly how the chain is meant to end.
-    if not takeover or not deadline:
-        deadline = time.time() + hours * 3600.0
+    Coverage was never the problem: a merge request is a FILE and waits indefinitely.
+    Notification was the problem, and only a tracked task can do it."""
     while True:
-        if (sync_dir() / "watch.stop").exists():
-            print("watch: stop requested — exiting without arming a successor.")
-            (sync_dir() / "watch.lock").unlink(missing_ok=True)
-            return
-        if time.time() > deadline:
-            print(f"watch: deadline reached after {hours:.0f}h — exiting rather than "
-                  "re-arming. Start a fresh one with `watch`.")
-            (sync_dir() / "watch.lock").unlink(missing_ok=True)
-            return
         _touch_watch_lock()
         new = [r for r in _load_reqs() if r.get("sha") not in _load_announced()]
         if new:
             _mark_announced([r["sha"] for r in new])
-            armed = _spawn_successor(deadline)
             bar = "!" * 64
             print(bar)
             print(f"  {len(new)} NEW merge request(s):")
             for r in new:
                 print(f"    * {r['branch']:20s} {r['sha'][:8]}  \"{r['summary']}\"")
-            print(f"  ->  py -3.12 cadkit/tools/agent_sync.py take <name>")
-            print("  successor watcher ARMED — no re-arm needed." if armed else
-                  "  WARNING: could not arm a successor; run `watch` again.")
+            print("  ->  py -3.12 cadkit/tools/agent_sync.py take <name>")
+            print("  then RE-ARM: py -3.12 cadkit/tools/agent_sync.py watch  (BACKGROUND)")
             print(bar)
+            (sync_dir() / "watch.lock").unlink(missing_ok=True)
             return
         time.sleep(poll)
 
@@ -779,14 +719,6 @@ def main():
     sub.add_parser("status")
     w2 = sub.add_parser("watch")    # SELF-RE-ARMING listener (prefer over `wait`)
     w2.add_argument("--poll", type=float, default=5.0)
-    w2.add_argument("--takeover", action="store_true",
-                    help=argparse.SUPPRESS)      # internal: I am the spawned successor
-    w2.add_argument("--deadline", type=float, default=0.0, help=argparse.SUPPRESS)
-    w2.add_argument("--hours", type=float, default=8.0,
-                    help="stop re-arming after this long (default 8) — a detached "
-                         "chain must not outlive the session forever")
-    w2.add_argument("--stop", action="store_true",
-                    help="end the running watcher chain now")
     sc = sub.add_parser("scope")    # who owns which portion of the model
     sc.add_argument("--set", dest="module", metavar="MODULE",
                     help="claim a portion, e.g. src.leg_stack")
@@ -822,7 +754,7 @@ def main():
      "take": lambda: cmd_take(a.name), "drop": lambda: cmd_drop(a.name),
      "build": lambda: cmd_build(a.args), "status": cmd_status, "hook": cmd_hook,
      "msg": lambda: cmd_msg(a.to, a.text), "mail": lambda: cmd_mail(a.peek),
-     "watch": lambda: cmd_watch(a.poll, a.takeover, a.deadline, a.hours, a.stop), "view": lambda: cmd_view(a.args),
+     "watch": lambda: cmd_watch(a.poll), "view": lambda: cmd_view(a.args),
      "scope": lambda: cmd_scope(a.module, a.attr, a.replaced, a.note,
                                 a.clear, a.list_all, a.pose, a.crop)}[a.cmd]()
 
