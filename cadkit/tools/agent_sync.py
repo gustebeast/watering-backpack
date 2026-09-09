@@ -387,8 +387,15 @@ def _print_pending_banner():
     print(bar)
 
 
-_REARM = ("RE-ARM the notifier (its trip consumed it) or the NEXT submit is silent:\n"
-          "  py -3.12 cadkit/tools/agent_sync.py wait      # in the BACKGROUND")
+def _rearm_note() -> str:
+    """What to say about the listener AFTER a lead command. `watch` arms its own
+    successor, so the old unconditional "RE-ARM or the NEXT submit is silent" was
+    wrong most of the time -- and advice that is usually wrong gets ignored on the
+    one occasion it matters. Report the ACTUAL state instead."""
+    if _watch_lock_fresh():
+        return "listener: ARMED (watch re-arms itself)."
+    return ("listener: NONE - start one; it re-arms itself from then on:  "
+            "py -3.12 cadkit/tools/agent_sync.py watch   (in the BACKGROUND)")
 
 
 # ── the SELF-RE-ARMING listener ───────────────────────────────────────────────
@@ -538,7 +545,7 @@ def cmd_wait(timeout, poll):
     while True:
         if _requests():
             cmd_inbox()
-            print(_REARM)
+            print(_rearm_note())
             return
         if deadline and time.time() >= deadline:
             print("wait: timed out, no requests yet -- re-arm `wait` to keep listening.")
@@ -591,7 +598,7 @@ def cmd_take(name: str):
     print(f"merged {branch} into {cur_branch()}. Now build:\n"
           f"  py -3.12 cadkit/tools/agent_sync.py build")
     _print_pending_banner()      # surface any OTHER queued requests before you move on
-    print(_REARM)
+    print(_rearm_note())
 
 
 def cmd_drop(name: str):
