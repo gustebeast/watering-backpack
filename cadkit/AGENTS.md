@@ -500,22 +500,19 @@ editing anything:
 another agent alongside you). Keep working in the main worktree on `main`. You OWN
 the build + the FreeCAD tab — the ONLY chat that runs `src.build` / `show()`. To
 take contributors' work **hands-free**:
-1. Arm the notifier ONCE, in the **BACKGROUND**:
+1. Arm the notifier, in the **BACKGROUND**:
    `py -3.12 cadkit/tools/agent_sync.py watch`  (run_in_background). It blocks until
-   a request lands, then exits — which auto re-invokes you — **and spawns a detached
-   successor on its way out**, so a listener is always armed and you never re-arm
-   anything. (`wait` is the old one-shot form: it covers exactly one request and then
-   the repo is deaf, which is why the hook used to nag about a down listener.)
+   a request lands, prints it and exits — and the harness noticing that TRACKED task
+   exit is what re-invokes you. **Re-arm after each wake.** That is inherent, not a
+   rough edge: a listener must exit to wake anyone, and only a task the harness
+   tracks can wake anything. (Do not "fix" it by spawning a detached successor. That
+   was tried: an untracked process woke nobody when it fired, and it still marked the
+   request announced, so the next tracked watcher stayed silent on it — strictly
+   worse than no listener. Coverage was never the problem; a merge request is a file
+   and waits indefinitely.)
 2. When it wakes you: `take <name>` (resolve any conflicts) → `build` (announce the
-   build #). No re-arming — the successor is already listening.
-3. **Batch.** If several requests are queued, `take` them ALL first, then run ONE
-   `build`. A build is minutes; merging is seconds. Never build per-request.
-4. **Don't re-run the contributors' validation** — they gate their own branch and
-   report it (see the sub-agent block). What you owe is the thing none of them can
-   see: the **combination**. Two branches that are each green alone can collide
-   once merged, and only the post-merge whole-tree check catches it — which is why
-   the gate is folded into the build (above) and costs you ~15 s rather than a
-   second 6-minute model build. Read the gate line before you push.
+   build #) → **re-arm** `watch`. The hook reports whether a listener is actually
+   armed, so a missed re-arm surfaces on your next prompt rather than silently.
 
 Rules that keep it from clobbering:
 - **Only the lead runs the FULL BUILD.** Every agent renders its own portion to its
