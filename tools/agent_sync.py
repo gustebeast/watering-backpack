@@ -743,10 +743,17 @@ def main():
     sub.add_parser("mail").add_argument("--peek", action="store_true",
                                         help="show without consuming")
     sub.add_parser("hook")          # UserPromptSubmit hook (see .claude/settings.json)
+    # `view` and `build` FORWARD their flags to another program, so they bypass
+    # argparse entirely and pass the tail VERBATIM. Two earlier attempts each broke:
+    # nargs=REMAINDER refuses a LEADING option (`build --gate-full` died with
+    # "unrecognized arguments"), and merging REMAINDER's catch with parse_known_args'
+    # leftovers REORDERED them -- `--part x` came out as `x --part`, a flag with no
+    # value. Only the raw tail preserves order, and order is the argument.
+    raw = sys.argv[1:]
+    if raw[:1] in (["view"], ["build"]):
+        return (cmd_view if raw[0] == "view" else cmd_build)(raw[1:])
     a, extra = ap.parse_known_args()
-    if a.cmd == "view":
-        a.args = extra                      # everything else goes to scratch_view
-    elif extra:
+    if extra:
         ap.error(f"unrecognized arguments: {' '.join(extra)}")
     {"join": lambda: cmd_join(a.name), "submit": lambda: cmd_submit(a.summary),
      "sync": cmd_sync, "done": cmd_done, "inbox": cmd_inbox,
