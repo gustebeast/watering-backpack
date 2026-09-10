@@ -160,7 +160,7 @@ def _axis_case(axis_dir, print_up):
 
 def printable_bore(diameter, length, axis_point=(0.0, 0.0, 0.0),
                    axis_dir=(0.0, 1.0, 0.0), print_up=(0.0, 0.0, 1.0),
-                   overshoot=0.0):
+                   overshoot=0.0, nozzle=0.8):
     """CUTTER for a round hole, shaped for the part's PRINT DIRECTION. Cut it;
     do not rotate the result (the teardrop peak is direction-sensitive).
 
@@ -179,6 +179,9 @@ def printable_bore(diameter, length, axis_point=(0.0, 0.0, 0.0),
 
     diameter/length — the bore; length runs from axis_point along axis_dir.
     overshoot       — extra length added at BOTH ends (clean booleans).
+    nozzle          — the teardrop's tip is DULLED to a flat this wide (the
+                      printer cannot make a point; a nozzle-wide flat bridges
+                      clean), never below the bore's own crown. 0 = sharp.
     """
     r = float(diameter) / 2.0
     if r <= 0.0:
@@ -199,12 +202,17 @@ def printable_bore(diameter, length, axis_point=(0.0, 0.0, 0.0),
         return cq.Workplane("XY").add(cq.Solid.makeCylinder(
             r, total, start, cq.Vector(ax, ay, az)))
 
-    # sideways: circle + 45° peak, apex r*sqrt(2) above the axis
+    # sideways: circle + 45° peak, apex r*sqrt(2) above the axis, DULLED to a
+    # nozzle-wide flat (never below the crown) -- same tip as cadkit.holes
+    if float(nozzle) < 0.0:
+        raise ValueError("nozzle must be >= 0")
     a = r * math.sqrt(2.0) / 2.0              # 45° tangency half-width
+    apex = r * math.sqrt(2.0)
+    flat = max(apex - float(nozzle) / 2.0, r)
+    w = apex - flat
+    pts = [(-a, a), (a, a), (0.0, apex)] if w <= 1e-9 else [(-a, a), (a, a), (w, flat), (-w, flat)]
     body = cq.Workplane("XZ").circle(r).extrude(-total)          # XZ, -L -> +Y
-    peak = (cq.Workplane("XZ")
-            .polyline([(-a, a), (a, a), (0.0, r * math.sqrt(2.0))])
-            .close().extrude(-total))
+    peak = cq.Workplane("XZ").polyline(pts).close().extrude(-total)
     return _to_world(body.union(peak), (start.x, start.y, start.z),
                      axis_dir, print_up)
 
