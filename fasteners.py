@@ -434,11 +434,6 @@ def headed_screw(spec, length, head_d, head_h, socket_af=2.0, socket_depth=None)
 # ════════════════════════════════════════════════════════════════════════════
 # MEASUREMENT — a nominal depth cannot see a thin wall. The solid can.
 # ════════════════════════════════════════════════════════════════════════════
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# MEASUREMENT — a nominal depth cannot see a thin wall. The solid can.
-# ════════════════════════════════════════════════════════════════════════════
 def measured_bite(solid, pnt, direction, spec, has_pocket=True, max_scan=40.0, step=0.02):
     """REAL self-tap length left in a finished solid, below the pocket.
 
