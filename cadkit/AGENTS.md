@@ -460,7 +460,10 @@ editing anything:
    **Validating your change is YOUR job, not the lead's** — the lead merges and
    builds, and does not re-derive whether your geometry is right. Before every
    `submit`, on your own branch:
-   - `py -3.12 -m tools.check_overlaps` — the FULL gate. Say the result in your
+   - `py -3.12 -m tools.check_overlaps --full` — the FULL gate. **Pass `--full`:** with no
+     flags it SKIPS belts and belt clamps (they dominate boolean runtime), and belt
+     collisions are real — far-row belts clipping near-row pulley flanges sat behind
+     a green gate until branner ran `--full` (2026-09-10). Say the result in your
      submit summary ("gate green, N inherited"). This is the one that counts, and it
      rebuilds the model from scratch on purpose.
    - **For the inner loop, use `view --gate` instead** (`scratch_view --gate`). It
