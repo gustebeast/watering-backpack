@@ -1,9 +1,16 @@
-"""PCB mounting — a 3-wall drop-in cradle retained by ONE screw.
+"""PCB mounting — a drop-in cradle retained by ONE screw.
 
-The plastic does the work: three walls locate the board in X-Y and take the insertion
-load, corner pads carry it in Z (clear of bottom-side components), so a single screw only
-has to stop lift-out / back-out. NO snap/flexure install (a deliberate rule -- plastic
-snaps are not trusted). The 4th edge is left OPEN for the board's edge connectors/wires.
+The plastic does the work: walls locate the board in X-Y and take the insertion load,
+corner pads carry it in Z (clear of bottom-side components), so a single screw only has to
+stop lift-out / back-out. NO snap/flexure install (a deliberate rule -- plastic snaps are
+not trusted). One edge may be left OPEN for edge connectors/wires, or none.
+
+TWO WAYS TO PLACE THAT ONE SCREW:
+  * `screw_xy`  -- THROUGH a board mounting hole, down into a boss under it (the original).
+  * `hold_edge` -- BESIDE the board (preferred). The screw passes the board's edge and only
+    its HEAD reaches over the board top, so the plastic captures every direction but +Z
+    and the head closes +Z. Nothing goes through the board: a purchased board with small
+    holes (or none) still takes the project's one M4, and the board needs no hole at all.
 
 Built with the mounting surface at z=0 (base-plate top) and the board footprint centred on
 X-Y; the board's underside sits at z=`standoff` above the base, so bottom components clear.
@@ -18,7 +25,7 @@ from __future__ import annotations
 
 import cadquery as cq
 
-from .fasteners import M2, cut_anchor
+from .fasteners import M2, M4, M4_BUTTON_HEAD_D, cut_anchor
 
 _EDGES = {"+x", "-x", "+y", "-y"}
 
@@ -37,28 +44,74 @@ def _cyl(d, h, cx, cy, z0):
     return cq.Workplane("XY").add(cq.Solid.makeCylinder(d / 2, h, cq.Vector(cx, cy, z0)))
 
 
-def pcb_cradle(board_w, board_l, screw_xy, *, board_t=PCB_T, standoff=2.5, wall_t=1.6,
-               wall_over=0.8, clr=0.3, pad=3.2, base_t=None, open_edge="+x", spec=M2):
-    r"""A 3-wall drop-in PCB cradle. `board_w` x `board_l` = board footprint (X x Y),
-    centred on the origin; board bottom rests at z=`standoff`. Walls (thickness `wall_t`)
-    rise on the THREE edges other than `open_edge` at `clr` fit to locate the board and
-    stand `wall_over` above its top face. Corner pads (`pad` square) carry the board in Z.
-    A boss under `screw_xy` (a board mounting-hole position, from the board centre) takes
-    ONE screw whose anchor runs `spec.anchor_min_wall` deep. A base plate (the mounting
-    area, thickness `base_t`, default sized so the screw anchor just fits above z=0) ties
-    walls, pads and boss; fuse it onto the parent (chassis/housing) or print standalone.
-    Returns the cradle solid. `open_edge` in {'+x','-x','+y','-y'} = the wall-free edge."""
-    assert open_edge in _EDGES, f"open_edge must be one of {_EDGES}"
+def pcb_hold_xy(board_w, board_l, hold_edge, *, hold_at=0.0, clr=0.3, spec=M4):
+    """Axis (x, y) of a SIDE hold-down screw for a board centred on the origin: just outside
+    `hold_edge`, `hold_at` along it. The shank's clearance hole comes no closer to the board
+    than the board's own `clr` fit gap, so the screw passes BESIDE the board and only its
+    head reaches over. Use it to place the assembly's dummy screw where the cradle bored."""
+    assert hold_edge in _EDGES, f"hold_edge must be one of {_EDGES}"
+    hw, hl = board_w / 2.0, board_l / 2.0
+    off = clr + spec.shaft_clr_d / 2.0
+    if hold_edge in ("+x", "-x"):
+        assert abs(hold_at) <= hl, f"hold_at {hold_at} runs off the {hold_edge} edge (half-length {hl})"
+        return ((1.0 if hold_edge == "+x" else -1.0) * (hw + off), hold_at)
+    assert abs(hold_at) <= hw, f"hold_at {hold_at} runs off the {hold_edge} edge (half-length {hw})"
+    return (hold_at, (1.0 if hold_edge == "+y" else -1.0) * (hl + off))
+
+
+def pcb_hold_overlap(*, clr=0.3, spec=M4, head_d=M4_BUTTON_HEAD_D):
+    """How far the side hold-down's head reaches over the board edge (mm)."""
+    return head_d / 2.0 - (clr + spec.shaft_clr_d / 2.0)
+
+
+def pcb_cradle(board_w, board_l, screw_xy=None, *, board_t=PCB_T, standoff=2.5, wall_t=1.6,
+               wall_over=0.8, clr=0.3, pad=3.2, base_t=None, open_edge="+x", spec=M2,
+               hold_edge=None, hold_at=0.0, hold_spec=M4, head_d=M4_BUTTON_HEAD_D,
+               min_overlap=1.0):
+    r"""A drop-in PCB cradle. `board_w` x `board_l` = board footprint (X x Y), centred on
+    the origin; board bottom rests at z=`standoff`. Walls (thickness `wall_t`) rise on every
+    edge except `open_edge` (None = all four) at `clr` fit to locate the board and stand
+    `wall_over` above its top face. Corner pads (`pad` square) carry the board in Z. A base
+    plate (the mounting area, thickness `base_t`, default sized so the screw anchor just fits
+    above z=0) ties it together; fuse it onto the parent (chassis/housing) or print standalone.
+
+    Retention is ONE screw -- give exactly one of:
+      `screw_xy`  a board MOUNTING-HOLE position (from the board centre): a boss under it
+                  takes a `spec` screw down through the board.
+      `hold_edge` in {'+x','-x','+y','-y'}: a `hold_spec` screw BESIDE that edge, `hold_at`
+                  along it (see pcb_hold_xy). Its boss stands on the mounting surface with
+                  its top FLUSH with the board's underside -- so it is also the pad under
+                  that edge, and the head clamps the board onto it -- and the wall there is
+                  notched for the head. Refuses a head that reaches less than `min_overlap`
+                  over the board: a head that barely laps the edge is not retention.
+    Returns the cradle solid."""
+    assert open_edge is None or open_edge in _EDGES, f"open_edge must be None or one of {_EDGES}"
+    if (screw_xy is None) == (hold_edge is None):
+        raise ValueError("pcb_cradle: give exactly ONE retention -- screw_xy (a screw through a "
+                         "board hole) or hold_edge (a screw beside the board)")
+    if hold_edge is not None and hold_edge == open_edge:
+        raise ValueError(f"pcb_cradle: hold_edge {hold_edge} is the open edge -- the head's "
+                         "notch needs a wall to sit in, and the board a stop that way")
     hw, hl = board_w / 2.0, board_l / 2.0
     board_top = standoff + board_t
     wall_h = board_top + wall_over
     inner_x, inner_y = hw + clr, hl + clr          # wall inner faces (clr fit to the board)
     out_x, out_y = inner_x + wall_t, inner_y + wall_t
+    anchor = hold_spec if hold_edge is not None else spec
     if base_t is None:
-        base_t = max(1.6, spec.anchor_min_wall - standoff)   # screw anchor reaches z >= -base_t; floor at
-                                                             # 2 beads (0.8 nozzle) so the base isn't sub-1.6
+        base_t = max(1.6, anchor.anchor_min_wall - standoff)  # screw anchor reaches z >= -base_t; floor at
+                                                              # 2 beads (0.8 nozzle) so the base isn't sub-1.6
 
     solid = _block(2 * out_x, 2 * out_y, base_t, 0.0, 0.0, -base_t)   # base plate = mounting area
+    if hold_edge is not None:
+        overlap = pcb_hold_overlap(clr=clr, spec=hold_spec, head_d=head_d)
+        if overlap < min_overlap - 1e-9:
+            raise ValueError(f"pcb_cradle: the O{head_d} head reaches only {overlap:.2f} over the board "
+                             f"edge (clr {clr} + {hold_spec.name} clearance r {hold_spec.shaft_clr_d / 2}) "
+                             f"-- under min_overlap {min_overlap}")
+        hx, hy = pcb_hold_xy(board_w, board_l, hold_edge, hold_at=hold_at, clr=clr, spec=hold_spec)
+        # boss from the mounting surface up to the board's UNDERSIDE: a pad under that edge
+        solid = solid.union(_cyl(hold_spec.boss_od, base_t + standoff, hx, hy, -base_t))
     walls = {
         "-x": (wall_t, 2 * out_y, -(inner_x + wall_t / 2), 0.0),
         "+x": (wall_t, 2 * out_y, +(inner_x + wall_t / 2), 0.0),
@@ -68,13 +121,16 @@ def pcb_cradle(board_w, board_l, screw_xy, *, board_t=PCB_T, standoff=2.5, wall_
     for edge, (w, l, cx, cy) in walls.items():
         if edge != open_edge:
             solid = solid.union(_block(w, l, wall_h, cx, cy, 0.0))
+    if hold_edge is not None:                      # notch the wall for the head (above the board's underside only)
+        solid = solid.cut(_cyl(head_d + 2 * clr, wall_h - standoff + 1.0, hx, hy, standoff))
     for sx in (-1, 1):                              # corner support pads (Z rest, clears bottom parts)
         for sy in (-1, 1):
             solid = solid.union(_block(pad, pad, standoff, sx * (hw - pad / 2), sy * (hl - pad / 2), 0.0))
-    bx, by = screw_xy                              # retention boss under the board hole
-    solid = solid.union(_cyl(pad + 1.5, standoff, bx, by, 0.0))
-    solid = cut_anchor(spec, solid, (bx, by, standoff), (0, 0, -1), spec.anchor_min_wall)
-    return solid
+    if screw_xy is not None:
+        bx, by = screw_xy                          # retention boss under the board hole
+        solid = solid.union(_cyl(pad + 1.5, standoff, bx, by, 0.0))
+        return cut_anchor(spec, solid, (bx, by, standoff), (0, 0, -1), spec.anchor_min_wall)
+    return cut_anchor(hold_spec, solid, (hx, hy, standoff), (0, 0, -1), hold_spec.anchor_min_wall)
 
 
 def pcb_board(board_w, board_l, *, board_t=PCB_T, standoff=2.5):

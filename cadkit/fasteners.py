@@ -632,7 +632,15 @@ def set_screw():
     return screw(M4)
 
 
-def m4_button_screw(length, head_d=7.6, head_h=2.2):
+# ISO 7380 M4 BUTTON HEAD -- the one M4 head these projects standardise on, because its
+# 2.5 mm hex is shared with the M3 socket cap (see AGENTS.md: one driver per instrument).
+# Named here, not left as m4_button_screw's defaults, so geometry that has to clear or
+# overlap the head (pcb.pcb_cradle's side hold-down) reads the same number the dummy draws.
+M4_BUTTON_HEAD_D = 7.6
+M4_BUTTON_HEAD_H = 2.2
+
+
+def m4_button_screw(length, head_d=M4_BUTTON_HEAD_D, head_h=M4_BUTTON_HEAD_H):
     """Dummy M4 button-head cap screw (ISO 7380-ish: head Ø7.6 × 2.2, 2.5 mm hex
     drive). Head top at z=0, shank extends -Z. Turn/seat from the head end."""
     return headed_screw(M4, length, head_d=head_d, head_h=head_h, socket_af=2.5)
