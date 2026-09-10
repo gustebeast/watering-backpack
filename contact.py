@@ -82,7 +82,8 @@ def contact_ring(bore_d, axis_point=(0.0, 0.0, 0.0), axis_dir=(1.0, 0.0, 0.0),
     if abs(a[0] * u[0] + a[1] * u[1] + a[2] * u[2]) < 1e-6:
         # SIDEWAYS: the hole cutter doubles as the stock builder - same
         # profile at the rib radius, so ring width survives the bore cut
-        disc = teardrop_hole(2.0 * r_out, t, axis_point, axis_dir, print_up)
+        disc = teardrop_hole(2.0 * r_out, t, axis_point, axis_dir, print_up,
+                             nozzle=nozzle)
     else:
         # axis ∥ (or oblique to) print_up: round disc; any perpendicular
         # xDir works for the plane
@@ -113,8 +114,9 @@ if __name__ == "__main__":
     if not ok:
         fails.append("rib size rule")
 
-    def tear_area(r):
-        return math.pi * r * r + r * r * (1.0 - math.pi / 4.0)
+    def tear_area(r, nz=0.8):
+        # teardrop section, less the dull nozzle-wide tip (cadkit.holes)
+        return math.pi * r * r + r * r * (1.0 - math.pi / 4.0) - nz * nz / 4.0
 
     D = 5.3
     T = contact_rib_size(0.8)
@@ -129,10 +131,10 @@ if __name__ == "__main__":
         fails.append(f"stock volume {v} != {want}")
     bb = bare.val().BoundingBox()
     ok = (abs(bb.ymin) < 1e-6 and abs(bb.ymax - T) < 1e-6
-          and abs(bb.zmax - R * math.sqrt(2.0)) < 1e-6   # the stock's own apex
+          and abs(bb.zmax - (R * math.sqrt(2.0) - 0.4)) < 1e-6   # the stock's own (dull) apex
           and abs(bb.zmin + R) < 1e-6)
     print(f"bare extents  y[{bb.ymin:.3f},{bb.ymax:.3f}] apex {bb.zmax:.3f}"
-          f" (want {R * math.sqrt(2.0):.3f}){'' if ok else '  <-- FAIL'}")
+          f" (want {R * math.sqrt(2.0) - 0.4:.3f}){'' if ok else '  <-- FAIL'}")
     if not ok:
         fails.append("stock extents")
 
