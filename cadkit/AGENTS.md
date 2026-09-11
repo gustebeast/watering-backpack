@@ -263,6 +263,12 @@ stays round; sideways or oblique it gets `holes.teardrop_hole`'s peak — pocket
 self-tap and clearance alike. Pass it wherever the part's orientation is known,
 so the hole follows the part if that orientation changes (None = plain cylinder).
 
+**A screw clamping several parts: `ScrewJoint`.** Define the joint ONCE (entry point,
+direction, stock screw length, head recess, where the insert's pocket opens, where the
+hole stops) and hand it to every part: each cuts `joint.cutter(its own print_up)`, and
+the assembly draws `joint.dummies(screw_name, insert_name)`. It refuses a screw that
+would bottom before seating or bite under `min_bite`.
+
 **Size the wall to `spec.anchor_min_wall`** (= `insert_depth + min_bite`; 5.5 mm
 for M2, 8.5 for M4). Thinner and you must give up one end — so when you place a
 screw that threads into plastic, budget that much wall from the start.
