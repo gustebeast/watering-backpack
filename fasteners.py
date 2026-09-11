@@ -705,3 +705,90 @@ def cut_m4_boss(w, pt, axis, deg, clr_len=(M4.screw_l - M4.insert_l) + 2.0):
 
 def m4_boss_insert(pt, axis, deg):
     return boss_insert(M4, pt, _dir_from(axis, deg))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SCREW JOINTS — one screw clamping a stack of parts, cut and drawn from ONE place.
+# ════════════════════════════════════════════════════════════════════════════
+@dataclass(frozen=True)
+class ScrewJoint:
+    """A headed screw clamping parts together along one axis into a heat-set insert.
+
+    Define it ONCE and hand it to every part it crosses, so the head recess, the
+    clearance, the insert pocket and the screw cannot drift apart between parts. Each
+    part cuts `cutter(its own print_up)` -- the whole hole along the axis, of which only
+    its own section meets its material, shaped for that part's print -- and the
+    assembly draws `dummies(...)`.
+
+    Distances run from `entry` (the face the head goes in at) along `direction`:
+      recess     the head's pocket depth (0: the head sits on the face)
+      insert_at  the insert pocket's mouth (the face of the part that holds it)
+      end_at     where the hole stops: past the pocket and past the screw's tip
+      length     the screw's shank from under its head (a stock length)
+    It refuses a screw that would bottom before seating or bite under min_bite.
+    """
+    spec: FastenerSpec
+    entry: tuple
+    direction: tuple
+    length: float
+    insert_at: float
+    end_at: float
+    head_d: float
+    head_h: float
+    recess: float = 0.0
+    head_clr: float = 0.4          # radial air round the head in its recess
+    socket_af: float = 2.5
+
+    def __post_init__(self):
+        tip = self.recess + self.length
+        if self.insert_at + self.spec.insert_depth > self.end_at + 1e-9:
+            raise ValueError("ScrewJoint(%s): the insert pocket runs past the hole's end"
+                             % self.spec.name)
+        if tip > self.end_at + 1e-9:
+            raise ValueError("ScrewJoint(%s): a %.1f screw bottoms %.2f past the hole's end"
+                             % (self.spec.name, self.length, tip - self.end_at))
+        if tip - self.insert_at < self.spec.min_bite - 1e-9:
+            raise ValueError("ScrewJoint(%s): the screw engages %.2f of its insert, under "
+                             "min_bite %.2f" % (self.spec.name, tip - self.insert_at,
+                                                self.spec.min_bite))
+
+    def at(self, d):
+        """The point `d` along the axis from the entry."""
+        return _fwd(self.entry, self.direction, d)
+
+    @property
+    def bite(self):
+        return self.recess + self.length - self.insert_at
+
+    def cutter(self, print_up=None, overshoot=1.0) -> cq.Workplane:
+        """The whole hole, shaped for a part printing along `print_up`."""
+        d, sp = self.direction, self.spec
+        start = _back(self.entry, d, overshoot)
+        cut = _bore(sp.shaft_clr_d, self.end_at + overshoot, start, d, print_up)
+        if self.recess > 0:
+            big = self.head_d + 2 * self.head_clr
+            cut = cut.fuse(_bore(big, self.recess + overshoot, start, d, print_up))
+            cut = _with_step(cut, big, sp.shaft_clr_d, self.at(self.recess), d, print_up)
+        mouth = self.at(self.insert_at)
+        cut = cut.fuse(_bore(sp.insert_pilot_d, sp.insert_depth, mouth, d, print_up))
+        # the pocket's floor steps down to the clearance beyond (a ceiling drilled INTO the
+        # build) and its mouth steps up from the clearance before it (a ceiling drilled
+        # AGAINST the build): _step cones whichever faces down
+        cut = _with_step(cut, sp.insert_pilot_d, sp.shaft_clr_d,
+                         self.at(self.insert_at + sp.insert_depth), d, print_up)
+        cut = _with_step(cut, sp.insert_pilot_d, sp.shaft_clr_d, mouth,
+                         tuple(-c for c in d), print_up)
+        return cq.Workplane(obj=cut)
+
+    def insert_dummy(self) -> cq.Workplane:
+        return seated_insert(self.spec, self.at(self.insert_at), self.direction)
+
+    def screw_dummy(self) -> cq.Workplane:
+        s = headed_screw(self.spec, self.length, self.head_d, self.head_h,
+                         socket_af=self.socket_af)
+        top = self.at(self.recess - self.head_h)
+        return _rot_z_onto(s, tuple(-c for c in self.direction)).translate(tuple(top))
+
+    def dummies(self, screw_name, insert_name):
+        """[(name, workplane)] for the assembly: the screw seated, the insert in its pocket."""
+        return [(screw_name, self.screw_dummy()), (insert_name, self.insert_dummy())]
