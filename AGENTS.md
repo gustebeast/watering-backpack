@@ -258,6 +258,11 @@ Nothing about a size is special-cased — `selftap_d = screw_d + 0.2` (FDM holes
 print undersize), `shaft_clr_d = screw_d + 0.4`, and **`min_bite = 5 × pitch`**
 (five engaged threads: M2 → 2.0, M4 → 3.5). Adding M3 means adding one spec.
 
+**Every cutter takes `print_up`** (the part's build direction). A hole along it
+stays round; sideways or oblique it gets `holes.teardrop_hole`'s peak — pocket,
+self-tap and clearance alike. Pass it wherever the part's orientation is known,
+so the hole follows the part if that orientation changes (None = plain cylinder).
+
 **Size the wall to `spec.anchor_min_wall`** (= `insert_depth + min_bite`; 5.5 mm
 for M2, 8.5 for M4). Thinner and you must give up one end — so when you place a
 screw that threads into plastic, budget that much wall from the start.
