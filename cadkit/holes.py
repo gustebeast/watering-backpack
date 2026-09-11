@@ -8,8 +8,8 @@ square corners are free room, and where a round floor would have left a thin
 cusp against a neighbouring cut the flat one merges cleanly.
 
 `teardrop_hole(d, length, axis_point, axis_dir, print_up)` returns a CUTTER
-for a round hole whose axis runs PERPENDICULAR to the print direction (a
-"sideways" hole). A plain cylinder cut prints with an unsupported sagging
+for a round hole whose axis runs PERPENDICULAR or OBLIQUE to the print
+direction. A plain cylinder cut prints with an unsupported sagging
 round ceiling; the teardrop replaces the TOP of the circle with two 45°
 flats meeting at an apex r*sqrt(2) above the axis - every ceiling surface
 sits at the self-support threshold, so the hole prints clean with no
@@ -20,29 +20,63 @@ Conventions (same as supports.py): describe the site with `axis_point`
 (a point on the bore axis where the cutter starts), `axis_dir` (the bore
 axis; the cutter extrudes `length` that way) and `print_up` (the part's
 build direction). Use the returned solid as-is - never post-rotate or
-mirror it; orient via the arguments instead. `axis_dir` must be
-perpendicular to `print_up` (a vertical hole prints round on its own -
-asking for a teardrop there raises).
+mirror it; orient via the arguments instead. `axis_dir` must not be
+PARALLEL to `print_up` (a vertical hole prints round on its own - asking
+for a teardrop there raises). `house_hole` is sideways-only: it needs the
+axis perpendicular.
+
+OBLIQUE HOLES (axis tilted from print_up, neither parallel nor square to it).
+A round bore's worst surface is its crown, and that crown faces down only as
+steeply as the hole is tilted: at tilt T from the build axis its slope is
+90-T. So the peak is sized FROM THE TILT, not fixed at 45:
+
+    T <= 45 (SELF_SUPPORT_DEG)   the round bore already self-supports -> the
+                                 cutter IS the round bore, no peak at all
+    45 < T < 90                  a partial peak: flats tangent at psi from the
+                                 crown, cos(psi) = cos(45)/sin(T), apex r/cos(psi)
+    T = 90 (sideways)            psi = 45, apex r*sqrt(2) -- the classic teardrop
+
+Every case leaves the steepest ceiling at exactly the limit and no steeper. A
+fixed 45 teardrop on an oblique hole is not wrong, just wasteful: it slits
+walls the hole never needed to touch.
+
+THE HOLE'S MOUTH, AT EXACTLY THE LIMIT -- and an earlier version of this note
+was WRONG. It claimed the mouth adds no overhang, "measured": but the
+measurement was a FACE-ANGLE probe, and every face there really is at 45. What
+it cannot see is a 45-degree crown that DESCENDS toward the mouth, so the last
+of it hangs from its low, outer end. A slicer-style layer-support check found
+it: ~0.15 mm2 per hole at the +X mouths of Ø4 holes tilted exactly 45 in a
+45-built floating tenon. So a hole tilted at (or within a hair of) the limit
+that exits on its crown's downhill side should be cut with a stricter
+`limit_deg`, and HOW strict is worth measuring rather than guessing: for those
+tenon holes 50 still left 0.17 mm2 across three mouths, 60 left nothing. The
+crown then gets a peak and the mouth prints. The default stays 45, so sideways holes
+keep their classic teardrop. PARALLEL still raises -- a hole along the build
+axis prints round on its own.
 
 DULL TIPS (user, 2026-09-10). A printer cannot lay down a knife point, so
 both cutters end their roof in a FLAT one `nozzle` wide instead of a knife
 point - the same dull tip the joinery arrowheads use. It is small
-enough to bridge without deforming, so it adds no overhang, and it takes
-nozzle/2 off the apex height. The flat is clamped so it never drops into
-the round bore itself (small holes: it sits on the bore's crown instead).
-Pass nozzle=0 for the old sharp point.
+enough to bridge without deforming, so it adds no overhang. Sideways it takes
+nozzle/2 off the apex height; an oblique hole's partial peak is steeper in
+section, so the same one-nozzle flat sits only (nozzle/2)*tan(psi) below its
+apex. The flat is clamped so it never drops into the round bore itself (small
+holes: it sits on the bore's crown instead). Pass nozzle=0 for the old sharp
+point.
 
-Mind the apex room: the peak reaches r*sqrt(2) - nozzle/2 from the axis in
-the `print_up` direction. In thin webs (e.g. a bore through a ring whose
-wall is thinner than that) the apex will slit the crown; usually harmless
-for a cutter, but check the site.
+Mind the apex room: sideways, the peak reaches r*sqrt(2) - nozzle/2 from the
+axis in the `print_up` direction. In thin webs (e.g. a bore through a ring
+whose wall is thinner than that) the apex will slit the crown; usually
+harmless for a cutter, but check the site.
 """
 
 import math
 
 import cadquery as cq
 
-__all__ = ["teardrop_hole", "house_hole"]
+__all__ = ["teardrop_hole", "house_hole", "SELF_SUPPORT_DEG"]
+
+SELF_SUPPORT_DEG = 45.0     # steepest ceiling that prints without support
 
 
 def _unit(v):
@@ -52,6 +86,16 @@ def _unit(v):
     return (v[0] / n, v[1] / n, v[2] / n)
 
 
+def _section_plane(axis_point, a, up):
+    """The bore's cross-section plane: normal = axis `a`, yDir = `up` (unit,
+    perpendicular to `a`)."""
+    x = (up[1] * a[2] - up[2] * a[1],             # xDir = up x axis ->
+         up[2] * a[0] - up[0] * a[2],             # plane yDir = axis x x
+         up[0] * a[1] - up[1] * a[0])             #            = up
+    return cq.Plane(origin=cq.Vector(*axis_point), xDir=cq.Vector(*x),
+                    normal=cq.Vector(*a))
+
+
 def _hole_plane(axis_point, axis_dir, print_up, who):
     a = _unit(axis_dir)
     u = _unit(print_up)
@@ -59,32 +103,49 @@ def _hole_plane(axis_point, axis_dir, print_up, who):
         raise ValueError(f"{who} needs axis_dir PERPENDICULAR to "
                          "print_up - a hole along the build direction "
                          "prints round; no teardrop needed there")
-    x = (u[1] * a[2] - u[2] * a[1],               # x = print_up x axis ->
-         u[2] * a[0] - u[0] * a[2],               # plane yDir = axis x x
-         u[0] * a[1] - u[1] * a[0])               #            = print_up
-    return cq.Plane(origin=cq.Vector(*axis_point), xDir=cq.Vector(*x),
-                    normal=cq.Vector(*a))
+    return _section_plane(axis_point, a, u)
 
 
 def teardrop_hole(d, length, axis_point=(0.0, 0.0, 0.0),
                   axis_dir=(1.0, 0.0, 0.0), print_up=(0.0, 0.0, 1.0),
-                  nozzle=0.8):
-    """CUTTER for a sideways round hole: a Ø`d` cylinder from `axis_point`
-    along `axis_dir` for `length`, its ceiling replaced by the 45° teardrop
-    peak toward `print_up`, DULLED to a `nozzle`-wide flat at
-    (d/2)*sqrt(2) - nozzle/2 off the axis (never below the bore's crown).
-    Blind holes: the flat far end is the floor, as with a plain cylinder;
-    overshoot the mouth by passing a longer length / earlier axis_point."""
+                  limit_deg=SELF_SUPPORT_DEG, nozzle=0.8):
+    """CUTTER for a round hole: a Ø`d` cylinder from `axis_point` along
+    `axis_dir` for `length`, its ceiling peaked toward `print_up` only as far
+    as the hole's tilt requires (see OBLIQUE HOLES above), the peak DULLED to
+    a `nozzle`-wide flat (never below the bore's crown). Square to print_up
+    that is the classic 45° teardrop, flat at (d/2)*sqrt(2) - nozzle/2; tilted
+    `limit_deg` or less it is the plain round bore. Blind holes: the flat far
+    end is the floor, as with a plain cylinder; overshoot the mouth by passing
+    a longer length / earlier axis_point."""
     if d <= 0.0 or length <= 0.0 or nozzle < 0.0:
         raise ValueError("d and length must be > 0, nozzle >= 0")
-    plane = _hole_plane(axis_point, axis_dir, print_up, "teardrop_hole")
+    a = _unit(axis_dir)
+    u = _unit(print_up)
+    c = a[0] * u[0] + a[1] * u[1] + a[2] * u[2]
+    if abs(c) > 1.0 - 1e-9:
+        raise ValueError("teardrop_hole: axis_dir is PARALLEL to print_up - "
+                         "a hole along the build direction prints round; no "
+                         "teardrop needed there")
+    # the part of print_up the bore's cross-section actually sees
+    up = _unit((u[0] - c * a[0], u[1] - c * a[1], u[2] - c * a[2]))
+    sin_t = math.sqrt(max(0.0, 1.0 - c * c))
+    plane = _section_plane(axis_point, a, up)
     r = d / 2.0
-    k = r / math.sqrt(2.0)                        # 45° tangent point
-    apex = r * math.sqrt(2.0)
-    flat = max(apex - nozzle / 2.0, r)            # dull tip, never into the bore
-    w = apex - flat                               # flat half-width (nozzle/2 unless clamped)
     bore = cq.Workplane(plane).circle(r).extrude(length)
-    pts = [(-k, k), (0.0, apex), (k, k)] if w <= 1e-9 else [(-k, k), (-w, flat), (w, flat), (k, k)]
+    # limit_deg: the steepest ceiling allowed. Stricter than the default gives a
+    # peak where the plain bore would sit exactly AT 45 (see THE HOLE'S MOUTH).
+    cos_psi = math.cos(math.radians(limit_deg)) / sin_t
+    if cos_psi >= 1.0 - 1e-9:
+        return bore                               # tilt <= limit: round is fine
+    psi = math.acos(cos_psi)
+    k, h = r * math.sin(psi), r * math.cos(psi)   # tangent point
+    apex = r / cos_psi
+    # dull tip: a flat one nozzle wide sits (nozzle/2)*tan(psi) below the apex
+    # (nozzle/2 sideways), never into the bore
+    flat = max(apex - (nozzle / 2.0) * math.tan(psi), r)
+    w = k * (apex - flat) / (apex - h)            # flat half-width (nozzle/2 unless clamped)
+    pts = ([(-k, h), (0.0, apex), (k, h)] if w <= 1e-9
+           else [(-k, h), (-w, flat), (w, flat), (k, h)])
     peak = cq.Workplane(plane).polyline(pts).close().extrude(length)
     return bore.union(peak)
 
@@ -205,6 +266,69 @@ if __name__ == "__main__":
           and abs(bbw.zmax - (2.0 * R - NZ / 2.0)) < 1e-6 and abs(bbw.zmin + R) < 1e-6,
           f"vol {hw.val().Volume():.3f} apex z={bbw.zmax:.3f} (want {2.0 * R - NZ / 2.0:.3f})")
 
+    # OBLIQUE: the steepest ceiling a cutter leaves must be AT the limit and
+    # never past it, at every tilt; and a tilt <= 45 must be the plain bore.
+    # Sloped surfaces are checked SHARP (nozzle=0): the dull flat is a deliberate
+    # nozzle-wide bridge whose normal faces straight up, which this check would flag.
+    def _worst_ceiling(cutter, axis, up):
+        """Largest n.up over the cutter's side surface. The cutter's UP-facing
+        surface is the part's DOWN-facing ceiling. End caps excluded."""
+        worst = -1.0
+        for f in cutter.val().Faces():
+            vs, tris = f.tessellate(0.02)
+            for i, j, k2 in tris:
+                A, Bv, C = vs[i], vs[j], vs[k2]
+                e1 = (Bv.x - A.x, Bv.y - A.y, Bv.z - A.z)
+                e2 = (C.x - A.x, C.y - A.y, C.z - A.z)
+                n = (e1[1] * e2[2] - e1[2] * e2[1],
+                     e1[2] * e2[0] - e1[0] * e2[2],
+                     e1[0] * e2[1] - e1[1] * e2[0])
+                m = math.sqrt(sum(q * q for q in n))
+                if m < 1e-12:
+                    continue
+                n = tuple(q / m for q in n)
+                if abs(sum(n[q] * axis[q] for q in range(3))) > 0.99:
+                    continue                      # an end cap, not the bore
+                worst = max(worst, sum(n[q] * up[q] for q in range(3)))
+        return worst
+
+    lim = math.cos(math.radians(SELF_SUPPORT_DEG))
+    for tilt in (90.0, 75.0, 60.0, 50.0, 45.0, 30.0):
+        ax = (math.sin(math.radians(tilt)), 0.0, math.cos(math.radians(tilt)))
+        cut = teardrop_hole(D, L, (0.0, 0.0, 0.0), ax, (0.0, 0.0, 1.0), nozzle=0.0)
+        w = _worst_ceiling(cut, ax, (0.0, 0.0, 1.0))
+        vol = cut.val().Volume()
+        ok = w <= lim + 2e-3
+        if tilt <= SELF_SUPPORT_DEG:
+            ok = ok and abs(vol - math.pi * R * R * L) < 1e-3
+        ang = math.degrees(math.acos(max(-1.0, min(1.0, w))))
+        check(f"tilt {tilt:.0f}", ok,
+              f"steepest ceiling {ang:4.1f} deg from down, vol {vol:7.3f}")
+    # a STRICTER limit peaks a hole the default would leave round at exactly 45
+    ax45 = (math.sqrt(0.5), 0.0, math.sqrt(0.5))
+    strict = teardrop_hole(D, L, (0.0, 0.0, 0.0), ax45, (0.0, 0.0, 1.0),
+                           limit_deg=50.0, nozzle=0.0)
+    w = _worst_ceiling(strict, ax45, (0.0, 0.0, 1.0))
+    check("limit 50 @45", strict.val().Volume() > math.pi * R * R * L + 1e-3
+          and w <= math.cos(math.radians(50.0)) + 2e-3,
+          "peaked, steepest ceiling %.1f deg from down"
+          % math.degrees(math.acos(max(-1.0, min(1.0, w)))))
+    # dulled OBLIQUE peak: inside the sharp one, above the crown, and smaller
+    ax60 = (math.sin(math.radians(60.0)), 0.0, math.cos(math.radians(60.0)))
+    s60 = teardrop_hole(D, L, (0.0, 0.0, 0.0), ax60, (0.0, 0.0, 1.0), nozzle=0.0)
+    d60 = teardrop_hole(D, L, (0.0, 0.0, 0.0), ax60, (0.0, 0.0, 1.0))
+    inside = d60.intersect(s60).val().Volume()
+    check("dull oblique", abs(inside - d60.val().Volume()) < 1e-3
+          and math.pi * R * R * L < d60.val().Volume() < s60.val().Volume() - 1e-4,
+          f"vol {d60.val().Volume():.3f} (sharp {s60.val().Volume():.3f}, "
+          f"bore {math.pi * R * R * L:.3f})")
+
+    # the PLAIN bore must fail that same check sideways, or it proves nothing
+    plain = (cq.Workplane(cq.Plane((0, 0, 0), (0, 1, 0), (1, 0, 0)))
+             .circle(R).extrude(L))
+    w = _worst_ceiling(plain, (1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+    check("control", w > lim + 0.1, " plain sideways bore is flagged")
+
     # vertical axis must raise; zero size must raise
     for label, kwargs in (("parallel axis", dict(axis_dir=(0, 0, 1))),
                           ("zero d", dict())):
@@ -219,5 +343,6 @@ if __name__ == "__main__":
     else:
         print("OK - teardrop + house holes: exact areas, DULL nozzle-wide tips (clamped "
               "off the bore), apex tracks print_up (incl. flipped prints), round lower "
-              "half preserved, perpendicularity enforced.")
+              "half preserved, oblique peaks sized to the tilt (round at <=45), "
+              "parallel refused.")
     sys.exit(len(fails))
