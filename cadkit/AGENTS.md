@@ -457,32 +457,36 @@ editing anything:
    [--replaced <prefix>,] [--note "one line"]`, and see everyone's with `scope`.
    Then iterate with `py -3.12 cadkit/tools/agent_sync.py view` — it renders YOUR
    portion (fresh) against a cached rest-of-instrument, into a FreeCAD tab named
-   after your worktree; add `--gate` to check it in ~30 s instead of ~6 min. Seconds, not minutes. The lead's tab keeps showing the
+   after your worktree; add `--gate` to check it in ~30 s. Seconds, not minutes. The lead's tab keeps showing the
    WHOLE instrument; yours shows your part in context. Two agents rendering at the
    same moment land in two different tabs and cannot race.
    **Still never run `src.build`** — the full build is the lead's, and it is what
    the lead does when it takes your merge request.
-   **Validating your change is YOUR job, not the lead's** — the lead merges and
-   builds, and does not re-derive whether your geometry is right. Before every
-   `submit`, on your own branch:
-   - `py -3.12 -m tools.check_overlaps --full` — the FULL gate. **Pass `--full`:** with no
-     flags it SKIPS belts and belt clamps (they dominate boolean runtime), and belt
-     collisions are real — far-row belts clipping near-row pulley flanges sat behind
-     a green gate until branner ran `--full` (2026-09-10). Say the result in your
-     submit summary ("gate green, N inherited"). This is the one that counts, and it
-     rebuilds the model from scratch on purpose.
-   - **For the inner loop, use `view --gate` instead** (`scratch_view --gate`). It
-     runs the SAME gate functions over your cached context plus your fresh part:
-     ~30 s against the full gate's ~6 min. Note what that fixes and what it does
-     not: `--only <bases>` scopes what gets CHECKED, but the model BUILD is ~95% of
-     a gate's cost, so name-scoping barely helps — `--gate` scopes what gets BUILT,
-     exactly as the view does.
-     **It is not a substitute for the full gate.** The context is cached and may be
-     CROPPED, so it can only find faults involving what is loaded — crop to the deck
-     and the drivetrain is not in the check at all (it will say so). Nothing
-     authoritative reads the cache, which is the point: a drift surfaces at the
-     pre-submit gate, when you are looking for surprises, instead of as a wrong part.
-   - the project's other checks (bead/grid, min-wall, thread rules) — same rule.
+   **Validating your DESIGN is YOUR job; the full gate is the LEAD's.** The lead
+   merges and builds, and does not re-derive whether your geometry is right — but
+   its `build` runs the FULL overlap + sweep gates on the merged tree every time.
+   - **Do NOT run the full gate before `submit`** (`tools.check_overlaps --full`, or
+     the check scripts' own full rebuilds). It is exactly the gate the lead's build
+     runs minutes later, on the merged tree, which is the tree that matters. Running
+     it on your branch first costs ~6 min per checkpoint and proves nothing extra
+     (user, 2026-09-11). Don't claim a full-gate result in the submit summary.
+   - **DO gate your portion with `view --gate`** (`scratch_view --gate`) while you
+     iterate and before you submit. It runs the SAME gate functions over your cached
+     context plus your fresh part, in ~30 s. `--only <bases>` would scope what gets
+     CHECKED, but the model BUILD is ~95% of a gate's cost, so name-scoping barely
+     helps — `--gate` scopes what gets BUILT, exactly as the view does.
+     Know its reach: the context is cached and may be CROPPED, so it only finds faults
+     involving what is loaded. If your change MOVES parts outside your scope (a datum
+     that drags the chassis, the belts, another agent's part), WIDEN the live set and
+     drop the crop so the scoped gate sees them. It also SKIPS belts and belt clamps
+     (their booleans dominate runtime) — belt collisions are real, and the lead's
+     build gates them, so belt work is covered there. Say in the summary what the
+     scoped gate covered ("scoped gate: keyhead + strings, clean").
+   - **If the lead's build goes RED on your merge,** the lead backs the merge out
+     (it is never pushed), messages you the failing pairs, and you fix and resubmit.
+     A red there is the system working, not a mistake to avoid at 6 min a round.
+   - the project's other checks (bead/grid, min-wall, thread rules) — still yours;
+     the lead's build does not run them.
    - **anything that MOVES: probe it swept, by hand.** The gate only ever sees the
      rest pose, and allowlisted pairs are invisible to it forever. A mechanism that
      collides at 20° of throw passes a green gate.
@@ -530,7 +534,11 @@ take contributors' work **hands-free**:
    worse than no listener. Coverage was never the problem; a merge request is a file
    and waits indefinitely.)
 2. When it wakes you: `take <name>` (resolve any conflicts) → `build` (announce the
-   build #) → **re-arm** `watch`. The hook reports whether a listener is actually
+   build #) → **re-arm** `watch`. `build` runs the FULL overlap + sweep gates, and
+   contributors no longer run them before submitting — so READ the gate output
+   before you push. GREEN → push. RED → do NOT push: back the unpushed merge out
+   (`git reset --hard HEAD~1`, only while it is unpushed), `msg` the contributor the
+   failing pairs with volumes, and let them fix and resubmit. The hook reports whether a listener is actually
    armed, so a missed re-arm surfaces on your next prompt rather than silently.
 
 Rules that keep it from clobbering:
@@ -538,7 +546,8 @@ Rules that keep it from clobbering:
   own tab (`view`); the whole instrument is built once, by the lead, on merge.
   `agent_sync.py build` refuses
   outside the main worktree and holds a single-build lock — never a second tab or
-  a concurrent build. Contributors verify with the overlap gate only.
+  a concurrent build. Contributors verify with the SCOPED gate (`view --gate`); the
+  full gate runs once, in the lead's build.
 - **Contributors edit ONLY in their own worktree**, never in the lead's directory.
 - **Contributors `sync` before each task, never work from a stale base.** Branching
   or editing off an old `main` makes `submit` roll back whatever the lead landed
