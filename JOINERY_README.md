@@ -423,6 +423,16 @@ beam = beam.cut(j.mortise(drop=2.0, length=24).translate(...))  # far Z-end
 
 Conventions: profile in the plan plane, width across Y, head toward +X (rotate
 about Z to aim it radially), mating plane at x=0; the prism extrudes along +Z.
+
+**Either host may print 'down'.** The `±x` families are asymmetric about the
+build direction, so their facings are exact; a plan profile is not — every
+working face is PARALLEL to the install axis, so a host flipped end-for-end
+along that axis still prints them as vertical walls. `install='z'` therefore
+accepts `'up'` and `'down'` in any combination (a lid that prints upside down
+on the box it slides onto). The sign still decides one thing, and it is the
+caller's: close the cavity end the MORTISE host reaches FIRST in its build, so
+the stop face points back along the build (a floor, not a ceiling) — then the
++install rule gives you the seating direction.
 The joint locks ±X (neck lips / head end wall) and ±Y (neck + head side
 walls); **±Z is free by design** — the caller closes one end with a stop
 (un-cut host material past the cavity's far end) and guards the other with a

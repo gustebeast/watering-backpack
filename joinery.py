@@ -1291,13 +1291,25 @@ class Joint:
         if self.install_axis == "z":
             # Slide axis ∥ print-Z: the profile lies in the plan plane, so its
             # faces are vertical printed walls — but ONLY for hosts printing
-            # -Z→+Z. A side-printed host would see the profile's -Y-normal
-            # faces as full 90° overhangs.
-            if kind != ("up", "up"):
+            # ALONG the install axis. A side-printed host would see the
+            # profile's -Y-normal faces as full 90° overhangs.
+            #
+            # The SIGN does not matter here, so 'down' is allowed alongside
+            # 'up' (it is not, for the ±x families, whose profiles are
+            # asymmetric about the build direction): every working face of a
+            # plan profile is PARALLEL to the install axis, so flipping a host
+            # end-for-end along that axis leaves each of them a vertical wall.
+            # What the sign does decide is which END of the cavity may be the
+            # stop, and that belongs to the caller: close the end the MORTISE
+            # host reaches FIRST in its build (its stop face then points back
+            # along the build, a floor), and the joint's own +install stop rule
+            # picks the seating direction from there.
+            if set(kind) - {"up", "down"}:
                 raise NotImplementedError(
-                    "install='z' needs BOTH hosts printing -Z→+Z (facing 'up'); "
-                    "got tenon '%s' + mortise '%s' — a side-printed host would "
-                    "overhang the plan profile" % kind)
+                    "install='z' needs BOTH hosts printing along the install "
+                    "axis (facing 'up' or 'down'); got tenon '%s' + mortise "
+                    "'%s' — a side-printed host would overhang the plan "
+                    "profile" % kind)
             if bounded:
                 # EDGE-BOUNDED site: `width` = the face's FULL extent between
                 # free edges, walls included. The library sizes BOTH candidate
