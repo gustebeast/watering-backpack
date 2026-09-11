@@ -25,7 +25,7 @@ Gives the project a four-command loop:
     --start    BEGIN a flow: rebuild the cache from scratch, then render
     (bare)     iterate -- the LIVE part is rebuilt fresh, context comes from cache
     --gate     run the project's own gates over that cache (~30 s vs ~6 min) --
-               an INNER-LOOP check; the full gate is still what you report
+               the contributor's gate; the FULL gate runs in the lead's build
     --merge    END a flow: DELETE the cache, then do the real build
 
 Register gates as `gates=(("label", fn(comps) -> int), ...)`; they receive
@@ -173,8 +173,8 @@ class ScratchView:
     def check(self) -> int:
         """Run the project's gates over CACHED context + the FRESH live part.
 
-        This is an INNER-LOOP check, not the submit gate, and the distinction is the
-        whole point. The gates themselves are unchanged and still rebuild the model
+        This is the contributor's SCOPED check, not the full gate, and the distinction
+        is the whole point. The gates themselves are unchanged and still rebuild the model
         from scratch when run normally -- what this does is hand them the same
         cache the view uses, so an agent can ask "did I just break something?" in
         seconds instead of the ~5.5 min a full gate spends REBUILDING geometry it is
@@ -182,9 +182,9 @@ class ScratchView:
         the build is ~95% of its cost, not the checking.
 
         The cache boundary still holds: nothing authoritative reads it. A drift shows
-        up as a surprise at the pre-submit gate -- which is exactly when you want
-        surprises -- rather than as a wrong part. So this NEVER replaces the full run
-        before `submit`, and it says so on every invocation."""
+        up as a surprise in the lead's build, which runs the FULL gates on the merged
+        tree -- contributors do not run them before `submit` (user, 2026-09-11) -- rather
+        than as a wrong part. It says so on every invocation."""
         if not self.gates:
             print("no gates registered — pass gates=((label, fn), ...) to ScratchView")
             return 0
@@ -204,9 +204,10 @@ class ScratchView:
         print("=" * 70)
         print(" INNER-LOOP GATE -- live part FRESH, %d context solids CACHED (%.0f min old)"
               % (len(ctx), age / 60.0))
-        print(" NOT the submit gate: context is cached and may be CROPPED, so it can")
-        print(" only find faults involving what is loaded. Run the FULL gates before")
-        print(" `submit` -- that is the one whose result you report.")
+        print(" SCOPED: context is cached and may be CROPPED, so it can only find")
+        print(" faults involving what is loaded -- widen the live set if your change")
+        print(" moved anything else. The FULL gates run in the lead's build on merge;")
+        print(" do not run them yourself before `submit`.")
         print("=" * 70)
         bad = 0
         for label, fn in self.gates:
@@ -262,7 +263,8 @@ def main(view: ScratchView, argv=None) -> int:
                     help="END a flow: delete the cache, then do the real build")
     ap.add_argument("--gate", action="store_true",
                     help="run the project's gates over cached context + your fresh "
-                         "part (seconds) -- an INNER-LOOP check, never the submit gate")
+                         "part (seconds) -- the scoped gate; the FULL gate runs in "
+                         "the lead's build")
     a = ap.parse_args(argv)
 
     if a.gate:
