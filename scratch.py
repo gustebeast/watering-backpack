@@ -147,13 +147,26 @@ class ScratchView:
               % (kept, time.time() - t0, skipped))
 
     def load_cache(self):
+        """Load the cached surroundings, re-applying `replaced` ON THE WAY IN.
+
+        Filtering only at build_cache() time was a silent-staleness bug, and of
+        exactly the kind this module exists to prevent. `replaced` is the set the
+        live part SUPERSEDES, and it lives in per-agent state that changes mid-flow:
+        grow your scope to cover another part and its cached copy is already on
+        disk, so the render served BOTH -- the fresh live one and the superseded
+        grey one, interpenetrating, with the stale copy drawn on top. It reads as
+        "my part did not render". The cache does not need rebuilding for this; the
+        filter just has to run on both ends.
+        """
         import cadquery as cq
         stamp = self.cache / "STAMP"
         if not stamp.exists():
             return None
         age = time.time() - float(stamp.read_text())
+        files = [f for f in sorted(self.cache.glob("*.brep"))
+                 if not f.stem.startswith(self.replaced)]
         out = [(f.stem, cq.Workplane("XY").add(cq.Shape.importBrep(str(f))))
-               for f in sorted(self.cache.glob("*.brep"))]
+               for f in files]
         return age, out
 
     # ── inner-loop gate ─────────────────────────────────────────────────────
@@ -180,7 +193,13 @@ class ScratchView:
             print("no cache -- begin a flow with:  --start")
             return 1
         age, ctx = loaded
-        comps = ([(n, wp.val()) for n, wp in self.live()]
+        comps = ([(n, (self.pose(n, wp) if self.pose else wp).val())
+                  # POSED, exactly as render() draws them. This used to hand the
+                  # gates the RAW live parts, so any scope with a pose was gated
+                  # wherever its module happened to author it -- the redesigned
+                  # leg was checked floating clear of the instrument for weeks and
+                  # reported clean while overlapping four TRRS parts in place.
+                  for n, wp in self.live()]
                  + [(n, wp.val()) for n, wp in ctx])
         print("=" * 70)
         print(" INNER-LOOP GATE -- live part FRESH, %d context solids CACHED (%.0f min old)"
