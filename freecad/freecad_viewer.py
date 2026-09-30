@@ -47,12 +47,16 @@ PALETTE = [
 
 # Hub state (module-level so the QTimer / shortcuts aren't garbage-collected).
 _hub = {
-    "projects": {},    # doc_name -> {"step": path, "mtime": float}
     "inbox": None,     # directory polled for new projects to open as tabs
     "timer": None,
     "shortcuts": None,
     "heartbeat": None, # file the watch loop touches each tick (liveness signal)
 }
+
+# Transient per-tab state ONLY: the mtime/size stability check below. Losing it costs one
+# extra poll and nothing else, which is why it may live in module memory while provenance
+# (what a tab was loaded from) may NOT -- see _stamp_doc.
+_pending = {}
 
 
 # ── colours ────────────────────────────────────────────────────────────────
@@ -128,18 +132,92 @@ def _get_doc(name):
         return None
 
 
+# ── provenance: the DOCUMENT is the record, not a dict ──────────────────────
+# The three Meta keys a tab carries. Namespaced because Meta is a shared, user-visible
+# document property -- FreeCAD itself and other tools may put their own keys there.
+_META_STEP = "cadkit_step"
+_META_MTIME = "cadkit_mtime"
+_META_SIZE = "cadkit_size"
+
+
+def _stamp_doc(doc, step, mtime, size):
+    """Record on the DOCUMENT what this tab was loaded from.
+
+    ⚠ THIS REPLACES A MODULE-LEVEL DICT, AND THAT IS THE WHOLE POINT. The hub used to keep
+    `_hub["projects"]` = name -> {step, mtime}, a second copy of the truth that drifted from
+    it in BOTH directions: close a tab by hand and the dict still listed it, and reloading
+    this module threw the dict away while every tab stayed open. A document that carries its
+    own source cannot disagree with itself, a closed tab simply is NOT in
+    App.listDocuments(), and -- the reason this had to come first -- NEW CODE CAN TAKE OVER
+    RUNNING TABS WITHOUT RE-IMPORTING ONE OF THEM. That is what makes the code-update path
+    (re-run the macro, reload this module) cheap enough to use instead of killing FreeCAD.
+
+    ⚠ doc.Meta IS COPY-ON-READ: mutating what it hands back changes nothing, so the whole
+    dict must be reassigned. Verified headlessly against FreeCAD 1.1.1 (freecadcmd), together
+    with the fact that the keys survive a save/reopen -- which matters because these
+    documents ARE saved, to a throwaway temp path (see _open_project)."""
+    m = dict(doc.Meta or {})
+    m[_META_STEP] = os.path.abspath(step)
+    m[_META_MTIME] = repr(float(mtime))
+    m[_META_SIZE] = str(int(size))
+    doc.Meta = m
+
+
+def _doc_prov(doc):
+    """This tab's {step, mtime, size}, or None if it is not one of ours.
+
+    Anything unparseable reads as NOT ours rather than raising: a hand-edited or
+    foreign Meta must never be able to stop the watch loop."""
+    try:
+        m = doc.Meta or {}
+        step = m.get(_META_STEP)
+        if not step:
+            return None
+        return {"step": step,
+                "mtime": float(m.get(_META_MTIME) or 0.0),
+                "size": int(m.get(_META_SIZE) or -1)}
+    except Exception:
+        return None
+
+
+def _tracked():
+    """Every open document that carries our stamp: name -> provenance.
+
+    This is the replacement for iterating `_hub["projects"]`. It is read from FreeCAD each
+    time rather than cached, so a tab the user closed is gone the moment they close it and
+    there is no bookkeeping to forget."""
+    out = {}
+    try:
+        names = list(App.listDocuments().keys())
+    except Exception:
+        return out
+    for name in names:
+        doc = _get_doc(name)
+        if doc is None:
+            continue
+        prov = _doc_prov(doc)
+        if prov is not None:
+            out[name] = prov
+    return out
+
+
 def _open_project(step):
     """Open `step` as a new document/tab. No-op if already open."""
     step = os.path.abspath(step)
     if not os.path.exists(step):
         return None
     name = _doc_name(step)
-    if name in _hub["projects"]:
-        doc = _get_doc(name)
-        if doc is not None:
-            return doc
-        # User closed the tab — drop the stale entry and fall through to reopen.
-        _hub["projects"].pop(name, None)
+    doc = _get_doc(name)
+    if doc is not None:
+        # Already a tab. If it carries NO stamp it predates this code (or its Meta was
+        # lost), so ADOPT it rather than opening a duplicate -- stamped with mtime 0 so the
+        # watch loop sees it as out of date and refreshes it exactly once. Adopting is what
+        # lets a hub that has been running for days pick up this change without the user
+        # losing a single tab.
+        if _doc_prov(doc) is None:
+            _stamp_doc(doc, step, 0.0, -1)
+            _write_status()
+        return doc
 
     prev = App.ActiveDocument  # so opening a tab during a background poll...
     doc = App.newDocument(name)            # ...becomes active here (new tab)
@@ -152,7 +230,7 @@ def _open_project(step):
     except Exception:
         pass
     _import_into(doc, step)
-    _hub["projects"][name] = {"step": step, "mtime": os.path.getmtime(step)}
+    _stamp_doc(doc, step, os.path.getmtime(step), os.path.getsize(step))
     _write_status()
 
     view = _doc_view(name)
@@ -169,12 +247,19 @@ def _open_project(step):
 def _reload_project(name):
     """Re-import a tracked project's STEP, preserving its tab's camera + hidden
     parts and without stealing the user's currently-focused tab."""
-    info = _hub["projects"].get(name)
-    if info is None:
-        return
     doc = _get_doc(name)
     if doc is None:
-        _hub["projects"].pop(name, None)
+        _pending.pop(name, None)      # user closed the tab mid-poll
+        return
+    info = _doc_prov(doc)
+    if info is None:
+        return                        # not ours (any more)
+    # Re-stat immediately before the import and stamp THOSE numbers afterwards, so the
+    # recorded mtime is the one actually read rather than the one the caller measured a
+    # tick earlier. A stamp that runs ahead of the bytes would skip the next rebuild.
+    try:
+        m, sz = os.path.getmtime(info["step"]), os.path.getsize(info["step"])
+    except OSError:
         return
 
     hidden = {o.Label for o in doc.Objects
@@ -190,6 +275,7 @@ def _reload_project(name):
 
     prev = App.ActiveDocument
     _import_into(doc, step=info["step"])
+    _stamp_doc(doc, info["step"], m, sz)
 
     for o in doc.Objects:
         if o.Label in hidden and getattr(o, "ViewObject", None) is not None:
@@ -237,7 +323,7 @@ def _scan_inbox():
 def _write_heartbeat():
     """Touch the heartbeat file so the build-side launcher can tell this watch
     loop is still ticking. A live process with a STALE heartbeat means the hub
-    has wedged, and the launcher will restart it (see freecad_view._kill_hub)."""
+    has wedged, and the launcher reloads it in place (see freecad_view._refresh_hub)."""
     path = _hub.get("heartbeat")
     if not path:
         return
@@ -287,7 +373,7 @@ def _write_status():
         return
     try:
         with open(path + ".status", "w") as f:
-            for name, info in _hub["projects"].items():
+            for name, info in _tracked().items():
                 f.write("%s %.6f %s\n" % (name, info["mtime"], info["step"]))
     except OSError:
         pass
@@ -302,34 +388,33 @@ def _tick():
         _scan_inbox()
     except Exception as e:
         App.Console.PrintError("[viewer] inbox scan failed: %s\n" % e)
-    for name, info in list(_hub["projects"].items()):
+    for name, info in _tracked().items():
         try:
             m = os.path.getmtime(info["step"])
             sz = os.path.getsize(info["step"])
         except OSError:
             continue
         if m == info["mtime"]:
-            info.pop("pending", None)
+            _pending.pop(name, None)
             continue
         # A big STEP takes seconds to write; importing mid-write reads a
         # truncated file. Only reload once mtime+size have been STABLE for a
         # full tick, and only consume the mtime after the reload SUCCEEDS —
         # a failed attempt is retried on the next tick, never silently dropped.
-        if info.get("pending") != (m, sz):
-            info["pending"] = (m, sz)
+        if _pending.get(name) != (m, sz):
+            _pending[name] = (m, sz)
             continue
         try:
             _write_busy("reload " + name)
             try:
-                _reload_project(name)
+                _reload_project(name)   # stamps the new mtime itself, on success only
             finally:
                 _clear_busy()
-            info["mtime"] = m
-            info.pop("pending", None)
+            _pending.pop(name, None)
             _write_status()
             App.Console.PrintMessage("[viewer] reloaded %s\n" % name)
         except Exception as e:
-            info.pop("pending", None)   # re-arm the stability check, then retry
+            _pending.pop(name, None)    # re-arm the stability check, then retry
             App.Console.PrintError("[viewer] reload %s failed (will retry): %s\n"
                                    % (name, e))
 
@@ -383,6 +468,60 @@ def _install_shortcuts():
 
 
 # ── entry points ─────────────────────────────────────────────────────────────
+def shutdown():
+    """Detach this module's live Qt objects so a RELOADED copy can take over cleanly.
+
+    view.FCMacro calls this immediately before importlib.reload. Two things must go or the
+    hub ends up with duplicates: the QTimer (two timers means two polls a second, and the
+    OLD one goes on running OLD code -- which is exactly the bug the reload exists to fix),
+    and the shortcuts (two QShortcut objects on one key sequence is ambiguous in Qt, and one
+    of them silently wins).
+
+    ⚠ NOTHING ELSE NEEDS UNDOING, AND THAT IS THE POINT OF THE PROVENANCE CHANGE. The tabs
+    stay open and carry their own source path, so a reload re-imports no geometry and the
+    user loses no camera, no hidden parts and no tab. Before documents were self-describing
+    this call would have had to be a restart.
+
+    Never raises: a half-detached hub is strictly worse than a stale object."""
+    t = _hub.get("timer")
+    if t is not None:
+        try:
+            t.stop()
+        except Exception:
+            pass
+    _hub["timer"] = None
+    for sc in (_hub.get("shortcuts") or []):
+        try:
+            sc.setEnabled(False)
+            sc.setParent(None)      # drop it off the main window, not just disable it
+        except Exception:
+            pass
+    _hub["shortcuts"] = None
+
+
+def code_stamp():
+    """A hash of the code the hub RUNS: this module plus the macro that loads it.
+
+    Both matter and both are now fixable in place. Re-running view.FCMacro through
+    FreeCAD's --single-instance executes the macro FROM DISK (so macro edits land) and the
+    macro reloads this module (so viewer edits land). One mechanism, no restart, no kill --
+    which is why the launcher compares this stamp instead of owning a process id.
+
+    Hashes CONTENT, never mtime: propagating cadkit rewrites every vendored file, so
+    identical bytes get a fresh mtime. Comparing timestamps once read as "stale" and killed
+    a healthy hub, taking every open tab with it (user, 2026-09-07)."""
+    import hashlib
+    h = hashlib.sha1()
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in ("freecad_viewer.py", "view.FCMacro"):
+        try:
+            with open(os.path.join(here, name), "rb") as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()
+
+
 def start_hub(inbox_dir=None, initial_step=None):
     """Start (or top up) the hub: open the initial project, drain the inbox,
     and begin watching every open project for rebuilds."""
@@ -390,22 +529,18 @@ def start_hub(inbox_dir=None, initial_step=None):
         _hub["inbox"] = os.path.abspath(inbox_dir)
     _hub["heartbeat"] = (os.environ.get("FREECAD_VIEW_HEARTBEAT")
                          or os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat"))
-    # Stamp the code THIS process is running. FreeCAD executes this
-    # file once, at launch, and keeps it in memory — so editing it changes nothing
-    # for a hub that is already up. That bit us: a hub from the 28th went on
-    # raising its window for two days after the behaviour was narrowed and then
-    # deleted, because neither version ever ran. The launcher compares this stamp
-    # to the file on disk and restarts a hub running stale code.
-    # Stamp a HASH of the code, not its mtime. Propagating cadkit rewrites every
-    # vendored file, so identical bytes get a new mtime -- which read as "stale" and
-    # killed a healthy hub, taking every open tab with it (user, 2026-09-07). A hash
-    # only changes when the behaviour actually changes.
+    # Stamp the code THIS process is running. FreeCAD executes the macro once, at launch,
+    # and keeps the imported viewer module in memory -- so editing either changes nothing
+    # for a hub that is already up. That bit us: a hub from the 28th went on raising its
+    # window for two days after the behaviour was narrowed and then deleted, because
+    # neither version ever ran.
+    # The launcher compares this stamp against code_stamp() on disk. It used to answer a
+    # mismatch by KILLING the process; it now answers by re-running the macro through
+    # --single-instance, which reloads this module in place (see view.FCMacro). Same
+    # detection, no force-kill, no lost tabs.
     try:
-        import hashlib
-        with open(os.path.abspath(__file__), "rb") as _src:
-            _stamp = hashlib.sha1(_src.read()).hexdigest()
         with open(_hub["heartbeat"] + ".codestamp", "w") as _f:
-            _f.write(_stamp)
+            _f.write(code_stamp())
     except Exception:
         pass
     _write_heartbeat()   # stamp immediately so the launcher sees a live hub at once
@@ -434,7 +569,7 @@ def start_hub(inbox_dir=None, initial_step=None):
     App.Console.PrintMessage(
         "[viewer] hub watching %d project(s), inbox=%s  "
         "[I = isolate, Shift+I = show all, M = measure]\n"
-        % (len(_hub["projects"]), _hub["inbox"])
+        % (len(_tracked()), _hub["inbox"])
     )
 
 
