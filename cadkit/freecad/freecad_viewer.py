@@ -468,6 +468,53 @@ def _install_shortcuts():
 
 
 # ── entry points ─────────────────────────────────────────────────────────────
+def _adopt_from_status():
+    """Re-adopt tabs an OLDER hub was watching, using the .status file it left behind.
+
+    ⚠ WITHOUT THIS, UPDATING THE CODE SILENTLY ORPHANS EVERY OPEN TAB. A hub from before
+    the provenance change has documents with no stamp, so _tracked() does not see them and
+    the watch loop quietly stops following them -- the tab still looks fine and simply never
+    refreshes again, which is the worst kind of failure this module can have. _open_project
+    adopts a tab when a build next asks for that project, but that is LAZY: until then the
+    user's open tabs are unwatched.
+
+    .status is exactly the missing record -- the old hub wrote '<doc> <mtime> <step>' for
+    every project it had loaded -- so a code update reconnects to its own tabs from it.
+
+    Stamped with the mtime the OLD hub recorded, not 0: that hub really had loaded those
+    bytes, so there is nothing to re-import. Re-importing instead would cost a 100 MB STEP
+    reload per tab on every code update, for nothing."""
+    path = _hub.get("heartbeat")
+    if not path:
+        return 0
+    try:
+        lines = open(path + ".status", encoding="utf-8").read().splitlines()
+    except OSError:
+        return 0
+    n = 0
+    for line in lines:
+        parts = line.split(" ", 2)
+        if len(parts) != 3:
+            continue
+        name, mtime, step = parts[0], parts[1], parts[2].strip()
+        doc = _get_doc(name)
+        if doc is None or _doc_prov(doc) is not None:
+            continue                      # closed, or already carries its own record
+        try:
+            m = float(mtime)
+        except ValueError:
+            m = 0.0
+        try:
+            sz = os.path.getsize(step)
+        except OSError:
+            sz = -1
+        _stamp_doc(doc, step, m, sz)
+        n += 1
+    if n:
+        App.Console.PrintMessage("[viewer] adopted %d tab(s) from the previous hub\n" % n)
+    return n
+
+
 def shutdown():
     """Detach this module's live Qt objects so a RELOADED copy can take over cleanly.
 
@@ -544,6 +591,9 @@ def start_hub(inbox_dir=None, initial_step=None):
     except Exception:
         pass
     _write_heartbeat()   # stamp immediately so the launcher sees a live hub at once
+    # Reconnect to tabs a previous hub was watching BEFORE anything else looks at the
+    # tracked set, so a code reload never leaves an open tab unwatched.
+    _adopt_from_status()
 
     App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("AntiAliasing", 3)
     # Read-only viewer: turn off FreeCAD's auto-recovery so an unclean exit
