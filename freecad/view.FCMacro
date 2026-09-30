@@ -1,20 +1,39 @@
 # -*- coding: utf-8 -*-
-"""Thin entry point FreeCAD runs on launch (see freecad/open_viewer.ps1).
+"""Thin entry point FreeCAD runs on launch -- AND re-runs to update a live hub.
 
-All the real logic is in freecad_viewer.py (same folder) so it stays shared
-across every project. This macro just reads the launcher's environment —
-FREECAD_VIEW_STEP (the initial project to open as a tab) and FREECAD_VIEW_INBOX
-(a directory later launches drop more projects into) — and starts the hub.
-Project-agnostic: the same macro serves every repo.
+All the real logic is in freecad_viewer.py (same folder) so it stays shared across every
+project. This macro reads the launcher's environment -- FREECAD_VIEW_STEP (the initial
+project to open as a tab) and FREECAD_VIEW_INBOX (a directory later launches drop more
+projects into) -- and starts the hub. Project-agnostic: the same macro serves every repo.
+
+⚠ RUNNING THIS MACRO A SECOND TIME IS THE CODE-UPDATE PATH, AND THE REVIVE PATH.
+    freecad.exe --single-instance <this file>
+executes it INSIDE the already-running FreeCAD (measured: process count stays at 1 and the
+codestamp is rewritten). FreeCAD reads the macro from disk each time, so macro edits land by
+themselves; the viewer module does NOT, because `import` returns the copy already in memory
+-- so this macro reloads it explicitly below.
+
+That one command therefore covers all three things the launcher used to need a process id
+and a taskkill for:
+
+    new viewer code into a live hub   reload, below
+    a wedged watch loop               shutdown() + reload rebuilds the QTimer
+    a hub that is simply missing      nothing running to forward to, so launch normally
+
+It is affordable only because a tab now carries its own provenance (freecad_viewer's
+_stamp_doc): reloading re-imports no geometry and costs no tab, no camera and no hidden
+part. Before that, updating the code meant restarting FreeCAD.
 """
 
 import os
 import sys
+import importlib
+import tempfile
 
-# Locate this macro's folder so we can import the shared viewer module next to
-# it. Normally __file__ is defined (FreeCAD runs the macro from its path); if it
-# isn't, the launcher (freecad_view.py) passes the dir via the environment, so we
-# never hardcode an install location.
+# Locate this macro's folder so we can import the shared viewer module next to it.
+# Normally __file__ is defined (FreeCAD runs the macro from its path); if it isn't, the
+# launcher (freecad_view.py) passes the dir via the environment, so we never hardcode an
+# install location.
 try:
     _HERE = os.path.dirname(os.path.realpath(__file__))
 except NameError:
@@ -23,13 +42,59 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import FreeCAD as App
-import freecad_viewer
 
+# The launcher normally passes both of these in the environment. It cannot always: a macro
+# forwarded by --single-instance runs inside the ALREADY-RUNNING FreeCAD, with THAT
+# process's environment -- and if the user started FreeCAD themselves, there is no
+# FREECAD_VIEW_* in it at all. So the inbox falls back to the same well-known temp path
+# freecad_view._INBOX derives, which is how a build still gets its tab when the hub has to
+# be planted in a FreeCAD nobody launched for it. An empty step is normal on a re-run: the
+# projects are already open and carry their own provenance.
+_DEFAULT_INBOX = os.path.join(tempfile.gettempdir(), "freecad_viewer_inbox")
 _step = os.environ.get("FREECAD_VIEW_STEP", "").strip()
-_inbox = os.environ.get("FREECAD_VIEW_INBOX", "").strip()
-if not _step and not _inbox:
-    App.Console.PrintError(
-        "[viewer] FREECAD_VIEW_STEP/INBOX not set — launch via freecad/open_viewer.ps1\n"
-    )
-else:
-    freecad_viewer.start_hub(inbox_dir=_inbox or None, initial_step=_step or None)
+_inbox = os.environ.get("FREECAD_VIEW_INBOX", "").strip() or _DEFAULT_INBOX
+
+
+def _compiles(path):
+    """True if `path` is syntactically valid Python.
+
+    ⚠ CHECKED BEFORE reload(), NOT AFTER. importlib.reload re-executes the module in
+    place, so a file with a syntax error leaves `freecad_viewer` half-defined -- and we
+    would already have called shutdown() on the working copy, i.e. a broken hub with its
+    timer stopped. Compiling first means a typo costs nothing: the old code keeps running
+    and the error is reported."""
+    try:
+        with open(path, "rb") as f:
+            compile(f.read(), path, "exec")
+        return True
+    except Exception as e:
+        App.Console.PrintError("[viewer] %s will not compile, keeping the running copy: %s\n"
+                               % (os.path.basename(path), e))
+        return False
+
+
+def _viewer():
+    """The viewer module, reloaded from disk if this is a re-run."""
+    mod = sys.modules.get("freecad_viewer")
+    if mod is None:
+        import freecad_viewer as mod           # first run in this process
+        return mod
+    if not _compiles(os.path.join(_HERE, "freecad_viewer.py")):
+        return mod
+    try:
+        mod.shutdown()                          # drop the old QTimer + shortcuts first
+    except Exception as e:
+        App.Console.PrintError("[viewer] shutdown before reload failed: %s\n" % e)
+    try:
+        mod = importlib.reload(mod)
+        App.Console.PrintMessage("[viewer] reloaded viewer code in place\n")
+    except Exception as e:
+        # It compiled but blew up while executing. The old copy is already detached and
+        # cannot be recovered, so say so loudly -- the launcher will see a stale heartbeat
+        # and re-run this macro, which retries the reload against whatever is on disk then.
+        App.Console.PrintError("[viewer] reload FAILED, hub is down until the next run: %s\n" % e)
+        raise
+    return mod
+
+
+_viewer().start_hub(inbox_dir=_inbox, initial_step=_step or None)
