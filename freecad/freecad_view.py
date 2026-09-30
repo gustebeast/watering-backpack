@@ -148,6 +148,21 @@ def _freecad_exe(override=None):
     return found
 
 
+def _drop_legacy_marker():
+    """Delete the pid file an older launcher left in temp. Never raises.
+
+    Nothing here reads it any more, so this is mostly not leaving litter behind -- but it
+    also makes a project whose vendored cadkit is still STALE strictly safer. That old code
+    reads the marker, finds this hub's code hash different from its own, and answers by
+    force-killing the process the marker names. With no marker it decides no hub is running
+    and LAUNCHES one instead: a duplicate window, which the user can close, rather than a
+    kill that takes unsaved work with it. Recoverable beats destructive."""
+    try:
+        os.remove(os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.pid"))
+    except OSError:
+        pass
+
+
 def _freecad_running():
     """Is there a FreeCAD process at all? True / False / None when it cannot be told.
 
@@ -294,6 +309,7 @@ def show(step_path=None, project=None, freecad_exe=None):
             print("[freecad] %s not found - skipping viewer" % step, file=sys.stderr)
             return False
         os.makedirs(_INBOX, exist_ok=True)
+        _drop_legacy_marker()
 
         exe = _freecad_exe(freecad_exe)
         running = _freecad_running()
