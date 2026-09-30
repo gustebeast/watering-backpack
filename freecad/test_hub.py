@@ -308,6 +308,30 @@ V.ImportGui.insert = real_insert
 check(abs(V._doc_prov(legacy)["mtime"] - os.path.getmtime(step_c)) < 1e-6,
       "the retry lands and stamps")
 
+print("a code update re-adopts the PREVIOUS hub's tabs from .status")
+# The failure this guards is silent: tabs left by an older hub carry no stamp, so without
+# this the watch loop just stops following them and they never refresh again.
+step_d = make_step("proj_d")
+name_d = V._doc_name(step_d)
+old_tab = APP.newDocument(name_d)              # a tab the previous hub owned
+hb = os.path.join(TMP, "hb")
+V._hub["heartbeat"] = hb
+with open(hb + ".status", "w") as f:
+    f.write("%s %.6f %s\n" % (name_d, os.path.getmtime(step_d), step_d))
+    f.write("a_closed_project_viewer 1.0 %s\n" % step_d)   # tab is gone: must be ignored
+before = len(APP.imports)
+n = V._adopt_from_status()
+check(n == 1, "adopted exactly the one tab that is still open")
+check(V._doc_prov(old_tab) is not None, "the previous hub's tab is watched again")
+check(abs(V._doc_prov(old_tab)["mtime"] - os.path.getmtime(step_d)) < 1e-6,
+      "stamped with the mtime it already had, so nothing is re-imported")
+check(len(APP.imports) == before, "adopting from .status imported no geometry")
+V._tick()
+V._tick()
+check(len(APP.imports) == before, "and an up-to-date adopted tab does not reload")
+check(V._adopt_from_status() == 0, "running it again adopts nothing (idempotent)")
+APP.closeDocument(name_d)
+
 print("shutdown detaches the timer so a reloaded copy can take over")
 V._hub["timer"] = None
 inbox = os.path.join(TMP, "inbox")
