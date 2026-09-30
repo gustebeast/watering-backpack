@@ -38,7 +38,11 @@ FREECAD_DOWNLOAD_URL = "https://www.freecad.org/downloads.php"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MACRO = os.path.join(_HERE, "view.FCMacro")
-# ⚠ THERE IS NO PID FILE ANY MORE, AND NOTHING HERE FORCE-KILLS FREECAD.
+_MARKER = os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.pid")
+# ⚠ NOTHING HERE FORCE-KILLS FREECAD, AND THE PID FILE IS NOT FOR THIS MODULE.
+# This module never reads _MARKER; it is written purely so a PRE-REWORK launcher in
+# an un-synced worktree can see that a hub is up (see _compat_marker) instead of
+# spawning a second FreeCAD on every build.
 # The hub used to record its process id so the launcher could taskkill /F /T a hub whose
 # watch loop had stopped. That answered exactly one question -- "which process do I kill" --
 # and the kill itself became the worst bug in the viewer: a big STEP import blocks the
@@ -151,17 +155,12 @@ def _freecad_exe(override=None):
 def _warn_multi(n):
     """Say so, loudly, when more than one hub is up -- and name the one-line cure.
 
-    This does not PREVENT duplicates; nothing on this side can. A worktree whose vendored
-    cadkit predates the hub rework still looks for the pid marker _drop_legacy_marker
-    removes, concludes nothing is running, and spawns another FreeCAD on every build.
-    Writing the marker instead is worse: that old code would then find the pid alive, compare
-    its single-file codestamp against this one's two-file stamp, read "stale", and taskkill
-    the hub with every agent's tabs in it. Delete -> accumulate, write -> kill, and the
-    stamps cannot be made to match, because the point of the two-file stamp is that the
-    macro is updatable too.
-
-    So the fix belongs in the stale worktree, and all this can do is stop the leak being
-    SILENT -- worth doing on its own, since it costs ~2 GB a build and gives no other sign."""
+    ⚠ THE USUAL CAUSE IS NOW FIXED (see _compat_marker): an un-synced worktree's old
+    launcher is shown a pid marker and no .codestamp, so it sees a healthy hub and uses the
+    inbox instead of spawning. This warning stays because more than one hub is still WRONG
+    however it arises -- a window opened by hand, a copy older than even the marker
+    convention, a hub that outlived its heartbeat -- and because the fault is otherwise
+    entirely silent at ~2 GB a head."""
     if not n or n < 2:
         return
     for line in (
@@ -179,17 +178,64 @@ def _warn_multi(n):
         print(line, file=sys.stderr)
 
 
-def _drop_legacy_marker():
-    """Delete the pid file an older launcher left in temp. Never raises.
-
-    Nothing here reads it any more, so this is mostly not leaving litter behind -- but it
-    also makes a project whose vendored cadkit is still STALE strictly safer. That old code
-    reads the marker, finds this hub's code hash different from its own, and answers by
-    force-killing the process the marker names. With no marker it decides no hub is running
-    and LAUNCHES one instead: a duplicate window, which the user can close, rather than a
-    kill that takes unsaved work with it. Recoverable beats destructive."""
+def _first_freecad_pid():
+    """The pid of a running FreeCAD, or None. Used ONLY for the compatibility marker."""
     try:
-        os.remove(os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.pid"))
+        if os.name != "nt":
+            r = subprocess.run(["pgrep", "-f", "[Ff]reeCAD"],
+                               capture_output=True, text=True, timeout=10)
+            out = [ln for ln in r.stdout.split() if ln.strip().isdigit()]
+            return int(out[0]) if out else None
+        r = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq freecad.exe", "/NH", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            parts = [c.strip().strip('"') for c in line.split('","')]
+            if len(parts) > 1 and parts[1].isdigit():
+                return int(parts[1])
+    except Exception:
+        pass
+    return None
+
+
+def _compat_marker():
+    """Let a PRE-REWORK launcher see this hub, so it neither spawns nor kills. Never raises.
+
+    THIS IS WHY A SECOND FreeCAD WINDOW USED TO APPEAR. propagate.py skips linked worktrees
+    by design, so an un-synced one still runs the old launcher, whose _hub_running() looks
+    for a PID MARKER. This module had stopped writing that marker, so the old code concluded
+    nothing was running and spawned another FreeCAD on EVERY BUILD -- three hubs and 6 GB,
+    observed 2026-09-30 (user: "if a freecad window is open the system should see it and
+    avoid opening another one").
+
+    The old code's own escape hatch makes coexistence possible. Its _code_is_stale() says
+    "Unknown/absent stamp reads as NOT stale" and returns False when the file is missing. So
+    present it with:
+        a pid marker naming a LIVE FreeCAD   -> its _hub_running() is True
+        NO .codestamp                        -> not stale
+        a fresh .heartbeat                   -> not wedged
+    and it drops its project in the inbox, which is exactly the right behaviour. This module
+    keeps its own stamp under .codestamp2, so refresh-in-place is untouched.
+
+    THE OLD NAME MUST BE ABSENT, NOT MERELY STALE. Left in place it reads as a mismatch
+    against the old copy's own viewer hash, and the old answer to a mismatch is taskkill --
+    the very thing this hub work exists to stop.
+    AND THE MARKER IS REMOVED WHEN NOTHING IS RUNNING, so a dead pid never persuades an old
+    launcher that a hub exists when it does not."""
+    try:
+        os.remove(_HEARTBEAT + ".codestamp")
+    except OSError:
+        pass
+    pid = _first_freecad_pid()
+    if pid is None:
+        try:
+            os.remove(_MARKER)
+        except OSError:
+            pass
+        return
+    try:
+        with open(_MARKER, "w") as f:
+            f.write(str(pid))
     except OSError:
         pass
 
@@ -269,7 +315,7 @@ def _code_is_stale():
     the answer to "stale" was a force-kill; now the answer is a macro re-run, so a false
     positive costs a reload instead of a window full of tabs."""
     try:
-        running = open(_HEARTBEAT + ".codestamp").read().strip()
+        running = open(_HEARTBEAT + ".codestamp2").read().strip()
     except OSError:
         return False
     if not running:
@@ -346,7 +392,7 @@ def show(step_path=None, project=None, freecad_exe=None):
             print("[freecad] %s not found - skipping viewer" % step, file=sys.stderr)
             return False
         os.makedirs(_INBOX, exist_ok=True)
-        _drop_legacy_marker()
+        _compat_marker()
 
         exe = _freecad_exe(freecad_exe)
         running = _freecad_count()
