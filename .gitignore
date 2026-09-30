@@ -10,3 +10,9 @@ __pycache__/
 
 # Mutable build counter (floated as 3D text on each assembly)
 tools/build_counter.txt
+
+# PlatformIO build output — regenerate with: pio run
+firmware/.pio/
+
+# WiFi / OTA credentials — local only
+firmware/src/secrets.h
