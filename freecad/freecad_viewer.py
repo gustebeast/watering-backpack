@@ -37,6 +37,15 @@ except Exception:  # pragma: no cover
 
 POLL_MS = 1000
 
+# How close two mtimes have to be to count as the same file. A rebuild moves an mtime by
+# seconds, so this only ever absorbs REPRESENTATION loss -- and that loss was real: mtimes
+# carry sub-microsecond digits on NTFS, and .status used to round them to 6 decimal places.
+# Adoption then stamped the rounded value, it compared unequal to the true mtime, and every
+# adopted tab RE-IMPORTED ITS STEP on the next tick -- exactly the 100 MB-per-tab cost that
+# adopting from .status exists to avoid. Caught by running test_hub.py from a vendored copy,
+# where the mtime happened to have digits the canonical checkout's did not.
+_MTIME_EPS = 1e-6
+
 # Fallback palette, used ONLY for assemblies whose STEP carries no colours.
 PALETTE = [
     (0.85, 0.33, 0.31), (0.33, 0.55, 0.85), (0.46, 0.73, 0.40),
@@ -374,7 +383,7 @@ def _write_status():
     try:
         with open(path + ".status", "w") as f:
             for name, info in _tracked().items():
-                f.write("%s %.6f %s\n" % (name, info["mtime"], info["step"]))
+                f.write("%s %s %s\n" % (name, repr(float(info["mtime"])), info["step"]))
     except OSError:
         pass
 
@@ -394,7 +403,7 @@ def _tick():
             sz = os.path.getsize(info["step"])
         except OSError:
             continue
-        if m == info["mtime"]:
+        if abs(m - info["mtime"]) <= _MTIME_EPS:
             _pending.pop(name, None)
             continue
         # A big STEP takes seconds to write; importing mid-write reads a
@@ -506,8 +515,14 @@ def _adopt_from_status():
             m = 0.0
         try:
             sz = os.path.getsize(step)
+            disk = os.path.getmtime(step)
         except OSError:
-            sz = -1
+            sz, disk = -1, None
+        # Snap to the file's ACTUAL mtime when the recorded one is the same instant, so the
+        # stamp is exact and the watch loop sees no change. Without this, any rounding in
+        # .status costs a full re-import of every adopted tab.
+        if disk is not None and abs(disk - m) <= _MTIME_EPS:
+            m = disk
         _stamp_doc(doc, step, m, sz)
         n += 1
     if n:
