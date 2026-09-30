@@ -248,6 +248,35 @@ def _write_heartbeat():
         pass
 
 
+def _write_busy(what):
+    """Raise a BUSY marker while the hub is inside a blocking load.
+
+    The watch loop is a QTimer on FreeCAD's MAIN thread, so importing a big
+    STEP stops it dead — a 40 s assembly means 40 s with no heartbeat, which
+    is indistinguishable from a wedged watcher and got healthy hubs killed
+    mid-reload (the launcher restarts anything stale). The marker says "not
+    ticking ON PURPOSE, and since when"; freecad_view.show() honours it.
+    Cleared in a finally, so a failed load can never leave it raised."""
+    path = _hub.get("heartbeat")
+    if not path:
+        return
+    try:
+        with open(path + ".busy", "w") as f:
+            f.write("%.6f %s" % (time.time(), what))
+    except OSError:
+        pass
+
+
+def _clear_busy():
+    path = _hub.get("heartbeat")
+    if not path:
+        return
+    try:
+        os.remove(path + ".busy")
+    except OSError:
+        pass
+
+
 def _write_status():
     """Write a per-project '<doc> <loaded_mtime>' status file next to the
     heartbeat, AFTER each successful (re)load — lets the build side verify the
@@ -290,7 +319,11 @@ def _tick():
             info["pending"] = (m, sz)
             continue
         try:
-            _reload_project(name)
+            _write_busy("reload " + name)
+            try:
+                _reload_project(name)
+            finally:
+                _clear_busy()
             info["mtime"] = m
             info.pop("pending", None)
             _write_status()
@@ -384,7 +417,11 @@ def start_hub(inbox_dir=None, initial_step=None):
     App.ParamGet("User parameter:BaseApp/Preferences/Document").SetBool("AutoSaveEnabled", False)
 
     if initial_step:
-        _open_project(initial_step)
+        _write_busy("open " + os.path.basename(initial_step))
+        try:
+            _open_project(initial_step)
+        finally:
+            _clear_busy()
     _scan_inbox()
 
     if _hub["timer"] is None:
