@@ -148,6 +148,37 @@ def _freecad_exe(override=None):
     return found
 
 
+def _warn_multi(n):
+    """Say so, loudly, when more than one hub is up -- and name the one-line cure.
+
+    This does not PREVENT duplicates; nothing on this side can. A worktree whose vendored
+    cadkit predates the hub rework still looks for the pid marker _drop_legacy_marker
+    removes, concludes nothing is running, and spawns another FreeCAD on every build.
+    Writing the marker instead is worse: that old code would then find the pid alive, compare
+    its single-file codestamp against this one's two-file stamp, read "stale", and taskkill
+    the hub with every agent's tabs in it. Delete -> accumulate, write -> kill, and the
+    stamps cannot be made to match, because the point of the two-file stamp is that the
+    macro is updatable too.
+
+    So the fix belongs in the stale worktree, and all this can do is stop the leak being
+    SILENT -- worth doing on its own, since it costs ~2 GB a build and gives no other sign."""
+    if not n or n < 2:
+        return
+    for line in (
+            "[freecad] WARNING: %d FreeCAD processes are running, and the hub is a" % n,
+            "          SINGLE-instance design -- they share one .heartbeat/.status/.busy,",
+            "          so those markers mean nothing while this lasts, and the busy guard",
+            "          cannot protect an import it is not tracking.",
+            "          Usual cause: a worktree whose vendored cadkit predates the hub",
+            "          rework. Its launcher looks for a pid marker this one no longer",
+            "          writes, decides nothing is running, and spawns another FreeCAD",
+            "          EVERY BUILD.",
+            "          Fix it IN THAT WORKTREE:",
+            "              py -3.12 -m cadkit.tools.agent_sync sync",
+            "          then close the extra windows."):
+        print(line, file=sys.stderr)
+
+
 def _drop_legacy_marker():
     """Delete the pid file an older launcher left in temp. Never raises.
 
@@ -163,8 +194,14 @@ def _drop_legacy_marker():
         pass
 
 
-def _freecad_running():
-    """Is there a FreeCAD process at all? True / False / None when it cannot be told.
+def _freecad_count():
+    """How many FreeCAD processes exist. None when it cannot be told.
+
+    ⚠ THE COUNT, NOT A BOOLEAN, BECAUSE MORE THAN ONE IS A REAL FAULT AND IT IS SILENT.
+    The hub is a single-instance design: every instance writes the SAME .heartbeat, .status
+    and .busy, so with two of them those markers stop meaning anything -- whichever ticks
+    last wins, and the busy guard cannot protect an import it is not tracking. Observed
+    2026-09-30: three hubs, 6 GB, and nothing said a word. show() warns via _warn_multi.
 
     By IMAGE NAME, with no stored pid -- which is all the launcher needs, because the
     question is no longer "which process do I kill" but "do I launch, or talk to what is
@@ -179,10 +216,10 @@ def _freecad_running():
             out = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq freecad.exe", "/NH", "/FO", "CSV"],
                 capture_output=True, text=True, timeout=10).stdout.lower()
-            return "freecad.exe" in out
+            return out.count("freecad.exe")
         r = subprocess.run(["pgrep", "-f", "[Ff]reeCAD"],
                            capture_output=True, text=True, timeout=10)
-        return bool(r.stdout.strip())
+        return len([ln for ln in r.stdout.split() if ln.strip()])
     except Exception:
         return None
 
@@ -312,7 +349,8 @@ def show(step_path=None, project=None, freecad_exe=None):
         _drop_legacy_marker()
 
         exe = _freecad_exe(freecad_exe)
-        running = _freecad_running()
+        running = _freecad_count()
+        _warn_multi(running)
         if running is None:
             # Cannot tell from the process table. Fall back to the heartbeat: a fresh one
             # is positive proof a hub is up, and treating "unknown" as "nothing running"
