@@ -613,8 +613,17 @@ def start_hub(inbox_dir=None, initial_step=None):
     # --single-instance, which reloads this module in place (see view.FCMacro). Same
     # detection, no force-kill, no lost tabs.
     try:
-        with open(_hub["heartbeat"] + ".codestamp", "w") as _f:
+        with open(_hub["heartbeat"] + ".codestamp2", "w") as _f:
             _f.write(code_stamp())
+        # ...and make sure the OLD name is absent. A pre-rework launcher reads
+        # ".codestamp", compares it to its own single-file hash, and answers a mismatch by
+        # taskkilling this hub. Its own docstring says an ABSENT stamp reads as NOT stale --
+        # so leaving that file off is what lets an un-synced worktree see a healthy hub and
+        # use the inbox instead of spawning a second FreeCAD. See freecad_view._compat_marker.
+        try:
+            os.remove(_hub["heartbeat"] + ".codestamp")
+        except OSError:
+            pass
     except Exception:
         pass
     _write_heartbeat()   # stamp immediately so the launcher sees a live hub at once
