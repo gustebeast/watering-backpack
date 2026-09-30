@@ -160,12 +160,15 @@ zero-maintenance:
   silently — you tune the coupon, the real part doesn't change, and the test stops being
   representative. The coupon should be *the real geometry*, just re-oriented for printing
   (match the real part's PRINT ORIENTATION — that's usually the whole point of the test).
-- **Name every test part `test_*.step` and export it to the PROJECT ROOT, next to the
-  regular part STEPs** (`test_nut.step`, `test_joint_tenon.step`, `test_cap_socket.step`).
-  The `test` prefix is what separates coupons from shippable parts in the folder
-  listing, and the slicer finds them in the same place as everything else. Never
-  ship a coupon STEP under any other name, and never scatter them into `tools/`
-  or scratch dirs.
+- **Name every test part `test_*.step` and keep it in `src/test/`, beside the module
+  that builds it** (`src/test/pin_gauge.py` -> `src/test/test_pin_gauge.step`). The
+  `test` prefix still separates coupons from shippable parts, and a coupon is then
+  ONE self-contained thing — module and STEP together — that you can delete in a
+  single stroke when it has served its purpose. Coupons are short-lived by nature;
+  mixing them in with the real part STEPs means the dead ones linger and nobody is
+  sure which still matter. Never ship a coupon STEP under any other name, and never
+  scatter them into `tools/` or scratch dirs.
+  (This replaces the older rule of exporting coupons to the PROJECT ROOT.)
 - **RENDER coupons IN the assembly too, off to the side** (`.add(coupon.translate((90,0,0)),
   name="…_coupon", …)`) so they're rebuilt with every `src.build`, visible in the one
   FreeCAD tab, and can't silently diverge from the model. Give them a non-TPU colour and
@@ -195,17 +198,24 @@ py -3.12 -m tools.check_overlaps        # exit code = unintended pairs; 0 = clea
 py -3.12 -m tools.check_overlaps --all  # also list the intended contacts
 ```
 
-**Know what a standalone gate run actually costs.** The time the gate prints
-(~13-20 s) is only the *pairwise scan*. Everything before it is
-`collect_components()` — a COMPLETE model build, the same one `src.build` does.
-Measured on this project: `check_overlaps` end-to-end is **5 m 51 s**, of which
-13 s is checking. So gate-then-build pays for **two** full model builds.
+**Know what a standalone gate run actually costs.** The time the gate prints is
+only the *pairwise scan*. Everything before it is `collect_components()` — a
+COMPLETE model build, the same one `src.build` does. So gate-then-build pays for
+**two** full model builds, and the scan is the cheap end of it: with the
+incremental pair cache a warm scan is a few SECONDS (only pairs whose geometry
+changed are re-measured), against minutes to rebuild the model.
 
 The fix is to fold the scan into the build, which already has the components in
 memory: `src/build.py` runs it at the end of `_export_assembly()` (see
 `_report_overlaps`), making a whole-tree gate cost ~+15 s instead of ~+6 min, and
 the build's exit code non-zero on a NEW overlap (`OVERLAP_BASELINE` holds the
 accepted, separately-tracked ones). `--no-gate` / `--gate-full` override it.
+
+**Which checkers run by themselves.** A build runs the overlap gate and the sweep
+gate, and PRINTS the dead-code report (`tools/check_dead.py`, report-only — it
+never fails a merge). Everything else — ceilings, walls, beads, thin, part specs,
+cable pairs — is opt-in, so run the one that covers what you just touched: a new
+overhang means `check_ceilings`, a new wall means `check_walls`.
 `tools/check_overlaps.gate(comps, ...)` is the shared entry point both use — a
 project's `main()` builds then calls it; the build calls it with what it has.
 This is only safe because `overlap_check._detached_main()` stops the spawned
@@ -257,6 +267,14 @@ take a spec, so both sizes are the same code with different constants
 Nothing about a size is special-cased — `selftap_d = screw_d + 0.2` (FDM holes
 print undersize), `shaft_clr_d = screw_d + 0.4`, and **`min_bite = 5 × pitch`**
 (five engaged threads: M2 → 2.0, M4 → 3.5). Adding M3 means adding one spec.
+
+**The overlap gate has an INCREMENTAL CACHE.** `overlap_check.run(..., cache=<path>)`
+keys each pair's common volume by the two shapes' BRep fingerprints, so a rebuild
+re-booleans only the pairs whose parts actually changed. Measured on a 664-part
+instrument: a full build went 489 s -> 156 s, the gate itself 335 s -> 3.3 s. It is
+lossless -- a changed part misses and recomputes -- and it is NOT an exclusion list:
+the bbox reject already drops ~98.6% of pairs, and the survivors are exactly the ones
+nobody should assume are safe.
 
 **Every cutter takes `print_up`** (the part's build direction). A hole along it
 stays round; sideways or oblique it gets `holes.teardrop_hole`'s peak — pocket,

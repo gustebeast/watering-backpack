@@ -101,7 +101,12 @@ class FastenerSpec:
     insert_l:       float            # physical insert LENGTH
     insert_bore_d:  float            # the dummy insert's through-bore Ø
     boss_prot:      float            # how far a thin-wall boss protrudes
-    boss_wall:      float = 1.0      # material around the pocket in that boss
+    boss_wall:      float = 1.6      # material around the pocket in that boss: TWO BEADS
+                                     # of the 0.8 nozzle these projects print with (user,
+                                     # 2026-09-17: a zplate boss came out 1.0 thick and
+                                     # broke the rule). 1.0 was neither tier -- over the
+                                     # one-bead floor, under the two-bead quality size
+                                     # every other printed wall in the library targets.
     head_recess_d:  Optional[float] = None   # cap-head counterbore (None = headless)
     head_recess_h:  Optional[float] = None
     screw_l:        Optional[float] = None   # dummy screw length, if modelled
@@ -126,7 +131,7 @@ M2 = FastenerSpec(
     name="M2", screw_d=2.0, pitch=0.4,
     selftap_d=2.2, shaft_clr_d=2.4,
     insert_pilot_d=3.3, insert_depth=3.5, insert_l=2.5, insert_bore_d=2.0,
-    boss_prot=5.5, boss_wall=1.0,
+    boss_prot=5.5,
     head_recess_d=4.1, head_recess_h=2.0,
 )
 
@@ -138,7 +143,7 @@ M4 = FastenerSpec(
     name="M4", screw_d=4.0, pitch=0.7,
     selftap_d=4.2, shaft_clr_d=4.4,
     insert_pilot_d=6.0, insert_depth=5.0, insert_l=5.0, insert_bore_d=4.4,
-    boss_prot=6.0, boss_wall=1.0,
+    boss_prot=6.0,
     head_recess_d=None, head_recess_h=None, screw_l=10.0,
 )
 
@@ -272,6 +277,29 @@ def head_bore_cutter(spec, pnt, direction, clr_len, overshoot=0.0, print_up=None
     return cq.Workplane(obj=cut)
 
 
+def counterbore_cutter(big_d, big_h, small_d, small_len, pnt, direction,
+                       print_up=None, overshoot=0.0):
+    """A WIDE bore stepping down to a NARROW one at depth `big_h` -- a screw-head pocket
+    over its shaft clearance -- both opening at the mouth `pnt` and running `direction`.
+
+    THE POINT IS THE PRINT CHECK. Drilled INTO the build (mouth on the bed side), the step
+    between the two diameters is a flat annular CEILING over the wide bore, and it prints as
+    a bridge over air; `_step` turns it into a 45 degree cone, and the head still seats on
+    its rim. Drilled the other way, or sideways, or with no print_up declared, the step
+    prints as it is and nothing is added. Both bores are teardropped when the axis runs
+    across the build, by the same `_bore` every other hole in this module uses.
+
+    Diameters are the CALLER's, not a spec's: button heads, shoulder screws and dowels all
+    land here, and FastenerSpec only carries a cap-head recess (head_bore_cutter is the
+    spec-driven version of this for the fasteners that have one)."""
+    mouth = _back(pnt, direction, overshoot)
+    wide = _bore(big_d, big_h + overshoot, mouth, direction, print_up)
+    narrow = _bore(small_d, small_len + overshoot, mouth, direction, print_up)
+    cut = _with_step(wide.fuse(narrow), big_d, small_d,
+                     _fwd(pnt, direction, big_h), direction, print_up)
+    return cq.Workplane(obj=cut)
+
+
 def anchor_cutter(spec, pnt, direction, depth, pocket=True, overshoot=0.0,
                   reason=None, short_bite=None, print_up=None):
     """THE standard hole — self-tap now, heat-set insert later.
@@ -366,6 +394,13 @@ def cut_clearance(spec, w, pnt, direction, length, overshoot=0.0, print_up=None)
 
 def cut_head_bore(spec, w, pnt, direction, clr_len, overshoot=0.0, print_up=None):
     return w.cut(head_bore_cutter(spec, pnt, direction, clr_len, overshoot, print_up))
+
+
+def cut_counterbore(w, big_d, big_h, small_d, small_len, pnt, direction,
+                    print_up=None, overshoot=0.0):
+    """counterbore_cutter, cut from `w`."""
+    return w.cut(counterbore_cutter(big_d, big_h, small_d, small_len, pnt, direction,
+                                    print_up, overshoot))
 
 
 def cut_anchor(spec, w, pnt, direction, depth, pocket=True, overshoot=0.0,
