@@ -322,7 +322,19 @@ def _scan_inbox():
         except OSError:
             continue
         if step:
-            _open_project(step)
+            # ⚠ RAISE BUSY AROUND THIS. Opening a project is a blocking STEP import on
+            # FreeCAD's main thread, so it stops the heartbeat for as long as it takes --
+            # 35 s for a 128 MB assembly, measured. Without the marker that is
+            # indistinguishable from a wedged watcher, and a build landing in that window
+            # acts on the misdiagnosis. It used to act by FORCE-KILLING the hub mid-import,
+            # which is the crash this marker was introduced for; the reload path makes the
+            # consequence milder, not correct. start_hub's initial open and _tick's reload
+            # were already marked -- this was the one blocking load that was not.
+            _write_busy("open " + os.path.basename(step))
+            try:
+                _open_project(step)
+            finally:
+                _clear_busy()
         try:
             os.remove(f)            # processed (or already open) — drop the request
         except OSError:
