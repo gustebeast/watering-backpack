@@ -353,6 +353,33 @@ V.start_hub(inbox_dir=inbox, initial_step=None)
 check(V._hub["timer"] is not None and V._hub["timer"] is not t,
       "a re-run after shutdown builds exactly one new timer")
 
+print("every blocking load raises the busy marker")
+# The marker is what stops a build mistaking a long import for a wedged watcher. An inbox
+# open used to be the one blocking load that did not raise it -- measured at 35s of frozen
+# heartbeat for a 128 MB assembly, which is well past the staleness limit.
+V._hub["heartbeat"] = hb
+inbox2 = os.path.join(TMP, "inbox2")
+os.makedirs(inbox2)
+V._hub["inbox"] = inbox2
+step_e = make_step("proj_e")
+with open(os.path.join(inbox2, "req.txt"), "w") as f:
+    f.write(step_e)
+seen = {}
+real_open = V._open_project
+
+
+def watched_open(stepp):
+    seen["busy_during_open"] = os.path.exists(hb + ".busy")
+    return real_open(stepp)
+
+
+V._open_project = watched_open
+V._scan_inbox()
+V._open_project = real_open
+check(seen.get("busy_during_open") is True,
+      "an inbox-driven open raises .busy while it blocks")
+check(not os.path.exists(hb + ".busy"), "and clears it afterwards")
+
 print("the two code stamps agree")
 sys.path.insert(0, os.path.dirname(_HERE))
 import freecad_view as L                                            # noqa: E402
