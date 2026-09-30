@@ -316,8 +316,15 @@ name_d = V._doc_name(step_d)
 old_tab = APP.newDocument(name_d)              # a tab the previous hub owned
 hb = os.path.join(TMP, "hb")
 V._hub["heartbeat"] = hb
+# ⚠ THE RECORDED MTIME IS OFF BY LESS THAN AN EPSILON, ON PURPOSE. .status used to be
+# written with %.6f while real mtimes carry finer digits, so adoption stamped a value that
+# compared unequal to the file and every adopted tab RE-IMPORTED its STEP on the next tick
+# -- the exact cost adoption exists to avoid. The offset is written explicitly rather than
+# by re-rounding a real mtime, because whether %.6f actually loses anything depends on the
+# filesystem: this test passed in the canonical checkout and failed from the vendored copies
+# for that reason alone. A fixed offset provokes it everywhere.
 with open(hb + ".status", "w") as f:
-    f.write("%s %.6f %s\n" % (name_d, os.path.getmtime(step_d), step_d))
+    f.write("%s %s %s\n" % (name_d, repr(os.path.getmtime(step_d) - 3e-7), step_d))
     f.write("a_closed_project_viewer 1.0 %s\n" % step_d)   # tab is gone: must be ignored
 before = len(APP.imports)
 n = V._adopt_from_status()
