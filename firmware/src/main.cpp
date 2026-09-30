@@ -104,7 +104,32 @@ constexpr int ADC_MAX   = (1 << ADC_RES) - 1;   // 4095
 // 12 gives ~105 ms from stopped to full. The original firmware used 4 (~320 ms),
 // which already felt instantaneous, so there is margin to slow this down if the
 // pump ever trips the supply.
-constexpr int RAMP_STEP = 12;
+// The ramp IS the flow control. There is no proportional stick, so dose is set by
+// how long the stick is held: a quick flick gives a small plant a splash-free
+// trickle, a longer hold winds up to full.
+//
+// START_DUTY is the duty the pump snaps to the instant it engages — the floor below
+// which this pump does not push useful water, so a flick lands ON it rather than
+// somewhere underneath it where nothing comes out. It therefore sets the SMALLEST
+// dose a flick can deliver. RAMP_MS sets how fast it climbs above that floor.
+//
+// Resulting dwell -> duty, at these values:
+//     flick ~200 ms ->  79 (31%)    ~400 ms -> 123 (48%)
+//           ~700 ms -> 189 (74%)    1000 ms+ -> 255 (full)
+//
+// Both are estimates — the pump's true minimum useful duty has never been measured,
+// and START_DUTY is the likelier of the two to be wrong. The previous value ramped
+// to full in 106 ms, which made every flick a full-power burst.
+constexpr int RAMP_MS    = 1000;             // time from START_DUTY to full
+constexpr int START_DUTY = 35;               // ~14%, snapped to on engage
+
+// Duty is carried in Q8 fixed point because the useful rates are fractions of a duty
+// count per 5 ms loop: this ramp is 0.73 counts/loop, which integer stepping cannot
+// represent at all — it would floor to 0 and the ramp would never start.
+constexpr int32_t RAMP_STEP_Q8 =
+    ((int32_t)(PWM_MAX - START_DUTY) << 8) * 5 / RAMP_MS;
+static_assert(RAMP_STEP_Q8 >= 1, "ramp rounds to zero — RAMP_MS too large");
+static_assert(START_DUTY >= 0 && START_DUTY < PWM_MAX, "START_DUTY out of range");
 
 // ── TWO SEPARATE SIGNAL PATHS ────────────────────────────────────────────────
 // On/off responsiveness matters; fine speed control does not. Those two jobs have
@@ -161,9 +186,17 @@ int  curDuty   = 0;                          // 0..DUTY_CAP (forward only)
 bool armed     = true;                       // false = motor inhibited, telemetry live
 bool otaActive = false;
 
+int32_t dutyQ8 = 0;                          // current duty, Q8 fixed point
+
 Preferences prefs;
 WiFiServer  logServer(LOG_PORT);
 WiFiClient  logClient;
+
+// The format attribute is load-bearing, not decoration: without it a mismatch
+// between this format string and its arguments compiles silently, and an %s fed an
+// int dereferences it as a pointer and crashes the board. That happened three times
+// while developing this file before the attribute was added.
+void logf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 void logf(const char *fmt, ...) {
   char buf[288];
@@ -312,11 +345,11 @@ void handleCommand(char c) {
       break;
     case 's':
       logf("state=%s centre=%d duty=%d | vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
-           "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
+           "| ramp=%dms startduty=%d | on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
            armed ? "ARMED" : "DISARMED", joyCentre, curDuty,
            VOTE_K_ON, VOTE_N_ON, VOTE_K_OFF, VOTE_N_OFF,
            DEADBAND_ON, DEADBAND_OFF, RUN_DUTY,
-           VOTE_K_ON * 5, VOTE_K_OFF * 5,
+           RAMP_MS, START_DUTY, VOTE_K_ON * 5, VOTE_K_OFF * 5,
            WiFi.RSSI(), WiFi.localIP().toString().c_str(), millis() / 1000UL);
       break;
     case 'R':
@@ -461,11 +494,18 @@ void loop() {
 
   if (armed && !otaActive) {
     if (!engaged) {
-      curDuty = 0;                     // switch-off: immediate cut, no spin-down ramp
-    } else if (curDuty < target) {
-      curDuty = min(target, curDuty + RAMP_STEP);   // soft-start (inrush / brownout)
+      dutyQ8  = 0;                     // switch-off: immediate cut, no spin-down ramp
+      curDuty = 0;
     } else {
-      curDuty = target;
+      if (!wasEngaged) {
+        // Snap to the useful-flow floor, then wind up from there. A flick lands
+        // ON this value rather than somewhere below it where nothing comes out.
+        dutyQ8 = (int32_t)START_DUTY << 8;
+      } else if (dutyQ8 < ((int32_t)target << 8)) {
+        dutyQ8 += RAMP_STEP_Q8;
+        if (dutyQ8 > ((int32_t)target << 8)) dutyQ8 = (int32_t)target << 8;
+      }
+      curDuty = (int)(dutyQ8 >> 8);
     }
     digitalWrite(EN_PIN, curDuty != 0 ? HIGH : LOW);
     driveMotor(curDuty);
