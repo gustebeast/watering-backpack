@@ -80,6 +80,23 @@ FreeCAD hub window (each part coloured + individually show/hide-able; the tab
 auto-reloads on every rebuild). `show()` never raises — viewer trouble can't break a
 build.
 
+**Nothing kills FreeCAD any more, and no tab is ever lost to an update.** The hub used to
+record its process id so a build could `taskkill /F /T` a hub whose watch loop looked
+stopped — which destroyed healthy hubs mid-import, because a big STEP blocks the poll
+timer. That is gone. Liveness is now the heartbeat file, "loading, not wedged" is the
+`.busy` marker, and a hub that is wedged **or running older code** is fixed by re-running
+the macro inside the same process (`freecad.exe --single-instance view.FCMacro`), which
+reloads the viewer module in place. A FreeCAD holding someone's unsaved work is theirs to
+close, not a build's to kill.
+
+That is affordable only because **a tab carries its own provenance**: the source STEP,
+mtime and size live on the FreeCAD document (`doc.Meta`), not in a dict inside the hub. So
+new code adopts the running tabs without re-importing any geometry, and a tab you close by
+hand is simply gone — there is no second copy of the truth to drift. If you change
+`freecad_viewer.py` or `view.FCMacro`, the next `show()` notices by content hash and
+reloads the hub for you; you do not need to close FreeCAD. `py -3.12
+cadkit/freecad/test_hub.py` covers this bookkeeping against a stubbed FreeCAD.
+
 **FreeCAD is located automatically — no hardcoded path.** `cadkit.freecad` resolves the
 executable in this order: `freecad_exe=` arg → `FREECAD_EXE` env → a cached config file
 (`%APPDATA%\cadkit\freecad.path` on Windows, `~/.config/cadkit/freecad.path` elsewhere)
