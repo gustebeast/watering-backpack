@@ -230,3 +230,48 @@ def jst_xh_side_header(n, *, smt=True, mated=False, plug_run=7.5):
     if mated:
         body = body.union(_block(L, plug_run, XH_SIDE_H, 0.0, -plug_run / 2, 0.0))
     return body
+
+
+# ── SIDE-ENTRY PH (S*B-PH-SM4-TB) ───────────────────────────────────────────
+# JST's 2.0 mm PH series, SMT side entry. Reached for where an XH will not fit:
+# XH's SMT side-entry line stops at 4 way, so a board that needs one connector
+# carrying more than four circuits AND surface mount AND side entry has no XH
+# option at all (the lever sensor board's trunk is the case that forced this).
+#
+# PROVENANCE: JST's own ePH drawing (jst-mfg.com/product/pdf/eng/ePH.pdf, read
+# 2026-09-21 by RENDERING the pages -- the PDF's text layer uses a shifted font
+# map, which is why these were placeholders borrowed from XH until now):
+#   p.4 "Header (SMT type) / Side entry": B = 2.0(n-1) + 5.9 (S8B 19.9),
+#       height 5.5 above the board, body 6.0 deep, (2.6) solder tabs behind it
+#   p.2 "Assembly layout / Side entry": mated pair (9.6) long overall, (5.5) tall
+#       -> the plug stands 9.6 - 6.0 = 3.6 proud of the mouth
+#   p.3 "Housing": PHR-n is 6.85 long along the mating axis x 4.5 thick
+#   (the TOP-entry B*B-PH-SM4-TB is a different part: 6.6 tall, 5.0 deep.)
+PH_PITCH      = 2.0
+PH_SIDE_D     = 6.0       # body depth along the mating axis (JST p.4)
+PH_TAB_D      = 2.6       # solder tabs behind the body, flat on the board (JST p.4)
+PH_SIDE_H     = 5.5       # height above the board (JST p.4; the mated pair too, p.2)
+PH_ROW_OFF    = 0.40      # pad row back from the mouth face (KiCad footprint)
+PH_PLUG_RUN   = 9.6 - PH_SIDE_D   # 3.6: the mated plug past the mouth (JST p.2)
+
+
+def ph_side_length(n):
+    """Overall body length (mm) of an n-circuit S<n>B-PH-SM4-TB."""
+    return PH_PITCH * (n - 1) + 5.9     # JST p.4, dimension B
+
+
+def jst_ph_side_header(n, *, mated=False, plug_run=PH_PLUG_RUN):
+    """Dummy side-entry SMT PH header (S<n>B-PH-SM4-TB).
+
+    Frame matches jst_xh_side_header so the two are interchangeable at a call
+    site: the board's top face is z=0 and the connector rises +Z; the MOUTH FACE
+    is y=0 with the body extending +Y, so the plug arrives travelling +Y and
+    `mated=True` adds its envelope on -y. Centred on x=0 along the row.
+
+    SMT, so there are NO post tails below the board -- which is usually the
+    reason this part is chosen over a through-hole side-entry XH."""
+    L = ph_side_length(n)
+    body = _block(L, PH_SIDE_D, PH_SIDE_H, 0.0, PH_SIDE_D / 2, 0.0)
+    if mated:
+        body = body.union(_block(L, plug_run, PH_SIDE_H, 0.0, -plug_run / 2, 0.0))
+    return body

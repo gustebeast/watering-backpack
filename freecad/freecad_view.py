@@ -47,6 +47,14 @@ _HEARTBEAT = os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat")
 # is restarted. Generous vs both the poll period and FreeCAD's cold-boot time, so
 # a healthy-but-busy hub is never killed by mistake.
 _HEARTBEAT_STALE_S = 30.0
+# …unless the hub has told us it is inside a blocking load (freecad_viewer's
+# BUSY marker). The watch loop is a QTimer on FreeCAD's main thread, so a big
+# STEP import stops the heartbeat for as long as it takes — on a large
+# assembly that is comfortably past the staleness limit, and the hub was
+# being killed MID-RELOAD by the very build that asked for the refresh. A
+# raised marker means "not ticking on purpose". It still has a bound, so a
+# load that hangs forever is not immortal.
+_BUSY_MAX_S = 600.0
 
 
 def _config_path():
@@ -142,6 +150,15 @@ def _hub_running():
     return ("freecad" in out) and (str(pid) in out)
 
 
+def _busy_age():
+    """Seconds since the hub raised its BUSY marker, or None if it is not
+    inside a blocking load."""
+    try:
+        return max(0.0, time.time() - os.path.getmtime(_HEARTBEAT + ".busy"))
+    except OSError:
+        return None
+
+
 def _heartbeat_age():
     """Seconds since the hub last ticked, or None if there is no heartbeat file."""
     try:
@@ -193,7 +210,8 @@ def _kill_hub():
                 os.kill(pid, 9)
         except Exception:
             pass
-    for p in (_MARKER, _HEARTBEAT, _HEARTBEAT + ".codestamp"):
+    for p in (_MARKER, _HEARTBEAT, _HEARTBEAT + ".codestamp",
+              _HEARTBEAT + ".busy"):
         try:
             os.remove(p)
         except OSError:
@@ -239,7 +257,12 @@ def show(step_path=None, project=None, freecad_exe=None):
             elif age is None:
                 why = "has no heartbeat"
             elif age > _HEARTBEAT_STALE_S:
-                why = "watcher unresponsive (%.0fs since last tick)" % age
+                busy = _busy_age()
+                if busy is not None and busy <= _BUSY_MAX_S:
+                    why = None          # loading, not wedged — leave it alone
+                else:
+                    why = ("watcher unresponsive (%.0fs since last tick)"
+                           % age)
             if why is None:
                 # Hub alive, ticking, and running the code that is on disk — hand it
                 # the project as a tab. One file per request (unique name) so

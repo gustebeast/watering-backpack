@@ -115,6 +115,33 @@ class ScratchView:
         # stays deliberately grey -- that is what distinguishes cached from live.
         self.colors = colors            # optional (name) -> cq.Color for the live set
         self.gates = tuple(gates)       # optional ((label, fn(comps) -> int), ...)
+        self._live_memo = None          # the live set is built ONCE per run
+
+    # -- the live set, and the one rule that keeps the cache honest ----------
+    def live_parts(self):
+        """The live set, built once per run and remembered.
+
+        It is memoised because its NAMES are now load-bearing: a context part that
+        shares a name with a live part IS THE SAME PART, and must never be cached or
+        drawn. Before this the only defence was `replaced`, a per-agent list of
+        PREFIXES kept by hand -- and a hand-kept list fails the moment a part does not
+        follow the naming its neighbours do. This project's LKL lever station is
+        exactly that: its siblings are prefixed (`vkl_`, `lkr_`, ...) while LKL keeps
+        the BARE names (`knee_housing`, `knee_lever`, `main_cart_base`, ...), so every
+        prefix an agent could reasonably write -- `lkl`, `kl_` -- misses all twenty of
+        them. They were cached AND drawn live, interpenetrating, which reads as the
+        live part having a clipped copy stuck through it (user, 2026-09-22, and not
+        the first time it had been seen).
+
+        Name identity costs nothing and cannot go stale, so it is not advice: it is
+        applied at BOTH ends, when the cache is written and when it is read.
+        """
+        if self._live_memo is None:
+            self._live_memo = list(self.live())
+        return self._live_memo
+
+    def live_names(self):
+        return {n for n, _ in self.live_parts()}
 
     # ── cache ───────────────────────────────────────────────────────────────
     def _crop_solid(self):
@@ -130,7 +157,13 @@ class ScratchView:
         self.cache.mkdir(parents=True, exist_ok=True)
         kept = skipped = 0
         t0 = time.time()
+        mine = self.live_names()
+        shadowed = []
         for name, wp in self.context():
+            if name in mine:
+                shadowed.append(name)
+                skipped += 1
+                continue
             if name.startswith(self.replaced):
                 skipped += 1
                 continue
@@ -145,13 +178,19 @@ class ScratchView:
         (self.cache / "STAMP").write_text(str(time.time()))
         print("cached %d context solids in %.0fs (%d skipped/replaced)"
               % (kept, time.time() - t0, skipped))
+        if shadowed:
+            print("  %d context parts are YOURS BY NAME and were not cached: %s%s"
+                  % (len(shadowed), ", ".join(sorted(shadowed)[:6]),
+                     " ..." if len(shadowed) > 6 else ""))
 
     def load_cache(self):
         """Load the cached surroundings, re-applying `replaced` ON THE WAY IN.
 
         Filtering only at build_cache() time was a silent-staleness bug, and of
-        exactly the kind this module exists to prevent. `replaced` is the set the
-        live part SUPERSEDES, and it lives in per-agent state that changes mid-flow:
+        exactly the kind this module exists to prevent. Both filters run here: NAME IDENTITY (a cached part the
+        live set also builds is that same part -- see live_parts) and `replaced`,
+        the set the live part supersedes by prefix. The second lives in per-agent
+        state that changes mid-flow:
         grow your scope to cover another part and its cached copy is already on
         disk, so the render served BOTH -- the fresh live one and the superseded
         grey one, interpenetrating, with the stale copy drawn on top. It reads as
@@ -163,8 +202,9 @@ class ScratchView:
         if not stamp.exists():
             return None
         age = time.time() - float(stamp.read_text())
+        mine = self.live_names()
         files = [f for f in sorted(self.cache.glob("*.brep"))
-                 if not f.stem.startswith(self.replaced)]
+                 if f.stem not in mine and not f.stem.startswith(self.replaced)]
         out = [(f.stem, cq.Workplane("XY").add(cq.Shape.importBrep(str(f))))
                for f in files]
         return age, out
@@ -199,7 +239,7 @@ class ScratchView:
                   # wherever its module happened to author it -- the redesigned
                   # leg was checked floating clear of the instrument for weeks and
                   # reported clean while overlapping four TRRS parts in place.
-                  for n, wp in self.live()]
+                  for n, wp in self.live_parts()]
                  + [(n, wp.val()) for n, wp in ctx])
         print("=" * 70)
         print(" INNER-LOOP GATE -- live part FRESH, %d context solids CACHED (%.0f min old)"
@@ -233,7 +273,7 @@ class ScratchView:
         print("=" * 70)
 
         asm = cq.Assembly()
-        for name, wp in self.live():
+        for name, wp in self.live_parts():
             col = None
             if self.colors is not None:
                 try:

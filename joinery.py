@@ -469,7 +469,7 @@ def _mushroom_width_min(nozzle=0.8, clearance=0.1):
 
 
 def _mushroom_profile(width, nozzle, base_z, clearance, pocket=False,
-                      height=None, post_extra=0.0):
+                      height=None, post_extra=0.0, standoff=0.0):
     """Closed (y, z) points for the TENON (nominal — the mortise is this
     dilated): stem = width/2 (the octagon's strength parity), 45° flares,
     a 2-nozzle vertical waist, flat top at `width`. The stem standoff
@@ -497,7 +497,8 @@ def _mushroom_profile(width, nozzle, base_z, clearance, pocket=False,
     hw = width / 2.0
     stem = _STEM_FRAC * width
     flare = hw - stem / 2.0                     # 45° run per side
-    z_neck0 = pv + grow                         # no-relief stem standoff
+    z_neck0 = pv + grow + abs(standoff)         # no-relief stem standoff (+ the site's own
+                                                # host-to-host gap: see `standoff` in joint())
     z_top0 = z_neck0 + flare + pv               # no-relief minimum height
     if height is not None:
         if height < z_top0 - 1e-9:
@@ -521,7 +522,7 @@ def _mushroom_profile(width, nozzle, base_z, clearance, pocket=False,
 
 
 def _mushroom_height(width, nozzle=0.8, clearance=0.1, height=None,
-                     back_clearance=None):
+                     back_clearance=None, standoff=0.0):
     """Tenon height above the mating plane (what the mortise host must
     swallow, before the cavity's own top gap). With `height` given,
     echoes it back (after validating the width's minimum). A split
@@ -529,21 +530,23 @@ def _mushroom_height(width, nozzle=0.8, clearance=0.1, height=None,
     octagon's rule)."""
     _, h = _mushroom_profile(width, nozzle, 0.0, clearance, height=height,
                              post_extra=_oct_relief(clearance,
-                                                    back_clearance))
+                                                    back_clearance),
+                             standoff=standoff)
     return h
 
 
 def _mushroom_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0,
-                    height=None, back_clearance=None):
+                    height=None, back_clearance=None, standoff=0.0):
     pts, _ = _mushroom_profile(width, nozzle, -abs(root), clearance,
                                height=height,
                                post_extra=_oct_relief(clearance,
-                                                      back_clearance))
+                                                      back_clearance),
+                               standoff=standoff)
     return cq.Workplane("YZ").polyline(pts).close().extrude(length)
 
 
 def _mushroom_cavity_pts(width, nozzle, base_z, clearance, back_clearance,
-                         pocket=False, height=None):
+                         pocket=False, height=None, standoff=0.0):
     """CAVITY outline with SPLIT clearances (the flat-arc convention the
     projects print-validated): lateral faces dilated `clearance`, the
     Z-LOADED faces — the 45° flare pair (and a capped top) — open by
@@ -563,7 +566,11 @@ def _mushroom_cavity_pts(width, nozzle, base_z, clearance, back_clearance,
     hw = width / 2.0
     stem = _STEM_FRAC * width
     flare = hw - stem / 2.0
-    z_neck = pv + grow                          # the TIER, kept
+    z_neck = pv + grow + abs(standoff)          # the TIER, kept -- and the site's standoff on
+                                                # top of it, because the mortise host's material
+                                                # does not start until then: without this the
+                                                # gap comes straight off the printed neck (the
+                                                # #875 lesson from OUTSIDE the library)
     z_wb = z_neck + flare
     z_top0 = z_wb + pv
     if height is not None:
@@ -583,7 +590,8 @@ def _mushroom_cavity_pts(width, nozzle, base_z, clearance, back_clearance,
 
 
 def _mushroom_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0,
-                      pocket=False, height=None, back_clearance=None):
+                      pocket=False, height=None, back_clearance=None,
+                      standoff=0.0):
     """Cavity CUTTER. Without `back_clearance`: the tenon profile dilated
     uniformly (the original site). With it: split clearances — laterals
     at `clearance`, z-faces riding the tenon's post relief (fiber depth
@@ -591,10 +599,10 @@ def _mushroom_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0,
     if back_clearance is not None and abs(back_clearance - clearance) > 1e-9:
         pts = _mushroom_cavity_pts(width, nozzle, -abs(drop), clearance,
                                    back_clearance, pocket=pocket,
-                                   height=height)
+                                   height=height, standoff=standoff)
         return (cq.Workplane("YZ").polyline(pts).close().extrude(length))
     pts, _ = _mushroom_profile(width, nozzle, -abs(drop), clearance,
-                               pocket=pocket, height=height)
+                               pocket=pocket, height=height, standoff=standoff)
     return (cq.Workplane("YZ").polyline(pts).close()
             .offset2D(abs(clearance), "intersection")
             .extrude(length))
@@ -1140,6 +1148,12 @@ def _hook_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
 #   install='x' (slide ⊥ print-Z, the default):
 #     • tenon 'up',   mortise 'up'   → octagon (both parts print -Z→+Z)
 #     • tenon 'side', mortise 'up'   → ramp+hook dovetail (tenon prints -Y→+Y)
+#     • tenon 'up',   mortise 'down' → mushroom (flat top: the cavity's wide end
+#                                      prints FIRST, on solid material)
+#     • tenon 'axial', mortise 'up'   → octagon   ) 'axial' = the tenon host builds
+#     • tenon 'axial', mortise 'down' → mushroom  ) along the install axis, which
+#                                      asks nothing of the profile, so the mortise's
+#                                      own facing picks the family on its own
 #   install='z' (slide ∥ print-Z — profile prints as vertical walls):
 #     • tenon 'up',   mortise 'up'   → the square-shouldered tee
 # Other combinations aren't modelled yet and raise.
@@ -1211,13 +1225,22 @@ class PrintSpec:
     expressed in the JOINT'S local frame (user insight: the axis alone
     under-determines a print — the direction along it matters just as much):
     'up' (builds local -Z→+Z), 'down' (builds local +Z→-Z — the part prints
-    inverted relative to the joint), or 'side' (builds -Y→+Y)."""
+    inverted relative to the joint), 'side' (builds -Y→+Y), or 'axial'
+    (builds along the joint's INSTALL axis — ±X for the x-slide families).
+
+    'axial' IS THE PERMISSIVE ONE, and that is the whole of its meaning: when a
+    host builds along the extrusion axis, every layer IS the profile, so every
+    face of the profile is a vertical wall in that print and nothing about the
+    shape has to bend for it. It therefore constrains nothing, and the OTHER
+    half's facing alone picks the family. (For install='z' sites this case is
+    what 'up'/'down' already say — there the profile lies in the plan plane and
+    the install axis IS the build axis — so 'axial' is an x-family word.)"""
     __slots__ = ("nozzle", "material", "facing")
 
     def __init__(self, nozzle=0.8, material=None, facing="up"):
-        if facing not in ("up", "side", "down"):
-            raise ValueError("facing must be 'up', 'down' or 'side', got %r"
-                             % (facing,))
+        if facing not in ("up", "side", "down", "axial"):
+            raise ValueError("facing must be 'up', 'down', 'side' or 'axial', "
+                             "got %r" % (facing,))
         if nozzle <= 0:
             raise ValueError("nozzle must be > 0")
         self.nozzle, self.material, self.facing = nozzle, material, facing
@@ -1254,7 +1277,7 @@ class Joint:
     geometry."""
     def __init__(self, width, length, tenon, mortise, clearance, install, depth,
                  bounded=False, back_clearance=None, through=False,
-                 stem=None):
+                 stem=None, standoff=0.0):
         self.back_clearance = (clearance if back_clearance is None
                                else back_clearance)
         self.through = through
@@ -1373,31 +1396,66 @@ class Joint:
             self.family = "arrow"
         elif kind == ("up", "down"):
             self.family = "mushroom"
+        elif kind == ("axial", "up"):
+            # The TENON host builds along the install axis, so it asks nothing
+            # of the profile; the MORTISE still builds away from its cavity's
+            # opening, so the cavity's far end is still a bridge and still
+            # wants the octagon's tapered roof.
+            self.family = "octagon"
+        elif kind == ("axial", "down"):
+            # ...and here the mortise builds TOWARD the opening, so the flat
+            # end prints first on solid material: the mushroom, for exactly the
+            # reason the up+down site picks it. This is the site where one host
+            # drops ONTO the other across the other's build axis -- a body that
+            # prints Z-up meeting an endplate that prints along the joint's
+            # depth.
+            self.family = "mushroom"
         else:
             raise NotImplementedError(
                 "no joint for tenon '%s' + mortise '%s' yet (have up+up, "
-                "side+up, up+down) — add the variant the way threads.py "
-                "grew" % kind)
-        if depth is not None and not (self.family == "octagon"
-                                      or (self.family == "mushroom"
-                                          and through)):
-            raise ValueError("depth on install='x' applies only to the up+up "
-                             "octagon site (profile HEIGHT past the mating "
-                             "plane) and the THROUGH mushroom (cavity run to "
-                             "the exit); the other x-profiles are width-locked")
+                "side+up, up+down, axial+up, axial+down) — add the variant "
+                "the way threads.py grew" % kind)
+        if depth is not None and self.family not in ("octagon", "mushroom"):
+            raise ValueError("depth on install='x' applies to the octagon and "
+                             "mushroom profiles (room past the mating plane); "
+                             "the others are width-locked")
         if through and depth is None:
             raise ValueError("a THROUGH mortise needs depth = the host's "
                              "thickness past the mating plane (+ exit "
                              "margin) — the cavity must know how far to run")
         self.depth = depth
+        # STANDOFF -- how far the MORTISE HOST'S MATERIAL starts from the mating plane. It is a
+        # site fact, like the facings and the room, and until it was an input the caller carried
+        # its consequence silently: the library grows the stem standoff so the DILATED cavity's
+        # neck lands on the tier, and a host that does not begin at the plane loses that growth
+        # to the gap. (Print-caught INSIDE the library twice -- 1.36 on the cable-spool horn cap,
+        # #875 before it -- then measured at 1.32 on a steel-guitar endplate, from the outside.)
+        # THE MATING PLANE IS THE TENON HOST'S FACE, and `standoff` is the air between it and the
+        # mortise host. So `root` still means what it always did (depth into the TENON's own
+        # host) and only the NECKS grow: the tenon gets longer by the standoff, which is the part
+        # that crosses the gap, and the cavity's neck grows to match so the mortise host still
+        # prints its full tier once its material does begin.
+        self.standoff = abs(standoff)
+        if self.standoff and self.family != "mushroom":
+            raise NotImplementedError(
+                "standoff= is modelled for the mushroom profile so far (this site picked '%s') "
+                "-- extend it the way threads.py grew: the neck datum of BOTH halves has to "
+                "carry it, not just the tenon's" % self.family)
         if self.family == "mushroom":
-            # tenon swallow: the MINIMAL profile — a through cavity runs
-            # deeper (self.depth), but the tenon itself never grows for it.
+            # `depth` = room past the mating plane, and it means two different
+            # things either side of `through`. THROUGH: the cavity runs deeper
+            # to reach the exit and the TENON never grows for it (there is
+            # nothing to engage out there). BLIND: it is the octagon's meaning
+            # -- both halves grow, all of it on the waist verticals, because
+            # every extra mm IS engagement. Left out, the profile takes the
+            # width-driven minimum, as it always did.
             # A split back_clearance adds the z-relief post growth (the
             # octagon's shared mechanics — the cavity neck keeps its tier).
             self.height = _mushroom_height(self.width, self.nozzle,
                                            self.clearance,
-                                           back_clearance=self.back_clearance)
+                                           height=self._mush_h(),
+                                           back_clearance=self.back_clearance,
+                                           standoff=self.standoff)
             self.width_min = _mushroom_width_min(self.nozzle, self.clearance)
             return
         if self.family == "octagon":
@@ -1416,6 +1474,12 @@ class Joint:
         _, _, f_height, f_wmin = _FAMILY_FUNCS[self.family]
         self.height = f_height(self.width, self.nozzle, self.clearance)
         self.width_min = f_wmin(self.nozzle)
+
+    def _mush_h(self):
+        """The mushroom's profile height for THIS site: `depth` on a blind cavity (both
+        halves grow into the room), None on a through one (only the cavity runs deeper,
+        and it takes self.depth directly)."""
+        return None if self.through else self.depth
 
     def _len(self, length):
         L = self.length if length is None else length
@@ -1468,7 +1532,9 @@ class Joint:
         if self.family == "mushroom":
             return _mushroom_tenon(self.width, L, self.nozzle,
                                    self.clearance, root,
-                                   back_clearance=self.back_clearance)
+                                   height=self._mush_h(),
+                                   back_clearance=self.back_clearance,
+                                   standoff=self.standoff)
         if self.family == "hook":
             return _hook_tenon(self.width, L, self.nozzle,
                                self.clearance, root)
@@ -1494,9 +1560,9 @@ class Joint:
             if self.family == "mushroom":
                 return _mushroom_mortise(self.width, L, self.nozzle,
                                          self.clearance, drop, pocket=True,
-                                         height=(self.depth if self.through
-                                                 else None),
-                                         back_clearance=self.back_clearance)
+                                         height=self.depth,
+                                         back_clearance=self.back_clearance,
+                                         standoff=self.standoff)
             if self.family != "octagon":
                 raise NotImplementedError(
                     "pocket mortises are modelled for the install='x' up+up "
@@ -1511,9 +1577,9 @@ class Joint:
         if self.family == "mushroom":
             return _mushroom_mortise(self.width, L, self.nozzle,
                                      self.clearance, drop,
-                                     height=(self.depth if self.through
-                                             else None),
-                                     back_clearance=self.back_clearance)
+                                     height=self.depth,
+                                     back_clearance=self.back_clearance,
+                                     standoff=self.standoff)
         if self.family == "hook":
             return _hook_mortise(self.width, L, self.nozzle,
                                  self.clearance, drop)
@@ -1566,8 +1632,7 @@ class Joint:
         if self.family == "mushroom":
             return _mushroom_mortise_arc(self.width, radius, sweep_deg,
                                          self.nozzle, self.clearance, drop,
-                                         height=(self.depth if self.through
-                                                 else None),
+                                         height=self.depth,
                                          back_clearance=self.back_clearance)
         if self.family != "octagon":
             raise NotImplementedError(
@@ -1597,10 +1662,18 @@ class Joint:
 
 def joint(width, length, tenon, mortise, clearance=None, install="+x",
           depth=None, bounded=False, fit="normal", through=False,
-          stem=None, back_clearance=None):
+          stem=None, back_clearance=None, standoff=0.0):
     """THE joinery entrypoint. Names name the HALVES (`tenon`, `mortise`) —
     never the shape: describe the SITE and the library builds the optimal
     printable geometry for it. A site is:
+
+      • whether the hosts TOUCH at the mating plane — `standoff` is how far the
+        MORTISE HOST'S MATERIAL starts from it (an assembly gap, a shell
+        clearance). It is part of the SITE, not of the fit: the mating plane
+        stays on the TENON host's face, both necks grow by the gap so the
+        mortise host still prints its tier once its material begins, and
+        `root` goes on meaning depth into the tenon's own host.
+        Default 0 = the two hosts touch.
 
       • how each half PRINTS — `tenon` / `mortise` are PrintSpecs (nozzle,
         material, print orientation);
@@ -1649,7 +1722,8 @@ def joint(width, length, tenon, mortise, clearance=None, install="+x",
     if back_clearance is not None:
         bc = back_clearance
     return Joint(width, length, tenon, mortise, c, install, depth,
-                 bounded, back_clearance=bc, through=through, stem=stem)
+                 bounded, back_clearance=bc, through=through, stem=stem,
+                 standoff=standoff)
 
 
 def joint_box_min(tenon, mortise, install="+x", bounded=False, quality=False,
@@ -1675,11 +1749,13 @@ def joint_box_min(tenon, mortise, install="+x", bounded=False, quality=False,
         return _octagon_width_min(nz, c), None
     if kind == ("side", "up"):
         return _arrow_width_min(nz), None
-    if kind == ("up", "down"):
+    if kind in (("up", "down"), ("axial", "down")):
         return _mushroom_width_min(nz, c), None
+    if kind == ("axial", "up"):
+        return _octagon_width_min(nz, c), None
     raise NotImplementedError(
         "no joint for tenon '%s' + mortise '%s' yet (have up+up, side+up, "
-        "up+down)" % kind)
+        "up+down, axial+up, axial+down)" % kind)
 
 
 # ── Self-test: geometry gates (run `py -3.12 joinery.py`) ────────────────────
