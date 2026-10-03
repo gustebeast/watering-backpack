@@ -125,15 +125,45 @@ pack voltage, which is what the divider below is for.
 - **ESD on every connector a cable reaches** (joystick, level sensor) per
   PCB_README §5.
 
-## 7. Connectors
+## 7. Connectors — terminal blocks, not JST
 
-| net | part | note |
-|---|---|---|
-| battery in | XT30 | 7.5 A × 2 pumps |
-| pump A, pump B | XT30 each | |
-| joystick | JST-PH 5-pin, side entry | `cadkit/pcb.py` models these to drawing |
-| level sensor | JST-PH 4-pin | VBAT, GND, OUT, MODE |
-| programming | 6-pin 2.54 mm | |
+| net | part | pitch | note |
+|---|---|---|---|
+| battery in | 2-pos terminal | 5.08 mm | permanent — killswitch is at the Makita dock |
+| pump A / pump B | 2-pos terminal each | 5.08 mm | 7.5 A each |
+| joystick | 5-pos terminal | 3.5 mm | to the existing KY-023 |
+| level sensor | 4-pos terminal | 3.5 mm | VBAT, GND, OUT, MODE |
+| programming | 6-pin 2.54 mm header | | TX/RX/EN/IO0/3V3/GND + DTR/RTS |
+
+**Why terminals over JST here.** JST earns its place where a joint is plugged and
+unplugged often, or where space is tight. Neither applies: every one of these is
+landed once at assembly and then left alone, and the board sits in a ~70 mm side
+pocket with room to spare.
+
+The decisive argument is PCB_README §3 — *"check that BOTH halves are in stock
+before comparing anything else... a joint where you supply both halves is the case
+the catalogue is worst at."* A JST joint is a header, a housing, crimp contacts
+and a 2 mm crimp tool. **A terminal block is one part with no mating half.**
+
+**Prefer push-in (spring-cage) over screw.** Two motors are bolted to the same
+frame as this board; screw clamps back off under vibration and spring-cage does
+not. It is also faster to land a wire with no screwdriver and no torque question.
+
+**5.08 mm for the pump legs.** 3.5 mm parts are typically rated 8-10 A, which is
+too close to 7.5 A to be comfortable. Signal connections are fine at 3.5 mm.
+
+**Terminals provide NO strain relief** — a tugged cable pulls out of the clamp or
+snaps at it. The printed shroud needs a cable-tie anchor or clamp bar directly
+behind them. Cheap now, awkward to retrofit.
+
+**They are through-hole**, so either a THT assembly surcharge at JLCPCB or hand
+soldering. Terminal blocks are large forgiving parts, so hand soldering is trivial
+— the same call already made for the KY-023.
+
+**`board_geom.HEIGHT` raises on a missing footprint**, deliberately, so that a part
+with no height cannot be silently dropped from the CAD. Terminal footprints need
+entries — project override via `Boards(height=...)` first, promoted into cadkit's
+table once there is a drawing worth citing.
 
 **Supply track widths sized from current, not left at the signal default** — the
 pump legs carry 7.5 A.
