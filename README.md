@@ -34,6 +34,10 @@ cadkit/
                      .kicad_pcb -> <board>.geom.json, the file board_geom reads
   kicad_silk.py      KiCad-side labeller: board name + revision, test-pad nets,
                      connector pinouts, each only where it fits
+  pcbflow/           MAKE a board from code: one `elec/<board>.py` (SKiDL circuit +
+                     placements) -> placed, autorouted, DRC-clean, labelled board,
+                     its geom file and its fab package. gen.py (generator helpers),
+                     layout/route/finish/verify/close_last, fab.py, example/blinky.py
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP

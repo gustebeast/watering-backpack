@@ -14,6 +14,7 @@ depend only on CadQuery/OCP (no FreeCAD): import them directly, e.g.
     from cadkit.board_check import check        # ...and the gate that it is the routed one
                                                 # (read PCB_README.md; kicad_geom.py and
                                                 # kicad_silk.py run under KiCad's Python)
+    from cadkit.pcbflow import gen              # MAKE a board from code (PCB_README.md §0)
     from cadkit.agents import current_agent, get_scope   # multi-agent: who owns what
     from cadkit.scratch import ScratchView               # fast per-part iteration loop
 

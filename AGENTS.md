@@ -47,6 +47,12 @@ Two layers of reusable capability back a cadkit project:
     assembly is READ BACK from the routed `.kicad_pcb` (`kicad_geom.py` under KiCad's
     Python → a tracked `<board>.geom.json` → `Boards(geom_dir).solid(board)`), never
     typed in by hand, and `board_check.check` gates that the CAD draws the routed board.
+    **To MAKE a board, do not write a pipeline and do not hand-route: `cadkit/pcbflow`
+    already is one.** Copy `cadkit/pcbflow/example/blinky.py` to `elec/<board>.py`,
+    state the circuit (SKiDL) and where each part goes (`BOARD_NOTES`, derived from the
+    mechanical model), run it, then run `cadkit/pcbflow/finish.py elec/out/<board>`
+    under KiCad's Python: placed, autorouted, DRC-checked, labelled, exported. PCB_README
+    §0 is the walkthrough.
     The same README carries the PCB design guidance (mounting, connector choice,
     layout, pre-order checklist). `cadkit.pcb` is the plastic side: `pcb_cradle` and
     drawing-accurate JST headers.

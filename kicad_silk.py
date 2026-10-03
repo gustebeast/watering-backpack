@@ -32,6 +32,8 @@ before and after and compare.
 
 `--dark P1,P2`: reference PREFIXES of parts no ink may come near (optical sensors on a
 board ordered in black mask to keep stray light down).
+Without it, a `<stem>.board.json` beside the board supplies
+them from its "strip_silk" list (what a pcbflow-generated board carries).
 
 IDEMPOTENT: it deletes the board-level silkscreen text it finds first and lays the set
 again. The board's NAME is the stem's basename, upper-cased, underscores as spaces.
@@ -281,6 +283,11 @@ def main(argv):
     if not stems:
         raise SystemExit("usage: kicad_silk.py [--rev rN] [--dark P1,P2] <stem> [...]")
     if len(stems) == 1:
+        if not dark and os.path.isfile(stems[0] + ".board.json"):
+            # a generated board says it in its own notes (pcbflow BOARD_NOTES "strip_silk")
+            import json
+            with open(stems[0] + ".board.json", encoding="utf-8") as fh:
+                dark = tuple(json.load(fh).get("strip_silk", ()))
         silk(stems[0], rev, dark)
         return 0
     import subprocess
