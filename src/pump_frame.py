@@ -94,6 +94,7 @@ from cadkit.freecad import show
 from cadkit.joinery import PrintSpec, joint
 from cadkit.step_export import export_step, print_pose
 
+from .battery_dock import battery_dock
 from .dimensions import BOOL_OVERSHOOT, REFERENCES_DIR
 
 OUT = pathlib.Path(__file__).resolve().parent.parent
@@ -241,6 +242,30 @@ PRINT_ROT = {
 }
 
 
+def _dock_placed() -> cq.Workplane:
+    """v1's Makita dock, ported onto the -X outer face.
+
+    The DOCK ITSELF ports unchanged — it is a Makita interface and v2 changes
+    nothing about the battery. What does not port is v1's ATTACHMENT: it hung the
+    dock on printed dovetail rails standing proud of the housing's -X wall. In
+    v2's X-build that wall IS the bed face, so an arrowhead rail would print
+    starting on its own point — the worst possible first layer. See the note in
+    the module docstring.
+
+    Placed here as a fit/width check only; the attachment is unresolved.
+    """
+    bb = battery_dock.val().BoundingBox()
+    # The dock plate is 100.6 x 93.0 x 18.8, modelled flat. Stand it against the
+    # -X face: its thickness runs out along -X, its 93 mm axis up in Z.
+    d = (battery_dock
+         .rotate((0, 0, 0), (0, 1, 0), 90)       # plate normal -> X
+         .rotate((0, 0, 0), (1, 0, 0), 90))      # 93 mm axis -> Z
+    db = d.val().BoundingBox()
+    return d.translate((-FRAME_W / 2.0 - db.xlen - (db.xmin - db.xmin),
+                        FRAME_D / 2.0 - (db.ymin + db.ylen / 2.0),
+                        FLOOR_T - db.zmin))
+
+
 def _tank() -> cq.Workplane:
     return (cq.Workplane("XY").workplane(offset=DECK_Z)
             .center(0, TANK_D / 2.0).rect(TANK_W, TANK_D).extrude(TANK_H))
@@ -258,6 +283,7 @@ def _build() -> None:
            .add(_pump_placed(-1), name="pump_a", color=color("slategray"))
            .add(_pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
            .add(_elbows(), name="fittings", color=color("#c8a24a"))
+           .add(_dock_placed(), name="battery_dock", color=color("#d08a3e"))
            .add(_tank(),  name="tank_viz",  color=color("#9fd4e8", alpha=0.35))
            .add(_shelf(), name="shelf_viz", color=color("#808080", alpha=0.5)))
 
