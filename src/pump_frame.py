@@ -89,6 +89,7 @@ import pathlib
 
 import cadquery as cq
 
+from cadkit.board_geom import Boards
 from cadkit.cq_colors import color
 from cadkit.freecad import show
 from cadkit.joinery import PrintSpec, joint
@@ -148,6 +149,76 @@ UP = PrintSpec(nozzle=0.4, facing="up")
 
 _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161, 49
 
+# ── PCB — built from the ROUTED board, never a typed placement ──────────────
+# PCB_README: "Model from the routed board, never from the placement table. A
+# hand-typed copy can only be checked against itself, and it always agrees. It
+# agreed while two connectors sat 0.54 mm short of the board edge."
+PCB_PANEL_T  = 4.0       # backing panel on the +X face, the board's mounting surface
+PCB_STANDOFF = 3.0       # panel face -> board underside; bottom-side parts clear
+PCB_BOSS_D   = 9.0
+PCB_HOLE_XY  = ((-64.0, -44.0), (64.0, -44.0), (-64.0, 44.0), (64.0, 44.0))
+
+# Heights for footprints cadkit's shared table does not carry. Mirrors
+# elec/cad_geom_check.py — a footprint with no height RAISES rather than being
+# silently dropped from the CAD, which is the behaviour we want.
+_PCB_HEIGHT = {
+    "Buzzer_12x9.5RM7.6": 9.5, "CP_Elec_10x10.5": 10.5,
+    "ESP32-WROOM-32E-FABDRILL": 3.1, "L_Bourns_SRN6045TA": 4.5,
+    "TO-252-3_TabPin2": 2.3, "TO-263-2": 4.6,
+    "PinHeader_1x06_P2.54mm_Vertical": 8.5, "C_0603_1608Metric": 0.9,
+    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 17.0,
+    "TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal": 15.0,
+    "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,
+}
+
+_BOARDS = Boards(str(OUT / "elec" / "geom"), height=_PCB_HEIGHT)
+PCB_FACE_X = FRAME_W / 2.0 + PCB_PANEL_T          # 186 — panel outer face
+
+
+def _pose_board(solid):
+    """Lay a board (modelled in XY, +Z normal) flat on the frame's +X face.
+
+    board +X -> world +Y, board +Y -> world +Z, board +Z -> world +X. The board's
+    -Y edge therefore points DOWN, which is where every terminal sits — so all
+    the shroud's openings face the ground, which is the only weatherproofing this
+    enclosure needs.
+    """
+    r = (solid.rotate((0, 0, 0), (0, 1, 0), 90)
+               .rotate((0, 0, 0), (1, 0, 0), 90))
+    bb = r.val().BoundingBox()
+    return r.translate((PCB_FACE_X + PCB_STANDOFF - bb.xmin,
+                        FRAME_D / 2.0 - (bb.ymin + bb.ylen / 2.0),
+                        DECK_Z / 2.0 - (bb.zmin + bb.zlen / 2.0)))
+
+
+def pcb_solid():
+    """The board as the assembly places it — laminate + every routed part body.
+    This is what elec/cad_geom_check.py checks against the routed board."""
+    return _pose_board(_BOARDS.solid("main"))
+
+
+def _pcb_panel() -> cq.Workplane:
+    """Backing panel + standoff bosses on the +X face.
+
+    The frame's +X face is NOT continuous — it is deck (z 0..4), two posts and
+    two beams — so there is nothing behind most of the board to mount to. This
+    panel supplies that surface. It costs nothing in the X-build: it occupies the
+    first 4 mm of layers, so it prints flat on the bed and improves adhesion.
+    """
+    b = pcb_solid().val().BoundingBox()
+    pad = 12.0
+    panel = (cq.Workplane("YZ").workplane(offset=FRAME_W / 2.0)
+             .center((b.ymin + b.ymax) / 2.0, (b.zmin + b.zmax) / 2.0)
+             .rect(b.ylen + 2 * pad, b.zlen + 2 * pad)
+             .extrude(PCB_PANEL_T))
+    for hy, hz in PCB_HOLE_XY:                     # board coords -> world Y, Z
+        cy = FRAME_D / 2.0 + hy
+        cz = DECK_Z / 2.0 + hz
+        panel = panel.union(cq.Workplane("YZ").workplane(offset=PCB_FACE_X)
+                            .center(cy, cz).circle(PCB_BOSS_D / 2.0)
+                            .extrude(PCB_STANDOFF))
+    return panel
+
 
 def _pump(flip: bool) -> cq.Workplane:
     p = cq.importers.importStep(str(REFERENCES_DIR / "seaflo_42_pump.step"))
@@ -204,7 +275,7 @@ def _frame_whole() -> cq.Workplane:
             out = out.union(cq.Workplane("XY").workplane(offset=POST_Z0)
                             .center(sx * POST_X, by)
                             .rect(SECT, SECT).extrude(POST_Z1 - POST_Z0))
-    return out
+    return out.union(_pcb_panel())
 
 
 def _frame_half(side: int) -> cq.Workplane:
@@ -215,9 +286,12 @@ def _frame_half(side: int) -> cq.Workplane:
     the halves slide together across the split, which is also the build axis, so
     the tenon is the last thing printed and the mortise is an open face.
     """
+    # Reaches PAST the frame edge so the PCB backing panel and its bosses — which
+    # stand proud of X = FRAME_W/2 — are kept, not sliced off with the split.
+    ext = PCB_PANEL_T + PCB_STANDOFF + 40.0
     box = (cq.Workplane("XY")
-           .center(side * (FRAME_W / 4.0), FRAME_D / 2.0)
-           .rect(FRAME_W / 2.0, FRAME_D + 2 * BOOL_OVERSHOOT)
+           .center(side * (FRAME_W / 4.0 + ext / 2.0), FRAME_D / 2.0)
+           .rect(FRAME_W / 2.0 + ext, FRAME_D + 2 * BOOL_OVERSHOOT)
            .extrude(DECK_Z + BOOL_OVERSHOOT))
     half = _frame_whole().intersect(box)
 
@@ -283,6 +357,7 @@ def _build() -> None:
            .add(_pump_placed(-1), name="pump_a", color=color("slategray"))
            .add(_pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
            .add(_elbows(), name="fittings", color=color("#c8a24a"))
+           .add(pcb_solid(), name="pcb", color=color("#2f7d4f"))
            .add(_dock_placed(), name="battery_dock", color=color("#d08a3e"))
            .add(_tank(),  name="tank_viz",  color=color("#9fd4e8", alpha=0.35))
            .add(_shelf(), name="shelf_viz", color=color("#808080", alpha=0.5)))
