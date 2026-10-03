@@ -92,7 +92,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
     there is no observed fault to justify a hall-effect replacement, and hall thumbsticks
     are consumer repair parts rather than distributor stock anyway.
   - Powered from **3.3 V, not 5 V**, so the output stays inside the ADC range.
-  - Connects by a 5-pin cable to a JST-PH on the main board. Only VRy is used; wire all
+  - Connects by a 5-pin cable to a terminal block on the main board. Only VRy is used; wire all
     five anyway (free, and leaves SW available as a mode button). The 2.54 mm housing
     doesn't latch, so **the printed mount must capture it** — that, not a new PCB, is
     the fix for v1's flying leads.
@@ -135,7 +135,13 @@ Exact part numbers to be fixed at layout; this is the functional list.
 - Reverse-polarity P-FET, TVS, bulk electrolytics at the switches.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
-- Connectors: XT30 battery in, XT30 per pump, 5-pin JST-PH joystick, JST-PH level sensor.
+- Connectors: **push-in terminal blocks, not JST** — 5.08 mm for battery and each
+  pump (7.5 A), 3.5 mm for joystick (5-pos) and level sensor (4-pos). Every one of
+  these is landed once at assembly, so JST's plug/unplug advantage doesn't apply,
+  and a terminal is ONE part with no mating half to stock (PCB_README §3 warns that
+  a joint where you supply both halves is where the catalogue is worst). Spring-cage
+  over screw: two motors share this frame and screw clamps back off under vibration.
+  They give no strain relief, so the shroud needs a cable anchor behind them.
 - *Optional:* low-side shunt per pump → ADC.
 
 ## 7. Structure  *(🎒)*
