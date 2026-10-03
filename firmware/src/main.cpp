@@ -120,8 +120,17 @@ constexpr int ADC_MAX   = (1 << ADC_RES) - 1;   // 4095
 // Both are estimates — the pump's true minimum useful duty has never been measured,
 // and START_DUTY is the likelier of the two to be wrong. The previous value ramped
 // to full in 106 ms, which made every flick a full-power burst.
-constexpr int RAMP_MS    = 1000;             // time from START_DUTY to full
-constexpr int START_DUTY = 35;               // ~14%, snapped to on engage
+// REVERTED to the pre-dose-metering behaviour at the user's request, while an
+// unexplained mid-run slowdown is investigated. These two values reproduce the old
+// integer ramp exactly: (255<<8)*5/106 = 3079 Q8 = 12.03 duty counts per 5 ms loop,
+// which was the old RAMP_STEP of 12. A flick is once again a full-power burst.
+//
+// NOTE: telemetry taken under load shows this revert cannot be the cause of that
+// slowdown — duty ramped 42/93/146/200/255 and then held at 255 for ~8 s until
+// release, with one engage transition and no dip. Restore RAMP_MS=1000 /
+// START_DUTY=35 to get dose metering back.
+constexpr int RAMP_MS    = 106;              // time from START_DUTY to full
+constexpr int START_DUTY = 0;                // no floor — ramp from a standstill
 
 // Duty is carried in Q8 fixed point because the useful rates are fractions of a duty
 // count per 5 ms loop: this ramp is 0.73 counts/loop, which integer stepping cannot
