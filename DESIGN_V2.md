@@ -157,7 +157,7 @@ side**. The housing is the transition.
 The 3/8" constraint is only the probe that goes down the inner-pot channel. The main
 run goes to 5/8", cutting ~6 psi of friction and one reducer instead of four.
 
-### 7. Electronics — two boards, PCBA
+### 6. Electronics — two boards, PCBA
 
 v1's hand-soldered flying leads are a latent failure on something carried, shaken and
 splashed. v2 is two assembled boards.
@@ -208,7 +208,7 @@ joined at a single star point at battery negative; keep each motor current loop
 nodes. Note the v1 noise was a USB-tether artifact, not bad soldering — PCBA is for
 mechanical reliability, not to fix a noise problem that does not exist on battery.
 
-### 8. Tank level — single full/not-full, non-contact capacitive
+### 7. Tank level — single full/not-full, non-contact capacitive
 
 An **external capacitive sensor** (XKC-Y25 class) clamped to the *outside* of the tank
 wall at the full line. Nothing penetrates the tank and nothing touches the water, which
@@ -236,7 +236,7 @@ won on assembly simplicity, with the false-positive risk accepted explicitly.
 
 This also simplifies the top plug back to just **vent + spigot fill line**.
 
-### 9. Firmware
+### 8. Firmware
 
 The joystick finally works as originally intended: **forward = dispense, back =
 retract**, because direction is now an electrical choice rather than a hand-turned
