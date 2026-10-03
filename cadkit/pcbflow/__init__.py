@@ -13,6 +13,7 @@ Then one command, under KiCad's own Python, does the rest:
 
     "C:/Program Files/KiCad/10.0/bin/python.exe" cadkit/pcbflow/finish.py elec/out/<board>
 
+    (fab_package.py   the order package: gerbers, drill, BOM, CPL -- driven by your elec/fab.py)
     layout.py         netlist + notes -> <board>.kicad_pcb, every part placed, planes
                       poured and stitched, declared copper laid
     route.py          freerouting (headless) -> routed board, zones refilled

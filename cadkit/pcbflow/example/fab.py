@@ -9,7 +9,7 @@ COPY THIS FILE TO YOUR PROJECT AS `elec/fab.py`, then:
 
 It refuses to package a board that is not finished (unconnected items, DRC violations, a
 failed length-match), checks the gerbers and drill against the board, and writes
-ROTATION-CHECK.txt and ORDER.txt into each zip. See cadkit/pcbflow/fab.py.
+ROTATION-CHECK.txt and ORDER.txt into each zip. See cadkit/pcbflow/fab_package.py.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from cadkit.pcbflow import fab as _fab  # noqa: E402
+from cadkit.pcbflow import fab_package as _fab  # noqa: E402
 
 # Every board in the design. A package whose board is not listed here and has no
 # generator is deleted as stale.
