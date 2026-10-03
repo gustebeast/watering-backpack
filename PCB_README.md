@@ -2,11 +2,150 @@
 
 How to design a circuit board that lives inside a 3D-printed product, so that the board
 KiCad sends to the fab and the board the CAD builds its housing around are **the same
-board**. Two parts: the tooling that keeps them the same, and the design guidance that no
-tool can enforce.
+board**. Three parts: **making** a board from code (§0), the tooling that keeps KiCad and
+the CAD agreeing on it (§1), and the design guidance that no tool can enforce (§2–5).
+
+> **Starting a board in a new project? Do §0 top to bottom.** You do not need to write a
+> generator pipeline and you do not need to hand-route: copy `pcbflow/example/blinky.py`,
+> change the circuit and the placements, run two commands.
 
 Everything here was learned on a real instrument with fourteen boards. Where a rule has a
 story, the story is the one-line reason next to it.
+
+---
+
+## 0. Making a board
+
+A board is **one Python file** in your project. It states the circuit and where every part
+goes; `cadkit/pcbflow` places, autoroutes, checks, labels and exports it.
+
+```
+  elec/<board>.py            you write this          (your CAD Python + SKiDL)
+        │  py -3.12 elec/<board>.py
+        ▼
+  elec/out/<board>.net  +  elec/out/<board>.board.json
+        │  <KiCad python> cadkit/pcbflow/finish.py elec/out/<board>
+        ▼
+  elec/out/<board>.kicad_pcb      placed, routed, DRC-clean, labelled   (open it in KiCad)
+  elec/geom/<board>.geom.json     what the CAD builds the board from    (commit this)
+        │  <KiCad python> elec/fab.py <board>
+        ▼
+  elec/out/fab/<board>.zip        gerbers, drill, BOM, CPL, ORDER.txt, ROTATION-CHECK.txt
+```
+
+### One-time machine setup
+
+| needs | where |
+|---|---|
+| KiCad 10 | its `bin/python.exe` (has `pcbnew`) and `bin/kicad-cli.exe` |
+| SKiDL | `py -3.12 -m pip install skidl` — in your CAD Python, not KiCad's |
+| Java 25 runtime | e.g. Temurin JRE 25; found under `%LOCALAPPDATA%\Programs\temurin\`, on `PATH`, or via `$JAVA` |
+| freerouting 2.x | `freerouting.jar` at `%LOCALAPPDATA%\Programs\freerouting\`, or `$FREEROUTING_JAR`. ~64 MB, deliberately not in any repo — and never in a temp folder |
+
+### The first board
+
+```bash
+mkdir elec
+cp cadkit/pcbflow/example/blinky.py elec/blinky.py
+cp cadkit/pcbflow/example/fab.py    elec/fab.py
+cp cadkit/pcbflow/example/cad_geom_check.py elec/cad_geom_check.py   # then point its _cad() at your assembly
+py -3.12 elec/blinky.py
+"C:/Program Files/KiCad/10.0/bin/python.exe" cadkit/pcbflow/finish.py elec/out/blinky
+```
+
+The last line must end `blinky: 0 unconnected, 0 violation(s)`. Then in the CAD:
+`Boards("elec/geom").solid("blinky")`. Git-ignore `elec/out/`; commit `elec/geom/`.
+
+### What a board file contains
+
+1. **The circuit**, in SKiDL. `gen.part(ref, value, footprint, pins)` defines a part inline
+   with exactly the pins you give it — no symbol library, so the file is complete in
+   itself. Connect with `net += part[pin], …`. `value` is what the BOM orders by: a value
+   for a passive, the manufacturer part number for everything else.
+2. **`BOARD_NOTES`** — the board (table below). In a real project its numbers are
+   *derived from the mechanical model*: import your dimensions module and compute the
+   outline and connector positions from the pocket the board sits in. That is the point
+   of generating a board — the placements come from the product's geometry.
+3. **Assertions** for everything DRC cannot see (§2, §4): parts clear of printed walls,
+   tails over their support, courtyard gaps, the outline equal to the CAD's pocket. A bad
+   placement should stop the generator, not surface an hour later.
+4. `gen.emit(board, OUT_DIR, BOARD_NOTES)` — runs ERC and the netlist checks (return nets
+   that never meet; a pin alone on its net), then writes the two files.
+
+**Edit → regenerate → finish.** `finish.py` does not run the generator; it refuses to
+route if `<board>.py` is newer than its netlist, because routing stale placements returns
+a believable answer to a question nobody asked.
+
+### `BOARD_NOTES`
+
+Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to KiCad's).
+
+| key | meaning |
+|---|---|
+| `outline_mm` | `(w, l)` — required. The layout region; also the outline unless `outline_poly` is given |
+| `outline_poly` | `[(x, y), …]` the real outline when it is not a rectangle (a mounting ear makes an L) |
+| `cutouts` | `[{"xy": (x, y), "d": 4.5}]` round holes through the board (mounting holes) |
+| `outline_slots` | `[{"poly": [...]}]` non-round cutouts |
+| `layers`, `thickness_mm` | `2` or `4`; `1.6` |
+| `placements` | `{ref: (x, y, rot)}` — required, one per part. **The part's PAD CENTROID**, not its footprint origin; `rot` is KiCad's, degrees |
+| `back_refs` | refs mounted on the back. `single_sided: True` records that all parts share one face (one assembly setup) |
+| `zones` | `[(net, layer, inset)]` copper pours, pulled `inset` in from the edge |
+| `plane_layers` | inner layers that are planes: the router is kept off them |
+| `stitch_nets` | nets whose pads get a via straight down to their pour (usually `("GND",)`) |
+| `track_mm`, `via_mm` | default track width (0.25) and via `(diameter, drill)` (0.6, 0.3) |
+| `net_widths` | `{net pattern: width}` for supply nets — sized from current, not left at the default |
+| `tracks`, `vias` | copper laid **before** routing: `(net, layer, width, [(x, y), …])`, `(net, x, y)`. A last resort (§4) |
+| `frozen_nets` | nets whose pre-laid copper the router may not touch |
+| `pin_escapes` | `("U1.27", …)` fine-pitch pins given a stub + via before routing |
+| `edge_escape` | `("J5",)` board-edge headers whose edge-side row is fanned round the other row's ends |
+| `match` | length-matched groups for `verify.py`: `{"name", "nets", "max_skew_mm", "same_layer", "max_vias", "why"}` |
+| `router_passes`, `finish_rounds` | autorouter passes (10) and route-retry rounds (1). Raise only with evidence |
+| `refs_on_fab`, `ref_pos` | move designators to F.Fab on a dense board; or place one by hand |
+| `strip_silk` | ref prefixes of parts no ink may come near (optical sensors) |
+| `order_options` | `{key: text}` extra order-form settings for this board's `ORDER.txt` |
+| `qty_per_instrument` | how many the product uses (for totals) |
+
+`layout.py` reads a few more, each documented where it is used (`diff_pairs`,
+`local_nets`, `corridors`, `via_keepouts`, `land_resize`, `post_route_*`,
+`repair_tracks`/`repair_vias`, `stitch_exceptions`). Reach for those only when a route
+shows you need one.
+
+### Footprints
+
+KiCad's libraries are found automatically (`"Resistor_SMD:R_0603_1608Metric"`). For a
+part KiCad has no land for, draw `elec/footprints/<Lib>.pretty/<Name>.kicad_mod` from the
+maker's recommended land pattern and name it `"<Lib>:<Name>"`. **Give it an F.Fab outline
+of the real body** — that outline is what the CAD draws — and add its `HEIGHT` / `TAIL`.
+
+### What a project may add (all optional, all in `elec/`)
+
+| file | job |
+|---|---|
+| `cad_geom_check.py` | `<cad python> elec/cad_geom_check.py <board>`: hands `cadkit.board_check.check` the solid your assembly places. `finish.py` runs it last; without it the run says **the CAD is UNCHECKED** |
+| `pcb_declared.py` | `declared(board, vtype, refs) -> bool`: DRC violations the design accepts on purpose, **by shape**. A count is not a check |
+| `silk.py`, `export_geom.py` | replace the default labeller / exporter (e.g. to pass a revision) |
+| `fab.py` | the board list and the value → part-number table; see `pcbflow/example/fab.py` |
+
+### Reading a result
+
+* **`0 unconnected, 0 violation(s)`** with no `FAIL` line from verify is the only clean.
+* `N unconnected`: read *which* nets and *where* in `<board>.finish.drc.json` before
+  touching anything. If they cluster at one part, it is a placement problem (§4), not a
+  router problem.
+* The pipeline closes the last net or two itself (`close_last.py`, a maze search on the
+  routed board, kept only if DRC is strictly better). If it reports "no path", the
+  placement really is blocked.
+* An autorouter at its limit gives a different answer every run. Revert and re-run before
+  concluding anything from one result.
+* Open `elec/out/<board>.kicad_pcb` in KiCad to look. Never hand-edit it: the next run
+  replaces it. Change the generator.
+
+### Routing by hand instead
+
+Allowed, and the rest of the loop is identical: produce any routed `.kicad_pcb`, run
+`kicad_silk.py` and `kicad_geom.py` on it, and gate with `board_check`. You lose
+regeneration — when the housing moves a connector, someone re-routes — so prefer the
+generator for any board whose geometry comes from the mechanical design.
 
 ---
 
@@ -32,9 +171,12 @@ story, the story is the one-line reason next to it.
 | `cadkit/kicad_silk.py` | KiCad's Python | prints the board's name + revision, test-pad nets and connector pinouts, each only where it fits; cannot move copper |
 | `cadkit/board_geom.py` | your CAD Python (CadQuery) | `Boards(geom_dir)`: `solid()`, `solid(mated=True)`, `plate()`, `bodies()`, `silk()`, `mouth()`, `lead_exit()`, `tails()`, `holes()`; plus the shared part tables `HEIGHT`, `TAIL`, `THT_LEGS`, `PANEL` |
 | `cadkit/board_check.py` | your CAD Python | `check(name, solid, geom)`: every routed part present, not mirrored, cutouts match |
+| `cadkit/pcbflow/` | both (see §0) | **makes** the board: generator helpers, layout, autoroute, DRC, repair, verify, fab package |
 | `cadkit/pcb.py` | your CAD Python | the plastic: `pcb_cradle` (one-screw drop-in mount), drawing-accurate JST XH / PH headers with tails and mated plugs |
 
 ### Setting a project up
+
+(`pcbflow/finish.py` does steps 1–2 for a generated board; this is the by-hand version.)
 
 1. **Export after every route**, as the last step of whatever produces the board:
 
