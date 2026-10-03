@@ -50,12 +50,16 @@ BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)
 
 
 def _cad(board):
-    """The solid the assembly places for `board`. REPLACE with your own, e.g.
+    """The solid THE ASSEMBLY ACTUALLY PLACES for `board`.
 
-        from src import electronics
-        return {"blinky": electronics.blinky_pcb}[board]()
+    Pointed at src.pump_frame rather than left at the shipped BOARDS.solid(),
+    which can only prove the geom loads and every part has a height. This version
+    catches what the check exists for: an assembly that draws the board somewhere
+    the routed board is not — a mirrored placement, a stale outline, a missing
+    cutout.
     """
-    return BOARDS.solid(board)
+    from src import pump_frame
+    return {"main": pump_frame.pcb_solid}[board]()
 
 
 def main(names):
