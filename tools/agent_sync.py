@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""agent_sync.py -- lightweight multi-agent coordination over git worktrees.
 
-Lets several Claude Code sessions work on ONE project WITHOUT clobbering each
+Lets several coding-agent sessions work on ONE project WITHOUT clobbering each
 other's files or racing the single FreeCAD tab / build. Solo work needs none of
 this -- it only kicks in when you deliberately add a second agent.
 
@@ -646,9 +646,9 @@ def cmd_status():
 
 
 def cmd_hook():
-    """The LEAD's `UserPromptSubmit` hook (wire it in .claude/settings.json). It runs on the
+    """The LEAD's `UserPromptSubmit` hook (wire it in the project's session settings). It runs on the
     lead's NEXT prompt -- whatever that prompt is about -- and, if the inbox holds a request,
-    prints a loud notice that Claude Code injects into the lead's context. It reports
+    prints a loud notice that the harness injects into the lead's context. It reports
     whether a listener is actually armed (`watch` keeps one alive by spawning its own
     successor), so the banner nags to START one only when there really is none —
     a pending request that a live listener has simply not been taken from yet is not a
@@ -742,7 +742,7 @@ def main():
     m.add_argument("text")
     sub.add_parser("mail").add_argument("--peek", action="store_true",
                                         help="show without consuming")
-    sub.add_parser("hook")          # UserPromptSubmit hook (see .claude/settings.json)
+    sub.add_parser("hook")          # UserPromptSubmit hook (see the session settings)
     # `view` and `build` FORWARD their flags to another program, so they bypass
     # argparse entirely and pass the tail VERBATIM. Two earlier attempts each broke:
     # nargs=REMAINDER refuses a LEADING option (`build --gate-full` died with
