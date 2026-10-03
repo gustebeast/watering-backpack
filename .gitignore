@@ -16,3 +16,6 @@ firmware/.pio/
 
 # WiFi / OTA credentials — local only
 firmware/src/secrets.h
+
+# Generated board output — regenerate with: py -3.12 elec/main.py && finish.py
+elec/out/
