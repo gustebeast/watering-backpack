@@ -81,6 +81,7 @@ HEIGHT = {
     "Relay_DPDT_FRT5_SMD": 5.10,
     "Relay_DPDT_Omron_G6K-2F-Y": 5.20,                      # Omron: 10 x 6.5 x 5.2
     "XINGLIGHT_XL-5050RGBW": 1.60,                          # LCSC C7371891: 5.0x5.0x1.6
+    "LED_0603_1608Metric": 0.80, "LED_0805_2012Metric": 1.10,   # TYPICAL chip-LED maxima, not one part's drawing
     # JST: top entry bodies, and side entry (cadkit.pcb carries the drawings' numbers)
     "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 7.0,
     "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 7.0,
@@ -123,6 +124,9 @@ TAIL = {
     "IDC-Header_2x07_P2.54mm_Horizontal": 3.0,
     "PinHeader_2x07_P1.27mm_Horizontal": 1.5,    # ESTIMATE: ~3 mm tail less a 1.6 board
     "R_0402_1005Metric": 0.0, "C_0402_1005Metric": 0.0, "C_0805_2012Metric": 0.0,
+    "R_0603_1608Metric": 0.0, "LED_0603_1608Metric": 0.0, "LED_0805_2012Metric": 0.0,
+    "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 3.4, "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 3.4,   # cadkit.pcb XH_POST_TAIL
+    "TestPoint_Pad_D1.5mm": 0.0, "TestPoint_Pad_D1.0mm": 0.0,
     "C_1206_3216Metric": 0.0, "Fuse_1206_3216Metric": 0.0,
     "XINGLIGHT_XL-5050RGBW": 0.0,
     "HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm_Mask2.75x3.43mm": 0.0,
