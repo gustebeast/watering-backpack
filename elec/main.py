@@ -114,10 +114,10 @@ def circuit():
 
     # ── MCU ─────────────────────────────────────────────────────────────────
     # Joystick on IO34 and pumps on IO25/IO26 match the firmware already running.
-    u_mcu = gen.part("U2", "ESP32-WROOM-32E", "RF_Module:ESP32-WROOM-32E",
+    u_mcu = gen.part("U2", "ESP32-WROOM-32E", "wbp:ESP32-WROOM-32E-FABDRILL",
                      {1: "GND", 2: "3V3", 3: "EN", 6: "IO34", 7: "IO35", 10: "IO25",
                       11: "IO26", 12: "IO27", 13: "IO14", 25: "IO0", 34: "RXD0",
-                      35: "TXD0", 38: "GND"}, "MCU + WiFi for OTA and telemetry")
+                      35: "TXD0", 38: "GND"}, "MCU + WiFi. LOCAL footprint: KiCad's stock one has twelve 0.2 mm thermal vias, below the 0.3 mm fab minimum — 12 of this board's 14 DRC violations were that one footprint")
     c_m1 = gen.part("C6", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "MCU bulk")
     c_m2 = gen.part("C7", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "MCU decoupling")
     r_en = gen.part("R3", "10k", "Resistor_SMD:R_0603_1608Metric", 2, "EN pull-up")
@@ -205,59 +205,50 @@ def circuit():
 # its cable anchor.
 BOARD_W, BOARD_L = 140.0, 100.0
 HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
-HOLES = [(-60.0, -38.0), (60.0, -38.0), (-60.0, 38.0), (60.0, 38.0)]
+HOLES = [(-64.0, -44.0), (64.0, -44.0), (-64.0, 44.0), (64.0, 44.0)]
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
     "layers": 2,
     "thickness_mm": 1.6,
-    # Power down the left, logic down the right, terminals along the bottom edge
-    # so every cable leaves the same face — the shroud's openings all point down.
+    # Zoned so each cluster sits beside the pin it serves (PCB_README §4: a part
+    # with a value but no required position gets stranded, and the router then
+    # carries its net across the board for nothing). Power down the left, buck
+    # top-left, MCU right, terminals along the bottom edge so every cable leaves
+    # the same face and the shroud's openings all point down.
     "placements": {
-        "J1": (-55.0, -41.0, 0.0),     # battery in
-        "J2": (-30.0, -41.0, 0.0),     # pump A
-        "J3": (-5.0, -41.0, 0.0),      # pump B
-        "J4": (30.0, -44.0, 0.0),      # joystick
-        "J5": (58.0, -44.0, 0.0),      # level
-        "J6": (62.0, 20.0, 90.0),      # programming header
-        "D1": (-62.0, -28.0, 0.0),
-        "C1": (-48.0, -20.0, 0.0),
-        "C2": (-48.0, 2.0, 0.0),
-        "Q1": (-28.0, -22.0, 0.0),
-        "Q2": (-28.0, 2.0, 0.0),
-        "U3": (-18.0, -30.0, 0.0),
-        "U4": (-18.0, -6.0, 0.0),
-        "D2": (-8.0, -22.0, 0.0),
-        "D3": (-8.0, 2.0, 0.0),
-        "R4": (-23.0, -30.0, 0.0),
-        "R5": (-23.0, -6.0, 0.0),
-        "R6": (-33.0, -30.0, 0.0),
-        "R7": (-33.0, -6.0, 0.0),
-        "C9": (-14.0, -36.0, 0.0),
-        "C10": (-14.0, -12.0, 0.0),
-        "U1": (-55.0, 24.0, 0.0),
-        "L1": (-40.0, 24.0, 0.0),
-        "C3": (-62.0, 16.0, 0.0),
-        "C4": (-30.0, 16.0, 0.0),
-        "C5": (-30.0, 32.0, 0.0),
-        "R1": (-48.0, 34.0, 0.0),
-        "R2": (-55.0, 38.0, 0.0),
-        "U2": (42.0, 20.0, 0.0),       # ESP32 — antenna toward +X board edge
-        "C6": (10.0, 34.0, 0.0),
-        "C7": (10.0, 28.0, 0.0),
-        "R3": (10.0, 16.0, 0.0),
-        "C8": (10.0, 10.0, 0.0),
-        "R20": (-6.0, 38.0, 0.0),
-        "R21": (-14.0, 38.0, 0.0),
-        "C11": (-22.0, 38.0, 0.0),
-        "R22": (40.0, -30.0, 0.0),
-        "C12": (40.0, -36.0, 0.0),
-        "R23": (56.0, -30.0, 0.0),
-        "BZ1": (60.0, -12.0, 0.0),
-        "Q3": (44.0, -12.0, 0.0),
-        "R24": (44.0, -20.0, 0.0),
-        "D4": (52.0, -20.0, 0.0),
+        # terminals, bottom edge (MKDS-3 is ~12.5 x 15; PT-1,5 ~12 deep)
+        # J1 was at -58: MKDS-3 is ~12.5 wide, so it straddled the mounting
+        # hole at (-64,-44) and its body wire FUSED with the hole's on the top
+        # face, which is why board_check saw 3 cutouts where the board has 4.
+        "J1": (-50.0, -41.0, 0.0), "J2": (-34.0, -41.0, 0.0), "J3": (-18.0, -41.0, 0.0),
+        "J4": (10.0, -41.0, 0.0),  "J5": (36.0, -41.0, 0.0),
+        "J6": (62.0, 32.0, 90.0),
+        # input protection + bulk
+        "D1": (-58.0, 8.0, 0.0), "C1": (-58.0, -18.0, 0.0), "C2": (-58.0, -4.0, 0.0),
+        # pump legs: FET / driver / freewheel in a row, gate parts beside the FET
+        "Q1": (-40.0, -18.0, 0.0), "Q2": (-40.0, -2.0, 0.0),
+        "U3": (-28.0, -18.0, 0.0), "U4": (-28.0, -2.0, 0.0),
+        "D2": (-14.0, -18.0, 0.0), "D3": (-14.0, -2.0, 0.0),
+        "R4": (-33.0, -24.0, 0.0), "R6": (-33.0, -12.0, 0.0),
+        "R5": (-33.0, -8.0, 0.0),  "R7": (-33.0, 4.0, 0.0),
+        "C9": (-21.0, -26.0, 0.0), "C10": (-21.0, -10.0, 0.0),
+        # buck, top left
+        "U1": (-56.0, 30.0, 0.0), "L1": (-40.0, 30.0, 0.0),
+        "C3": (-56.0, 42.0, 0.0), "C4": (-26.0, 28.0, 0.0), "C5": (-26.0, 40.0, 0.0),
+        "R1": (-44.0, 42.0, 0.0), "R2": (-50.0, 42.0, 0.0),
+        # MCU, right
+        "U2": (40.0, 28.0, 0.0),
+        "C6": (12.0, 42.0, 0.0), "C7": (12.0, 36.0, 0.0),
+        "R3": (12.0, 30.0, 0.0), "C8": (12.0, 24.0, 0.0),
+        # sensing
+        "R20": (56.0, 10.0, 0.0), "R21": (62.0, 10.0, 0.0), "C11": (50.0, 10.0, 0.0),
+        "R22": (20.0, -22.0, 0.0), "C12": (20.0, -28.0, 0.0),
+        "R23": (40.0, -22.0, 0.0),
+        # buzzer
+        "BZ1": (58.0, -18.0, 0.0), "Q3": (40.0, -10.0, 0.0),
+        "R24": (46.0, -10.0, 0.0), "D4": (52.0, -10.0, 0.0),
     },
     "zones": [("GND", "B.Cu", 0.3)],
     "stitch_nets": ("GND",),
