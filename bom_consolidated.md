@@ -14,7 +14,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 1. Seaflo  *(🎒)*
 
-- [ ] 🎒 **Seaflo 42-Series pump — SFDP1-030-055-42, $74.99 — BUY A SECOND** — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
+- [ ] 🎒 **Seaflo 42-Series pump — SFDP1-030-055-42, $64.99–$78.99 (pick the 12V option) — BUY A SECOND** — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
   - ⚠️ **Select 12V** in the Voltage dropdown (not 24V).
   - v2 runs **two pumps in anti-parallel** — one plumbed tank→pot, one pot→tank —
     instead of reversing flow through a valve. A diaphragm pump cannot be reversed
@@ -26,30 +26,47 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - 📦 Includes a 50-mesh inlet strainer (now redundant — v2 filters on the green line)
     and 2× 1/2" barb adapters (straight; v2 uses 90° swivels instead).
 
-## 2. Pentair / Shurflo — pump fittings  *(🎒, NEW in v2)*
+## 2. Seaflo — pump fittings  *(🎒, NEW in v2)*
 
-- [ ] 🎒 **Shurflo 244-3926 — 1/2"-14 NPT(F) × 1/2" barb, 90° wingnut swivel elbow — qty 5**
-  - https://www.pentair.com/en-us/flow/shurflo/shurflo-products/shurflo-rv-applications/accessories/elbow-fittings.html
-  - 4 needed (2 per pump) + 1 spare for the fit test below.
+- [ ] 🎒 **SEAFLO SFFN1-1220-01 — 1/2"-14 FNPT × 1/2" barb, 90° swivel elbow — 5-pack, $12.99**
+  - https://seaflodirect.com/seaflo-plastic-pex-pipe-coupling-90-degree-fitting-swivel-adapter-1-2-14-fnpt-x-1-2-barb-elbow-fitting-compatible-with-pex-or-pe-rt-pipe-corrosion-resistant-5-pack/
+  - SKU `SFFN1-1220-01-5`. Material **PA66 nylon**, potable-water rated. The 5-pack is
+    exactly the quantity wanted: 4 fitted (2 per pump) + 1 spare for the fit test.
   - **Why this part, three reasons:**
-    1. **360° swivel** — the elbow is aimed *after* tightening. NPT is tapered, so a
-       fixed elbow lands wherever it seals; this removes that constraint entirely and
-       lets the pump bay be packaged tight.
+    1. **Swivel** — the elbow is aimed *after* tightening. NPT is tapered, so a fixed
+       elbow lands wherever it seals; a swivel removes that constraint entirely and
+       lets the pump bay be packaged tight. `src/pump_frame.py` depends on this: it
+       models one clearance envelope per port with the leg aimed along +Y, which is
+       only legitimate because the clock angle is chosen, not inherited from the taper.
     2. **Nylon, not brass.** The pump head is moulded plastic; a brass female fitting
-       bites and is how you crack a port by over-tightening. This is almost certainly
-       why the McMaster brass barbs thread hard while Seaflo's own strainer doesn't.
-    3. **Seals on a face/O-ring, not the thread taper** (no PTFE needed). A marginal
-       taper seal on the suction side draws air, which is a standing suspect in v1's
-       priming failures.
-  - **Fit is likely but UNVERIFIED — buy one and test before relying on four.** The
-    thread is standard 1/2"-14 NPT so it will mate; what is unproven is whether Seaflo
-    replicated the shoulder the O-ring seals against. Supporting evidence: v1's CAD
-    cross-references the SHURflo 4008 datasheet for this pump's dimensions
-    (`PUMP_L = 206.0  # SHURflo 4008 sheet: [206]`) — the Seaflo 42 is a close clone of
-    the 4008, which is what these fittings were made for.
-  - Size: **244-3936** is the same fitting with a 5/8" barb if the extra suction margin
-    is wanted. 1/2" chosen because the port bore is ~13 mm regardless, v2's runs are
-    short, and 1/2" vinyl bends to ~50 mm vs ~65 mm — real money in a 206 mm bay.
+       bites and is how you crack a port by over-tightening. This is the answer to
+       *"the filter that comes with the pump screws on easily but my fittings are quite
+       hard to thread"* — the strainer is plastic on plastic and these are too.
+    3. **Seals on an O-ring, not the thread taper** (no PTFE needed). A marginal taper
+       seal on the suction side draws air, a standing suspect in v1's priming failures.
+       It is also *why* it threads easily: the thread only holds the joint closed, so
+       there is no torque-to-seal to get wrong.
+  - **This replaces Shurflo 244-3926, and the swap removes the open risk.** The Shurflo
+    part was a *Pentair* fitting hoped to fit a *Seaflo* pump, and the BOM had to carry
+    "fit is likely but UNVERIFIED — buy one and test before relying on four", because
+    nothing established that Seaflo replicated the shoulder Shurflo's O-ring seals
+    against. This is Seaflo's own fitting for Seaflo's own 1/2"-14 port, so that
+    question does not arise. The Pentair page was also **not purchasable** — a
+    "where to buy" landing page with no listing and no cart.
+  - Still unmeasured: the fitting's **dimensions**. `ELBOW_NUT_D/L` and `ELBOW_LEG_D/L`
+    in `src/pump_frame.py` remain conservative estimates, and `POST_X` (hence the whole
+    frame width) is derived from `ELBOW_NUT_L`. Measure one on arrival and re-run the
+    build — the frame should get *narrower*, not wider, since the estimates were set
+    for a brass fitting.
+  - **Fallback if the swivel turns out to be clocked or the barb profile is wrong:**
+    SEAFLO **51F03**, 1/2"-14 FNPT × 1/2" barb angled pump fitting, $5.49 (POM/PP),
+    sold in 1/2/4/10 packs and listed explicitly for Shurflo/Seaflo/Jabsco pumps —
+    https://seaflodirect.com/seaflo-no-51f03-1-2-14-fnpt-x-1-2-barb-angled-universal-pump-fittings-for-shurflo-seaflo-circle-river-johnson-jabsco-flojet-remco-lippert-usa-adventure-and-other-pumps-choose-pack-size/
+    Nothing in its listing calls it a swivel, so treat the clock angle as inherited
+    from the taper if this one is used — which the frame is *not* currently drawn for.
+  - Size: a 5/8" barb would add suction margin, but 1/2" is chosen because the port
+    bore is ~13 mm regardless, v2's runs are short, and 1/2" vinyl bends to ~50 mm vs
+    ~65 mm — real money in a 206 mm bay.
 
 ## 3. Tubing & plumbing  *(🎒)*
 

@@ -56,7 +56,7 @@ PUMP B IS FLIPPED END-FOR-END. Both ports sit on opposite sides of the head, so
 two adjacent pumps would point their inner ports straight at each other; flipping
 lands the port clusters 112 mm apart in Y so the elbows interleave.
 
-Fittings are Shurflo 244-3926 — 1/2"-14 NPT(F) x 1/2" barb, 90°, WINGNUT SWIVEL.
+Fittings are SEAFLO SFFN1-1220-01 — 1/2"-14 FNPT x 1/2" barb, 90°, PA66, SWIVEL.
 The swivel lets the bay be tight: NPT is tapered, so a fixed elbow lands wherever
 it seals, and designing for an arbitrary clock angle would cost a clearance
 annulus around every port. The nut still projects 22 mm beyond each port, and
@@ -122,9 +122,11 @@ POST_Z0 = FLOOR_T
 POST_Z1 = 124.0          # beam underside; clears PUMP_H + FLOOR_T = 119
 DECK_Z  = POST_Z1 + BEAM_H       # 164 — the tank sits here
 
-# ── Fitting envelope — Shurflo 244-3926 ─────────────────────────────────────
+# ── Fitting envelope — SEAFLO SFFN1-1220-01 ─────────────────────────────────────
 # Conservative clearance solid, NOT a model of the part. Replace with measured
-# numbers once one is in hand.
+# numbers once one is in hand. These were set for a BRASS fitting, so the PA66
+# part should come in UNDER them — POST_X (and so FRAME_W) is derived from
+# ELBOW_NUT_L and should shrink, never grow, when the real number lands.
 ELBOW_NUT_D, ELBOW_NUT_L = 34.0, 22.0    # barrel coaxial with the port
 ELBOW_LEG_D, ELBOW_LEG_L = 26.0, 45.0    # the turned leg, aimed along +Y
 
