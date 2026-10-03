@@ -157,6 +157,9 @@ PCB_PANEL_T  = 4.0       # backing panel on the +X face, the board's mounting su
 PCB_STANDOFF = 3.0       # panel face -> board underside; bottom-side parts clear
 PCB_BOSS_D   = 9.0
 PCB_HOLE_XY  = ((-64.0, -44.0), (64.0, -44.0), (-64.0, 44.0), (64.0, 44.0))
+PCB_CLR      = 6.0       # cavity clearance around the board and its tallest part
+PCB_WALL_T   = 3.0
+PCB_COVER_T  = 3.0
 
 # Heights for footprints cadkit's shared table does not carry. Mirrors
 # elec/cad_geom_check.py — a footprint with no height RAISES rather than being
@@ -275,7 +278,64 @@ def _frame_whole() -> cq.Workplane:
             out = out.union(cq.Workplane("XY").workplane(offset=POST_Z0)
                             .center(sx * POST_X, by)
                             .rect(SECT, SECT).extrude(POST_Z1 - POST_Z0))
-    return out.union(_pcb_panel())
+    return out.union(_pcb_panel()).union(_pcb_shroud())
+
+
+def _pcb_cavity():
+    """(y0, y1, z0, z1, x0, x1) of the volume the board and its parts occupy,
+    plus clearance. Derived from the PLACED solid, so it tracks the routed board
+    — it is not a second set of numbers that can drift from the first."""
+    b = pcb_solid().val().BoundingBox()
+    return (b.ymin - PCB_CLR, b.ymax + PCB_CLR,
+            b.zmin - PCB_CLR, b.zmax + PCB_CLR,
+            PCB_FACE_X, b.xmax + PCB_CLR)
+
+
+def _pcb_shroud() -> cq.Workplane:
+    """Walls around the board: two sides and a roof, OPEN AT THE BOTTOM.
+
+    Open-bottomed is the whole weatherproofing strategy (user: "so long as the
+    holes face downward we should be fine"), and it is why the board is posed
+    with its terminal edge down — every cable leaves through the open face, and
+    anything that gets in drains straight out.
+
+    Prints for free in the X-build: every wall is a column running +X from the
+    backing panel, so nothing bridges. The COVER cannot be part of this — closing
+    the +X face would roof a cavity — so it is a separate flat part.
+    """
+    y0, y1, z0, z1, x0, x1 = _pcb_cavity()
+    outer = (cq.Workplane("YZ").workplane(offset=x0)
+             .center((y0 + y1) / 2.0, (z0 + z1) / 2.0)
+             .rect(y1 - y0 + 2 * PCB_WALL_T, z1 - z0 + 2 * PCB_WALL_T)
+             .extrude(x1 - x0))
+    # The cavity runs off the BOTTOM, so no floor is ever created.
+    inner = (cq.Workplane("YZ").workplane(offset=x0 - BOOL_OVERSHOOT)
+             .center((y0 + y1) / 2.0, (z1 + (z0 - 80.0)) / 2.0)
+             .rect(y1 - y0, z1 - (z0 - 80.0))
+             .extrude(x1 - x0 + 2 * BOOL_OVERSHOOT))
+    return outer.cut(inner)
+
+
+def pcb_cover() -> cq.Workplane:
+    """The shroud's outer face, printed flat and screwed on.
+
+    Separate because an integral cover would be a roof over the cavity — the one
+    bridge the X-build cannot absorb.
+    """
+    y0, y1, z0, z1, x0, x1 = _pcb_cavity()
+    cover = (cq.Workplane("YZ").workplane(offset=x1)
+             .center((y0 + y1) / 2.0, (z0 + z1) / 2.0)
+             .rect(y1 - y0 + 2 * PCB_WALL_T, z1 - z0 + 2 * PCB_WALL_T)
+             .extrude(PCB_COVER_T))
+    # Drain/vent slots along the bottom edge — it is the open face anyway, but the
+    # cover must not close it off.
+    for i in range(5):
+        cy = y0 + (y1 - y0) * (i + 0.5) / 5.0
+        cover = cover.cut(cq.Workplane("YZ").workplane(offset=x1 - BOOL_OVERSHOOT)
+                          .center(cy, z0 - PCB_WALL_T / 2.0)
+                          .rect(14.0, PCB_WALL_T + 2 * BOOL_OVERSHOOT)
+                          .extrude(PCB_COVER_T + 2 * BOOL_OVERSHOOT))
+    return cover
 
 
 def _frame_half(side: int) -> cq.Workplane:
@@ -306,6 +366,7 @@ def _frame_half(side: int) -> cq.Workplane:
 
 
 frame_left, frame_right = _frame_half(-1), _frame_half(+1)
+pcb_cover_part = pcb_cover()
 
 # Each half stands on its OUTER face so the posts land in the first layers.
 # Rotating about +Y by -90 maps x -> z (so x=-POST_X goes DOWN); by +90 maps
@@ -313,6 +374,7 @@ frame_left, frame_right = _frame_half(-1), _frame_half(+1)
 PRINT_ROT = {
     "v2_frame_left":  ((0, 1, 0), -90),
     "v2_frame_right": ((0, 1, 0), +90),
+    "v2_pcb_cover":   ((0, 1, 0), +90),   # flat on its face
 }
 
 
@@ -358,11 +420,13 @@ def _build() -> None:
            .add(_pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
            .add(_elbows(), name="fittings", color=color("#c8a24a"))
            .add(pcb_solid(), name="pcb", color=color("#2f7d4f"))
+           .add(pcb_cover_part, name="pcb_cover", color=color("#6a8fb5"))
            .add(_dock_placed(), name="battery_dock", color=color("#d08a3e"))
            .add(_tank(),  name="tank_viz",  color=color("#9fd4e8", alpha=0.35))
            .add(_shelf(), name="shelf_viz", color=color("#808080", alpha=0.5)))
 
-    for nm, part in (("v2_frame_left", frame_left), ("v2_frame_right", frame_right)):
+    for nm, part in (("v2_frame_left", frame_left), ("v2_frame_right", frame_right),
+                     ("v2_pcb_cover", pcb_cover_part)):
         posed = print_pose(part, PRINT_ROT.get(nm))
         export_step(posed, str(OUT / (nm + ".step")))
         bb = posed.val().BoundingBox()
