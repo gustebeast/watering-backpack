@@ -1,70 +1,196 @@
 # Consolidated Parts List — by Vendor
 
 Two projects on one buying run. Tags keep them separate:
-- 🎒 = **Watering Backpack**
+- 🎒 = **Watering Backpack** — now at **v2** (see [DESIGN_V2.md](DESIGN_V2.md))
 - 🐱 = **Cat Bed Weight Sensor**
 
----
-
-## 1. McMaster-Carr  *(all 🎒)*
-
-McMaster part numbers aren't stable to deep-link, but their site search is fast.
-Search the **bold term**, then apply the filters in parentheses.
-
-- ~~🎒 Valve — McMaster 4912K34~~ — **DROPPED.** Killswitch = unplug the Makita battery (diaphragm pump check-valves block flow when off, no siphon). Removes a joint + simplifies housing. (−$10.27)
-- [x] 🎒 **Barbed adapters — both ports: 5346K56** — 3/8" hose × 1/2" NPT **female**, brass, crimp-style barb (worm-clamp works fine), **pack of 5, $23.68** — one onto each pump port (suction + forward).
-  - Both ports are 1/2" MALE NPT → need female barbs → 2× 5346K56 (covered by the pack of 5).
-  - Replaced the old male SS barb (5361K38) — that only worked with the now-dropped valve as a gender adapter. (−$13.34)
-  - Vacuum "Not Rated" is a catalog gap, not a real concern at these gentle vacuums; tubing already passed the vacuum test.
-- Tank: **open, top-routed line + small vent hole** (decided) — no bulkhead, strainer foot handled separately.
-- [x] 🎒 **Hose clamps — LOCKED IN: 5574K13** — Worm-Drive, smooth-band (soft hose), 304 SS, ID range 1/2"–3/4" (centers on your ~5/8" clamped OD), pack of 10, $18.20. *(If OD-with-barb measures nearer 1/2", 5574K12 (5/16"–5/8") centers better.)*
-- [x] 🎒 **Inline fuse holder — LOCKED IN: 8110K3** — Automotive inline holder, Standard/ATC blade, 1–20A, **32V** (headroom over 20V Makita; indicator models are only 12V-rated), 16 AWG leads, cover, $4.34. Splices into battery **+** lead before the buck.
-- [x] 🎒 **10A blade fuse — LOCKED IN: 7460K45** — Standard/ATC (257/AF/ATC/ATO), 10A, **32V**, fast-acting, pack of 5, $3.83. Drops into the 8110K3 holder.
-- [x] 🎒 **Tubing — OWNED (Ace ProLine 3/8" ID × 1/2" OD vinyl)** — passed vacuum test (stays open under full mouth vacuum), good for both pressure and suction lines. Braided **not needed**. *(Watch for line flattening only under hard dead-head reverse vacuum, e.g. clogged sieve.)*
-- Tip: McMaster homepage → [mcmaster.com](https://www.mcmaster.com) → paste the search term in the top search bar; left-rail filters appear automatically.
-
-## 2. DigiKey  *(all 🐱)*
-- [x] 🐱 **Crydom CX240D5 SSR** — PCB-mount, 240 VAC / 5A, DC control, SPST-NO 4-SIP — $21.62 — https://www.digikey.com/en/products/detail/sensata-crydom/CX240D5/139586
-  - **Driven via transistor** (3.3V GPIO too low for the SSR input). Topology: GPIO →[1kΩ]→ 2N3904 base; emitter→GND; collector→SSR ctrl(−); SSR ctrl(+)→+5V.
-- [x] 🐱 **Interlink FSR 406** (1.5" square, solder tabs) — DK# **1027-1002-ND**, MPN 30-73258, $10.08 — https://www.digikey.com/en/products/detail/interlink-electronics/30-73258/2476470
-- [x] 🐱 **2N3904 NPN transistor** (SSR driver) — $0.14 — https://www.digikey.com/en/products/detail/diotec-semiconductor/2N3904/13164701
-- [x] 🐱 **10 kΩ resistor, 1/4 W** (FSR divider) — $0.10 — https://www.digikey.com/en/products/detail/stackpole-electronics-inc/CF14JT10K0/1741265 — *may re-tune for the larger FSR 406*
-- [x] 🐱 **1 kΩ resistor, 1/4 W** (2N3904 base) — $0.10 — https://www.digikey.com/en/products/detail/stackpole-electronics-inc/CF14JT1K00/1741314
-- *Cat-project DigiKey subtotal: **$32.04***
-
-## 2a. Owned — fastening hardware  *(🎒)*
-- [x] 🎒 **M2×20 socket screws — OWNED** (McMaster 91292A013, 18-8 SS) — **6× used** on the electronics tray: 2× ESP32 clamp beam, 2× BTS7960 board, 2× buck board (user confirmed M2 fits the BTS + Pololu holes).
-- [x] 🎒 **M2 heat-set inserts — OWNED** (McMaster 94459A110, brass, 2.5mm installed) — **6× pressed flush** into the standoff/post tops (Ø3.2 pilot bores printed in the tray; Ø2.4 clearance below each for the long shank).
-
-## 2b. Owned — logic power  *(🎒)*
-- [x] 🎒 **Traco TSR 1-2450E — OWNED** — 5V/1A switching regulator, SIP-3 (≈11.7×7.6×10.2mm), 6.5–36V input. Feeds the ESP32 5V pin **straight from the fused battery rail** (not the 12V pump rail — keeps logic clean when the pump loads the buck). Closes the "no 5V source" gap found during the wiring plan. Zip-ties into the harness beside the ESP32 (tray has anchor slots).
-
-## 3. Pololu  *(🎒)*
-- [x] 🎒 **D42V110F12 buck regulator, 12V/9A** — $59.95, 12–60V input, "Active & Preferred" — https://www.pololu.com/product/5677
-  - Chosen over the older D24V150F12 (15A, $79.95, Rationed): newer, cheaper, in stock, same size/pinout, higher input ceiling.
-  - 9A vs 7.5A pump peak is ~1.2× headroom — fine for typical 2–5A watering, but **add a heatsink / ensure airflow** for high-pressure peaks. Real operating current is well below the 7.5A max most of the time.
-
-## 4. AliExpress  *(all 🎒)*
-- [x] 🎒 **Joystick — LOCKED IN:** KY-023 dual-axis XY module ("1-5PCS Higher Quality PS2 ... KY-023")
-  - Link: https://www.aliexpress.us/item/3256809150872159.html
-  - $0.99 (2PCS option), import charges included, 5.0★
-  - **Buy the 3PCS or 4PCS SKU** for spares (only need the VRy axis)
-  - Wiring: power from ESP32 **3.3V** (NOT 5V) → output maxes at 3.3V, safe into ADC1. VRy → GPIO 32–39.
-- [x] 🎒 **BTS7960 — LOCKED IN & VERIFIED:** "Double BTS7960" 43A H-bridge module (EGBO) — $4.91/1pc ($1.93 was new-shopper promo), 4.9★, 135 reviews, 3,000+ sold — item 1005007038406337 (https://www.aliexpress.us/item/1005007038406337.html)
-  - **Pick the 2PCS SKU** for a spare power stage. 43A rating ≫ 7.5A pump.
-  - Wiring: **VCC → 5V** (ESP32 5V tap, NOT 3.3V), GND common; **R_EN+L_EN → tie to 5V** (enable); **RPWM = forward PWM, LPWM = reverse PWM** (never both high); R_IS/L_IS unconnected for v1.
-  - **3.3V PWM confirmed working** (buyer review) → drive RPWM/LPWM straight from ESP32, no level shifter needed.
-- ~~🎒 YF-S201 flow sensor~~ — **DROPPED** (not needed; open-loop PWM control is sufficient for v1).
-
-## 5. eReplacementParts  *(🎒)*
-- [x] 🎒 **Makita 643852-2 terminal — LOCKED & VERIFIED — qty 2** (one spare), $8.84 ea = ~$17.68, confirmed in stock, sold individually (supersedes 643859-8), ERP10153397 — https://www.ereplacementparts.com/parts/drill/makita/erp10153397/terminal-643852-2/
-
-## 6. Seaflo Direct  *(🎒)*
-- [x] 🎒 **Seaflo 42-Series pump — LOCKED & VERIFIED — SFDP1-030-055-42, $74.99** — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
-  - ⚠️ **Select 12V** in the required Voltage dropdown (not 24V).
-  - ⚠️ **Bypass the internal automatic pressure switch** — it cuts the pump on downstream pressure, fighting PWM + blocking reverse flow (gotcha #5).
-  - 📦 Includes: **50-mesh inlet strainer** (covers the tank-side strainer you planned to source) + **2× 1/2" barb adapters** (1/2" hose, NOT 3/8" — spares only; your 3/8" reducers still needed).
+**v2 changed the architecture substantially.** The 4-way reversing valve is gone
+(replaced by a second pump), the 12 V rail is gone (pumps run from the battery through
+on-board MOSFETs), and the tubing is up-sized from 3/8" to 1/2". Parts that v1 bought
+and v2 no longer uses are listed at the bottom rather than deleted — several were
+bought and are on the shelf, and the reasoning is worth keeping.
 
 ---
 
-*Last updated: 2026-05-26*
+## 1. Seaflo  *(🎒)*
+
+- [ ] 🎒 **Seaflo 42-Series pump — SFDP1-030-055-42, $74.99 — BUY A SECOND** — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
+  - ⚠️ **Select 12V** in the Voltage dropdown (not 24V).
+  - v2 runs **two pumps in anti-parallel** — one plumbed tank→pot, one pot→tank —
+    instead of reversing flow through a valve. A diaphragm pump cannot be reversed
+    (its check valves are passive), and those same check valves seal the idle pump's
+    branch, which is what makes this work. See DESIGN_V2 §1.
+  - Ports are **1/2"-14 MNPT** (confirmed against Seaflo/West Marine listings).
+  - ⚠️ **Bypass the internal pressure switch** on both — it cuts the pump on downstream
+    pressure, fighting PWM.
+  - 📦 Includes a 50-mesh inlet strainer (now redundant — v2 filters on the green line)
+    and 2× 1/2" barb adapters (straight; v2 uses 90° swivels instead).
+
+## 2. Pentair / Shurflo — pump fittings  *(🎒, NEW in v2)*
+
+- [ ] 🎒 **Shurflo 244-3926 — 1/2"-14 NPT(F) × 1/2" barb, 90° wingnut swivel elbow — qty 5**
+  - https://www.pentair.com/en-us/flow/shurflo/shurflo-products/shurflo-rv-applications/accessories/elbow-fittings.html
+  - 4 needed (2 per pump) + 1 spare for the fit test below.
+  - **Why this part, three reasons:**
+    1. **360° swivel** — the elbow is aimed *after* tightening. NPT is tapered, so a
+       fixed elbow lands wherever it seals; this removes that constraint entirely and
+       lets the pump bay be packaged tight.
+    2. **Nylon, not brass.** The pump head is moulded plastic; a brass female fitting
+       bites and is how you crack a port by over-tightening. This is almost certainly
+       why the McMaster brass barbs thread hard while Seaflo's own strainer doesn't.
+    3. **Seals on a face/O-ring, not the thread taper** (no PTFE needed). A marginal
+       taper seal on the suction side draws air, which is a standing suspect in v1's
+       priming failures.
+  - **Fit is likely but UNVERIFIED — buy one and test before relying on four.** The
+    thread is standard 1/2"-14 NPT so it will mate; what is unproven is whether Seaflo
+    replicated the shoulder the O-ring seals against. Supporting evidence: v1's CAD
+    cross-references the SHURflo 4008 datasheet for this pump's dimensions
+    (`PUMP_L = 206.0  # SHURflo 4008 sheet: [206]`) — the Seaflo 42 is a close clone of
+    the 4008, which is what these fittings were made for.
+  - Size: **244-3936** is the same fitting with a 5/8" barb if the extra suction margin
+    is wanted. 1/2" chosen because the port bore is ~13 mm regardless, v2's runs are
+    short, and 1/2" vinyl bends to ~50 mm vs ~65 mm — real money in a 206 mm bay.
+
+## 3. Tubing & plumbing  *(🎒)*
+
+- [ ] 🎒 **1/2" ID vinyl tubing — UPSIZE from 3/8"** (Ace ProLine or equivalent)
+  - v1 ran 3/8" at **8.7 ft/s**; suction lines want 2–3 ft/s. 1/2" brings it to 4.9 ft/s
+    and cuts friction ~3× (loss scales with v²). This is the single cheapest improvement
+    to v1's priming margin.
+  - **The green line stays 3/8"** where it enters the inner-pot tube — that diameter is
+    fixed by the pot. Only the probe; the main run is 1/2". The printed filter housing is
+    the transition (3/8" barb pot-side, 1/2" barb pump-side).
+- [x] 🎒 **Hose clamps — 5574K13 — ALREADY OWNED, still correct** — McMaster, worm-drive,
+  smooth-band, 304 SS, 1/2"–3/4" ID. Centres nicely on 1/2" barb + tubing OD.
+- [ ] 🎒 **Uniseal — size TBD once a Scepter panel is measured**
+  - For the tank's low outlet (flooded suction). The Scepter's 44 mm opening is too
+    small to get a hand inside, so a conventional bulkhead — which needs a nut held on
+    the inside — is impossible. A Uniseal installs **entirely from outside**: drill, work
+    the seal in, push rigid pipe through. Standard on IBC totes and sealed barrels.
+  - Fallback if it doesn't suit: keep the top-routed dip tube and add a **foot valve** at
+    its bottom so the column can't drain back. Less robust (a weeping foot valve loses
+    prime overnight) but needs no modification to the tank.
+- [ ] 🎒 **Check valve, 1/2" barb — for the pot (green) line** — holds the suction column
+  between cycles. v2 ingests air at the end of *every* retract by design, so re-priming
+  is routine, not exceptional.
+
+## 4. Sensing & UI  *(🎒)*
+
+- [ ] 🎒 **XKC-Y25-V (or similar) non-contact capacitive liquid level sensor — qty 1**
+  - Clamps to the **outside** of the tank wall; nothing penetrates the tank and nothing
+    touches the water, which sidesteps the 44 mm opening entirely.
+  - Power **directly from the battery rail** (5–24 V spec covers the pack's 18–20 V) —
+    the v2 board only makes 3.3 V, so this matters.
+  - Configure output **NPN open-collector**, pulled up to 3.3 V on the board. Push-pull
+    mode would put 18 V into a GPIO.
+  - **Mount it slightly BELOW the true full line.** A false positive is cheap (stop
+    early, look); a false negative overflows. Capacitive thresholds drift with
+    temperature, so bias toward tripping early.
+- [x] 🎒 **KY-023 joystick — ALREADY OWNED, KEPT** — https://www.aliexpress.us/item/3256809150872159.html
+  - Measured noise on battery is **sd 7–9 counts**, which is healthy. The ~120-count
+    noise that cost a session to diagnose was a USB-tether artifact, not the wiper —
+    there is no observed fault to justify a hall-effect replacement, and hall thumbsticks
+    are consumer repair parts rather than distributor stock anyway.
+  - Powered from **3.3 V, not 5 V**, so the output stays inside the ADC range.
+  - Connects by a 5-pin cable to a JST-PH on the main board. Only VRy is used; wire all
+    five anyway (free, and leaves SW available as a mode button). The 2.54 mm housing
+    doesn't latch, so **the printed mount must capture it** — that, not a new PCB, is
+    the fix for v1's flying leads.
+
+## 5. Power & protection  *(🎒)*
+
+- [x] 🎒 **Makita 643852-2 terminal — qty 2 (one spare)**, $8.84 ea, ERP10153397 — https://www.ereplacementparts.com/parts/drill/makita/erp10153397/terminal-643852-2/
+- [x] 🎒 **Inline fuse holder — 8110K3** — McMaster, ATC blade, 1–20 A, 32 V, $4.34.
+  Splices into battery **+** before the board.
+- [x] 🎒 **10 A blade fuse — 7460K45** — McMaster, ATC, 32 V, fast-acting, 5-pack, $3.83.
+- [x] 🎒 **M2×20 socket screws — OWNED** (McMaster 91292A013) · **M2 heat-set inserts —
+  OWNED** (McMaster 94459A110, brass, 2.5 mm).
+
+## 6. Main PCBA  *(🎒, NEW in v2 — single board)*
+
+Fab: **JLCPCB**. Prefer Basic/Preferred library parts to avoid extended-part fees.
+Exact part numbers to be fixed at layout; this is the functional list.
+
+- 2× **N-channel MOSFET**, 40 V, low R<sub>DS(on)</sub>, DPAK/TO-263 on a copper pour —
+  one per pump. **No H-bridge**: each pump runs one direction only (direction is chosen
+  by *which pump* is energised), so a single switched leg replaces the BTS7960.
+- 2× **gate driver** — 7.5 A at 20 kHz is not a job for a bare 3.3 V GPIO
+- 2× **Schottky freewheel diode**. Plain, not synchronous: it conducts only during
+  off-time and usage is mostly full-on.
+- 1× **synchronous buck, 18 V → 3.3 V, ~1 A**, rated **≥36 V in** — a fresh Makita pack
+  is 20 V and inductive spikes exceed that, so 24 V-max parts (MP2315, AP63203) are too
+  close to the edge. LMR14030 / TPS54360 class.
+- 1× **ESP32-WROOM-32E** module. Expect an *Extended* part (small setup fee). Keep the
+  antenna over a board edge with copper keepout — **and don't orient it into the tank**;
+  5 gal of water is an excellent RF absorber.
+- 1× **active magnetic buzzer** + small transistor (~30 mA is beyond a GPIO) — tank-full
+  alert. Not a speaker; that needs an amplifier. Filling happens with the pump OFF and
+  the user at the tank, so ~85 dB is ample. Sound port faces **down** (it's also a water
+  path).
+- Battery voltage divider → ADC — duty compensation as the pack drains, and sag visible
+  in telemetry. Would have diagnosed v1's mid-run slowdown immediately.
+- **RC filter on the joystick ADC input** — the only noise defence available, since
+  there is no joystick board to buffer at the source.
+- 3.3 V pull-up for the level sensor's open-collector output.
+- Reverse-polarity P-FET, TVS, bulk electrolytics at the switches.
+- 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
+  path outdoors, and OTA covers everything after bring-up.
+- Connectors: XT30 battery in, XT30 per pump, 5-pin JST-PH joystick, JST-PH level sensor.
+- *Optional:* low-side shunt per pump → ADC.
+
+## 7. Structure  *(🎒)*
+
+- [x] 🎒 **Stansport Freighter aluminium pack frame — OWNED.** 820 × 400; shelf 340 wide
+  × 250 deep.
+- [x] 🎒 **Scepter 5 gal military water can — OWNED.** Base ≈ 348 × 173 mm, standing on
+  **two wide ribs** (one at the frame edge, one at the far edge) — two line loads, which
+  the frame's two cross-beams land on.
+- Printed in **PCTG**, in shade. Tougher than PETG at the stress risers that matter here
+  (hose openings, corners) and Tg ~85 °C. **Not PLA** — 21 kg of sustained load near
+  PLA's 60 °C Tg creeps.
+
+## 8. DigiKey  *(all 🐱 — unchanged)*
+
+- [x] 🐱 **Crydom CX240D5 SSR** — $21.62 — https://www.digikey.com/en/products/detail/sensata-crydom/CX240D5/139586
+  - Driven via transistor: GPIO →[1kΩ]→ 2N3904 base; emitter→GND; collector→SSR ctrl(−); ctrl(+)→+5V.
+- [x] 🐱 **Interlink FSR 406** — DK# 1027-1002-ND, MPN 30-73258, $10.08
+- [x] 🐱 **2N3904**, **10 kΩ**, **1 kΩ** resistors — $0.34 total
+
+---
+
+## Dropped — bought for v1, not used in v2
+
+Kept here rather than deleted: most are on the shelf, and the reasons are the design.
+
+- ~~**Farady 4-Way X-Port reversing ball valve, 5/8" barb**~~ — replaced by the second
+  pump. Two reasons, either sufficient: (1) it had to be hand-reachable, which forced the
+  chest-height routing that *caused* the priming failure — a diaphragm pump evacuates air
+  poorly and every dip in that path held a water slug it couldn't push through;
+  (2) it's a car AC/heater valve rated for ~2 actuations a year, against the ~60 per
+  session v2 would ask. It is already stiff enough to be hard to turn by hand, and dry
+  lube didn't fix it — that's a duty-cycle mismatch of three orders of magnitude, not a
+  lubrication problem.
+- ~~**Pololu D42V110F12 buck, 12 V/9 A, $59.95**~~ — v2 drives the pumps straight from
+  the battery through the board's MOSFETs with duty capped to synthesise 12 V. PWM
+  already chops the supply, so the motor doesn't care. Deletes the most expensive and
+  hottest part in the box. *(It was also the leading suspect for v1's mid-run slowdown —
+  12 V/9 A against a 7.5 A pump, sealed box, no heatsink, and the v1 BOM itself warned
+  "add a heatsink / ensure airflow". **Disproved**: the buck was cool. The slowdown is
+  still unexplained; battery sag and suction-side cavitation are the open candidates.)*
+- ~~**Traco TSR 1-2450E (5 V/1 A)**~~ — superseded by a single-stage 18 → 3.3 V buck on
+  the board.
+- ~~**BTS7960 43 A H-bridge**~~ — two unidirectional pumps need two switched legs, not
+  four quadrants.
+- ~~**McMaster 5346K56 barbed adapters** (3/8" hose × 1/2 NPT female)~~ — superseded by
+  the Shurflo swivels. These are the brass fittings that thread hard into the plastic
+  ports.
+- ~~**Beduan 5/8"→3/8" barb reducers ×4**~~ — v1 necked the whole system down to its
+  narrowest element in four places. v2 runs 1/2" throughout with one transition, inside
+  the printed filter housing.
+- ~~**McMaster 4912K34 ball valve**~~ — dropped during v1. Killswitch is unplugging the
+  Makita battery; the diaphragm check valves block flow when off, so there's no siphon.
+- ~~**YF-S201 flow sensor**~~ — dropped during v1; open-loop PWM was sufficient.
+
+---
+
+*Last updated: 2026-10-03 (v2 architecture)*
