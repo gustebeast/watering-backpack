@@ -5,69 +5,79 @@ That puts ~21 kg of water on printed plastic, so this is a STRUCTURE first and a
 enclosure second. The pumps are water-resistant and are NOT enclosed; only the
 PCB needs shelter.
 
-FOUR PRINTED PARTS, split for PRINTABILITY — not for bed size
--------------------------------------------------------------
-The obvious shape — one table with posts rising into integral cross-beams —
-cannot be printed. The beams span the pump bay at z=124 with nothing beneath
-them, and no orientation rescues it: posts run in Z and beams run in X, so
-whichever you stand on the bed, the other becomes an unsupported bridge. Closing
-the opening with 45° chamfers instead would need ~125 mm of rise to span 250 mm,
-and the pumps need exactly that volume.
+TWO PRINTED PARTS, BUILT ALONG X
+--------------------------------
+Printed the obvious way — deck flat on the bed, Z up — the cross-beams span the
+pump bay at z=124 with nothing beneath them, and no amount of chamfering saves it
+(closing a 250 mm opening at 45° needs ~125 mm of rise, which is the volume the
+pumps occupy). An earlier cut of this file split the table into four parts to dodge
+that. It does not need to be split at all.
 
-So the table is split along its own load path:
+**Build along X instead**, each half standing on its OUTER face. Then almost
+everything is a constant Y–Z section extruded along the build direction:
 
-  BASE   (x2)  deck + spine + posts. Prints deck-down: every feature is a
-               vertical prism rising off the bed. No overhang anywhere.
-  CRADLE (x2)  the two cross-beams plus their end ties, as one flat picture
-               frame. Prints lying down: a constant section extruded 40 mm.
-               No overhang anywhere.
+  deck, beams   span the full X -> constant section, no overhang
+  posts         sit at |X| = POST_X, the OUTERMOST feature -> they land in the
+                FIRST LAYERS, on the bed. (This is why the half must stand on its
+                outer face. Stood on the split face instead, the posts would
+                appear ~180 mm up the build with nothing beneath them.)
+  the joint     sits at X=0, the LAST layers -> the tenon is built on top of the
+                layer below it, and the mortise is simply an absence at the final
+                face. Both print without support.
 
-The cradle DROPS ONTO the post tops, so that joint is loaded in pure compression
-— the strong direction for printed plastic, and the direction the tank loads it
-anyway. Nothing is glued into a bridge.
+So the only features that are not constant-section are at the two ends of the
+build, which is exactly where a feature may start or stop for free.
 
-Load path: tank ribs -> cradle beams -> posts -> shelf. The pumps sit between the
-posts bearing NOTHING, so their rubber feet stay compliant — they could not if
-load passed through them.
+WHY THERE IS NO DECK SPINE
+--------------------------
+The previous version hosted the left/right joint on a raised spine along X=0.
+That cannot work in an X-build: the spine exists only near X=0, so it would start
+in mid-air partway up the build, and it cannot be run full-length because the
+pumps sit where it would go. Ramping it at 45° fails for the same reason — the
+ramp lands under a pump.
+
+The fix is to move the joint into the BEAMS, which cross X=0 at z=124..164 —
+clear above the inner swivel nuts (z 67..101) — and have 30 x 40 of section to
+host it. With the spine gone the pumps no longer need a gap between them, which
+narrows the whole frame from 394 to 364.
+
+Load path: tank ribs -> beams -> posts -> shelf. The pumps sit between the posts
+bearing NOTHING, so their rubber feet stay compliant — they could not if load
+passed through them.
 
 Why the pumps lie motor-axis-along-Y
 ------------------------------------
 The pump STEP measures 206 (motor axis) x 125 (port tip to tip) x 115 (feet to
 top). Laid motor-along-X, two pumps span 250 in the PORT axis — the whole shelf
-depth with nothing left for structure. Turned 90° the pair spans 250 in X, which
+depth, with nothing left for structure. Turned 90° the pair spans 250 in X, which
 the frame already needs for the 348 mm tank, and only 206 in Y.
 
 PUMP B IS FLIPPED END-FOR-END. Both ports sit on opposite sides of the head, so
 two adjacent pumps would point their inner ports straight at each other; flipping
-lands the port clusters 112 mm apart in Y (159 vs 47 from each pump's own rear
-face) so the elbows interleave instead of colliding.
+lands the port clusters 112 mm apart in Y so the elbows interleave.
 
 Fittings are Shurflo 244-3926 — 1/2"-14 NPT(F) x 1/2" barb, 90°, WINGNUT SWIVEL.
-The swivel lets the bay be this tight: NPT is tapered, so a fixed elbow lands
-wherever it seals, and designing for an arbitrary clock angle would cost a
-clearance annulus around every port. The nut still projects 22 mm beyond each
-port along the port axis, and THAT sets the post positions — see POST_X.
+The swivel lets the bay be tight: NPT is tapered, so a fixed elbow lands wherever
+it seals, and designing for an arbitrary clock angle would cost a clearance
+annulus around every port. The nut still projects 22 mm beyond each port, and
+THAT sets the post positions — see POST_X.
 
 Sections
 --------
-Posts and beams share ONE width (SECT), so a post lands flush under the beam it
-carries. The first cut of this file had 18x26 posts under 15-wide beams: the beam
-was narrower than the post beneath it, which both read as an error and wasted the
-post's section.
+Posts and beams share ONE width (SECT) so a post lands flush under the beam it
+carries. An early cut had 18x26 posts under 15-wide beams — a beam narrower than
+the post beneath it, which read as an error and wasted the post's section.
 
 Loads
 -----
 5 gal + can ~= 21 kg ~= 206 N static; design to 3x for setting the pack down.
-Split over two beams, ~310 N each. A 30 x 40 section on a 364 mm span sees
-~1.7 MPa against PCTG's ~45 MPa yield and deflects ~0.6 mm — a ~26x margin. That
-margin is also why the cradle's mid-span splice is sound despite sitting exactly
-where bending peaks.
-
+Split over two beams, ~310 N each on a 334 mm span: a 30 x 40 section sees
+~1.6 MPa against PCTG's ~45 MPa yield and deflects ~0.5 mm — a ~28x margin.
 CREEP is the real risk, not strength: hence PCTG (Tg ~85 C) in shade, never PLA
 (Tg ~60 C, which a dark part in sun reaches).
 
 Frame:
-  • X = width, centred on 0. Both parts split at X = 0.
+  • X = width, centred on 0. Split at X = 0; each half builds along X.
   • Y = depth. Y=0 is the back (against the pack frame), +Y away from the wearer.
   • Z = up. Z=0 is the shelf top.
 
@@ -103,14 +113,12 @@ RIB_W     = 28.0         # ESTIMATE
 SHELF_W, SHELF_D = 340.0, 250.0
 
 # ── Sections ────────────────────────────────────────────────────────────────
-SECT     = 30.0          # post side AND beam width — one number, flush faces
-BEAM_H   = 40.0          # beam depth in Z (the bending dimension)
-FLOOR_T  = 4.0           # pump deck; carries no tank load, so it stays thin
-SPINE_H  = 22.0          # deck spine at X=0 — stiffens it AND hosts the joint
-POST_Z0  = FLOOR_T
-POST_Z1  = 124.0         # post top = cradle underside; clears PUMP_H + FLOOR_T = 119
-DECK_Z   = POST_Z1 + BEAM_H      # 164 — the tank sits here
-SOCKET_D = 10.0          # how far a post top enters the cradle
+SECT    = 30.0           # post side AND beam width — one number, flush faces
+BEAM_H  = 40.0           # beam depth in Z (the bending dimension)
+FLOOR_T = 4.0            # pump deck; carries no tank load, so it stays thin
+POST_Z0 = FLOOR_T
+POST_Z1 = 124.0          # beam underside; clears PUMP_H + FLOOR_T = 119
+DECK_Z  = POST_Z1 + BEAM_H       # 164 — the tank sits here
 
 # ── Fitting envelope — Shurflo 244-3926 ─────────────────────────────────────
 # Conservative clearance solid, NOT a model of the part. Replace with measured
@@ -119,28 +127,25 @@ ELBOW_NUT_D, ELBOW_NUT_L = 34.0, 22.0    # barrel coaxial with the port
 ELBOW_LEG_D, ELBOW_LEG_L = 26.0, 45.0    # the turned leg, aimed along +Y
 
 # ── Pump bay ────────────────────────────────────────────────────────────────
-PUMP_GAP   = 30.0                                  # channel at X=0 for the spine
-PUMP_CX    = PUMP_GAP / 2 + PUMP_PORT_W / 2        # 77.5 — each pump's centre |X|
-PUMP_X_OUT = PUMP_GAP / 2 + PUMP_PORT_W            # 140 — outer port tip
+# The pumps meet at X=0: with the spine gone there is nothing between them.
+PUMP_CX    = PUMP_PORT_W / 2.0                     # 62.5 — each pump's centre |X|
+PUMP_X_OUT = PUMP_PORT_W                           # 125  — outer port tip
 PUMP_Y0    = 2.0
 
-# Post centreline: the outer swivel nut reaches PUMP_X_OUT + ELBOW_NUT_L = 162,
+# Post centreline: the outer swivel nut reaches PUMP_X_OUT + ELBOW_NUT_L = 147,
 # so the post's INNER face must clear it. Three earlier guesses (135, 150, 160)
 # all sat on that nut.
-POST_X   = PUMP_X_OUT + ELBOW_NUT_L + 5.0 + SECT / 2.0      # 182
-FRAME_W  = 2 * (POST_X + SECT / 2.0)                        # 394
-FRAME_D  = 210.0
-BEAM_YS  = (RIB_INSET, TANK_D - RIB_INSET)                  # 12 and 161
+POST_X  = PUMP_X_OUT + ELBOW_NUT_L + 5.0 + SECT / 2.0      # 167
+FRAME_W = 2 * (POST_X + SECT / 2.0)                        # 364
+FRAME_D = 210.0
+BEAM_YS = (RIB_INSET, TANK_D - RIB_INSET)                  # 12 and 161
 
-# ── Joinery ─────────────────────────────────────────────────────────────────
-JOINT_W = 14.0           # across the spine face
-JOINT_L = 16.0           # engagement length
-UP = PrintSpec(nozzle=0.4, facing="up")      # both halves print "up"
+# ── Joinery — in the beams, at X=0, built in the LAST layers ────────────────
+JOINT_W = 18.0           # across the beam's width
+JOINT_L = 20.0           # engagement along X
+UP = PrintSpec(nozzle=0.4, facing="up")
 
-# The inner swivel nuts cross X=0 at the two port rows, so the spine cannot run
-# continuously. These are the Y bands it must skip.
 _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161, 49
-_SKIP = ELBOW_NUT_D + 6.0                    # 40 — band left clear
 
 
 def _pump(flip: bool) -> cq.Workplane:
@@ -178,35 +183,22 @@ def _elbow(x_tip, y, z, x_dir, y_dir):
 def _elbows() -> cq.Workplane:
     zc = FLOOR_T + PUMP_PORT_Z
     ya, yb = _PORT_YS
-    gh = PUMP_GAP / 2.0
     return (_elbow(-PUMP_X_OUT, ya, zc, -1, +1)
-            .union(_elbow(-gh, ya, zc, +1, +1))
+            .union(_elbow(0.0, ya, zc, +1, +1))
             .union(_elbow(+PUMP_X_OUT, yb, zc, +1, +1))
-            .union(_elbow(+gh, yb, zc, -1, +1)))
+            .union(_elbow(0.0, yb, zc, -1, +1)))
 
 
-def _spine_bands():
-    """Y bands where a spine at X=0 clears the inner swivel nuts."""
-    bands, y = [], 0.0
-    for py in sorted(_PORT_YS):
-        lo, hi = py - _SKIP / 2.0, py + _SKIP / 2.0
-        if lo > y:
-            bands.append((y, lo))
-        y = hi
-    if y < FRAME_D:
-        bands.append((y, FRAME_D))
-    return bands
-
-
-# ── BASE: deck + spine + posts. Prints deck-down, zero overhang ─────────────
-def _base_whole() -> cq.Workplane:
+def _frame_whole() -> cq.Workplane:
+    """Deck + posts + beams as one solid. Everything here is either constant in
+    X (deck, beams) or sits at |X| = POST_X (posts), which is the first layers of
+    an X-build."""
     out = (cq.Workplane("XY").center(0, FRAME_D / 2.0)
            .rect(FRAME_W, FRAME_D).extrude(FLOOR_T))
-    for y0, y1 in _spine_bands():
-        out = out.union(cq.Workplane("XY").workplane(offset=FLOOR_T)
-                        .center(0, (y0 + y1) / 2.0)
-                        .rect(SECT, y1 - y0).extrude(SPINE_H - FLOOR_T))
-    for sx in (-1, 1):
+    for by in BEAM_YS:                                  # cross-beams, full width
+        out = out.union(cq.Workplane("XY").workplane(offset=POST_Z1)
+                        .center(0, by).rect(FRAME_W, SECT).extrude(BEAM_H))
+    for sx in (-1, 1):                                  # posts, at the outer face
         for by in BEAM_YS:
             out = out.union(cq.Workplane("XY").workplane(offset=POST_Z0)
                             .center(sx * POST_X, by)
@@ -214,106 +206,39 @@ def _base_whole() -> cq.Workplane:
     return out
 
 
-# ── CRADLE: two beams + end ties, one flat picture frame ────────────────────
-def _cradle_whole() -> cq.Workplane:
-    out = None
-    for by in BEAM_YS:
-        b = (cq.Workplane("XY").workplane(offset=POST_Z1)
-             .center(0, by).rect(FRAME_W, SECT).extrude(BEAM_H))
-        out = b if out is None else out.union(b)
-    for sx in (-1, 1):
-        out = out.union(cq.Workplane("XY").workplane(offset=POST_Z1)
-                        .center(sx * POST_X, sum(BEAM_YS) / 2.0)
-                        .rect(SECT, BEAM_YS[1] - BEAM_YS[0]).extrude(BEAM_H))
-    # Post sockets: locate the cradle in X-Y; load passes in compression through
-    # the socket floor. Cut upward from the underside.
-    for sx in (-1, 1):
-        for by in BEAM_YS:
-            out = out.cut(cq.Workplane("XY")
-                          .workplane(offset=POST_Z1 - BOOL_OVERSHOOT)
-                          .center(sx * POST_X, by)
-                          .rect(SECT + 0.4, SECT + 0.4)
-                          .extrude(SOCKET_D + BOOL_OVERSHOOT))
-    return out
-
-
-def _half_box(side: int) -> cq.Workplane:
-    return (cq.Workplane("XY")
-            .center(side * (FRAME_W / 4.0), FRAME_D / 2.0)
-            .rect(FRAME_W / 2.0, FRAME_D + 2 * BOOL_OVERSHOOT)
-            .extrude(DECK_Z + BOOL_OVERSHOOT))
-
-
-def _base_half(side: int) -> cq.Workplane:
-    """One printed base half, with the left/right joint in the spine.
+def _frame_half(side: int) -> cq.Workplane:
+    """One printed half, with the left/right joint in the beams at X=0.
 
     A cadkit mortise-and-tenon, not a butt: AGENTS.md is explicit that this joint
     is print-validated and should be CALLED, never re-modelled. Install is +x —
-    the halves slide together across the split.
+    the halves slide together across the split, which is also the build axis, so
+    the tenon is the last thing printed and the mortise is an open face.
     """
-    half = _base_whole().intersect(_half_box(side))
-    j = joint(JOINT_W, JOINT_L, UP, UP, install="+x")
-    zc = FLOOR_T + (SPINE_H - FLOOR_T) / 2.0
-    tb = j.tenon(root=2.0).val().BoundingBox()
-    # The tenon protrudes past X=0 into the other half's space, so without this
-    # it would start in mid-air on the bed — a 0 mm^3 footprint, measured. The
-    # deck LAPS under it instead: supported print, and a second shear face.
-    lap_x, lap_clr = JOINT_L + 2.0, 0.25
-    lap_z = zc + tb.zmin
-    for y0, y1 in _spine_bands():
-        if y1 - y0 < JOINT_L * 2.5:
-            continue                           # band too short to host a joint
-        yc = (y0 + y1) / 2.0
+    box = (cq.Workplane("XY")
+           .center(side * (FRAME_W / 4.0), FRAME_D / 2.0)
+           .rect(FRAME_W / 2.0, FRAME_D + 2 * BOOL_OVERSHOOT)
+           .extrude(DECK_Z + BOOL_OVERSHOOT))
+    half = _frame_whole().intersect(box)
+
+    jointned = joint(JOINT_W, JOINT_L, UP, UP, install="+x")
+    zc = POST_Z1 + BEAM_H / 2.0                 # mid-depth of the beam
+    for by in BEAM_YS:
         if side < 0:
-            half = (half
-                    .union(cq.Workplane("XY").center(lap_x / 2.0, yc)
-                           .rect(lap_x, SECT).extrude(lap_z))
-                    .union(j.tenon(root=2.0).translate((0, yc, zc))))
+            half = half.union(jointned.tenon(root=2.0).translate((0, by, zc)))
         else:
-            half = (half
-                    .cut(cq.Workplane("XY")
-                         .workplane(offset=-BOOL_OVERSHOOT)
-                         .center(lap_x / 2.0, yc)
-                         .rect(lap_x + 2 * lap_clr, SECT + 2 * lap_clr)
-                         .extrude(lap_z + lap_clr + BOOL_OVERSHOOT))
-                    .cut(j.mortise(drop=2.0).translate((0, yc, zc))))
+            half = half.cut(jointned.mortise(drop=2.0).translate((0, by, zc)))
     return half
 
 
-def _cradle_half(side: int) -> cq.Workplane:
-    """One printed cradle half.
+frame_left, frame_right = _frame_half(-1), _frame_half(+1)
 
-    The splice lands at mid-span, where bending peaks — acceptable only because
-    the margin there is ~26x. It is an interlocking HALF-LAP, not a butt: the -X
-    half carries the top half of the section through the lap and the +X half the
-    bottom, so the joint transfers moment in shear across a 36 mm overlap rather
-    than relying on a glue line in tension.
-    """
-    whole = _cradle_whole()
-    lap, clr = 36.0, 0.2
-    zmid = POST_Z1 + BEAM_H / 2.0
-    big = FRAME_W + 100.0
-    yc, yd = FRAME_D / 2.0, FRAME_D + 2 * BOOL_OVERSHOOT
-
-    outer = (cq.Workplane("XY")
-             .center(side * (lap / 2.0 + big / 2.0), yc)
-             .rect(big, yd).extrude(DECK_Z + BOOL_OVERSHOOT))
-    if side < 0:                       # -X half keeps the TOP of the lap
-        tier = (cq.Workplane("XY").workplane(offset=zmid + clr / 2.0)
-                .center(0, yc).rect(lap, yd).extrude(BEAM_H))
-    else:                              # +X half keeps the BOTTOM
-        tier = (cq.Workplane("XY").center(0, yc)
-                .rect(lap, yd).extrude(zmid - clr / 2.0))
-    return whole.intersect(outer.union(tier))
-
-
-base_left,   base_right   = _base_half(-1),   _base_half(+1)
-cradle_left, cradle_right = _cradle_half(-1), _cradle_half(+1)
-
-# Bases print deck-down as modelled; cradles print lying as modelled (constant
-# section extruded in Z). Neither needs rotating — which is the whole point of
-# the split.
-PRINT_ROT = {}
+# Each half stands on its OUTER face so the posts land in the first layers.
+# Rotating about +Y by -90 maps x -> z (so x=-POST_X goes DOWN); by +90 maps
+# x -> -z (so x=+POST_X goes down). print_pose then drops to z=0 and centres.
+PRINT_ROT = {
+    "v2_frame_left":  ((0, 1, 0), -90),
+    "v2_frame_right": ((0, 1, 0), +90),
+}
 
 
 def _tank() -> cq.Workplane:
@@ -328,22 +253,20 @@ def _shelf() -> cq.Workplane:
 
 def _build() -> None:
     asm = (cq.Assembly()
-           .add(base_left,    name="base_left",    color=color("#3a7bd5"))
-           .add(base_right,   name="base_right",   color=color("#2a5d9f"))
-           .add(cradle_left,  name="cradle_left",  color=color("#4fa36b"))
-           .add(cradle_right, name="cradle_right", color=color("#357a4c"))
+           .add(frame_left,  name="frame_left",  color=color("#3a7bd5"))
+           .add(frame_right, name="frame_right", color=color("#2a5d9f"))
            .add(_pump_placed(-1), name="pump_a", color=color("slategray"))
            .add(_pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
            .add(_elbows(), name="fittings", color=color("#c8a24a"))
            .add(_tank(),  name="tank_viz",  color=color("#9fd4e8", alpha=0.35))
            .add(_shelf(), name="shelf_viz", color=color("#808080", alpha=0.5)))
 
-    for nm, part in (("v2_base_left", base_left), ("v2_base_right", base_right),
-                     ("v2_cradle_left", cradle_left),
-                     ("v2_cradle_right", cradle_right)):
-        export_step(print_pose(part, PRINT_ROT.get(nm)), str(OUT / (nm + ".step")))
-        bb = part.val().BoundingBox()
-        print("%-17s %6.1f x %6.1f x %6.1f mm" % (nm, bb.xlen, bb.ylen, bb.zlen))
+    for nm, part in (("v2_frame_left", frame_left), ("v2_frame_right", frame_right)):
+        posed = print_pose(part, PRINT_ROT.get(nm))
+        export_step(posed, str(OUT / (nm + ".step")))
+        bb = posed.val().BoundingBox()
+        print("%-15s print pose %6.1f x %6.1f x %6.1f mm  (bed 255)"
+              % (nm, bb.xlen, bb.ylen, bb.zlen))
 
     asm.save(str(OUT / "assembly.step"), mode="default")
     show(str(OUT / "assembly.step"))
