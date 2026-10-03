@@ -124,7 +124,7 @@ of the real body** — that outline is what the CAD draws — and add its `HEIGH
 | `cad_geom_check.py` | `<cad python> elec/cad_geom_check.py <board>`: hands `cadkit.board_check.check` the solid your assembly places. `finish.py` runs it last; without it the run says **the CAD is UNCHECKED** |
 | `pcb_declared.py` | `declared(board, vtype, refs) -> bool`: DRC violations the design accepts on purpose, **by shape**. A count is not a check |
 | `silk.py`, `export_geom.py` | replace the default labeller / exporter (e.g. to pass a revision) |
-| `fab.py` | the board list and the value → part-number table; see `pcbflow/example/fab.py` |
+| `fab.py` | the board list and the value → part-number table, handed to `pcbflow/fab_package.py`; see `pcbflow/example/fab.py` |
 
 ### Reading a result
 
