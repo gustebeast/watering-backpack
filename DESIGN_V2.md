@@ -157,10 +157,11 @@ side**. The housing is the transition.
 The 3/8" constraint is only the probe that goes down the inner-pot channel. The main
 run goes to 5/8", cutting ~6 psi of friction and one reducer instead of four.
 
-### 6. Electronics — two boards, PCBA
+### 6. Electronics — one PCBA
 
 v1's hand-soldered flying leads are a latent failure on something carried, shaken and
-splashed. v2 is two assembled boards.
+splashed. v2 is a single assembled board; the joystick and level sensor stay as the
+modules they already are, on connectors.
 
 **The two-pump decision deletes the H-bridge.** Each pump now runs in exactly one
 direction — direction is chosen by *which pump is energised*, not by polarity. So each
@@ -179,34 +180,36 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
   nothing here)
 - Battery voltage divider -> ADC: duty compensation as the pack drains, and sag visible
   in telemetry
-- Buzzer for the tank-full alert — you are at the spigot with the pack on the ground,
-  not looking at the handle
+- **Active magnetic buzzer** + small transistor (its ~30 mA is beyond a GPIO) for the
+  tank-full alert. Not a speaker — that would need an amplifier. Filling happens with
+  the pump OFF and the user standing at the tank, so ~85 dB is ample.
 - Tank level input: 3.3 V pull-up for the sensor's open-collector output
+- **RC filter on the joystick ADC input** — the only noise defence available, since
+  there is no joystick board to buffer at the source
 - Reverse-polarity P-FET, TVS, bulk electrolytics near the switches
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
-- Connectors: XT30 battery in, XT30 per pump, JST-PH to joystick, JST-PH to level sensor
+- Connectors: XT30 battery in, XT30 per pump, 5-pin JST-PH to joystick, JST-PH to level
+  sensor
 - Optional: low-side shunt per pump -> ADC (would have diagnosed the v1 slowdown
   immediately)
 
-**Joystick board**
-- **Hall-effect** stick, not resistive. This device is wet and outdoors; a liquid-fouled
-  wiper produces exactly the drifting, noisy ADC behaviour that cost a whole session to
-  chase, and it degrades gradually rather than failing cleanly.
-- Buffer op-amp (SOT-23-5 rail-to-rail, ~$0.10). A pot's source impedance at mid-travel
-  is R/4 (~2.5k), which is *why* injected noise becomes millivolts over a metre of strap
-  cable. A follower drops output impedance below an ohm. Insurance rather than a fix —
-  measured on-battery noise is already sd 7-9 — but the v2 cable passes two motors.
-- 100 nF at the wiper; RC filter at the ADC end on the main board
-- 3-4 pin JST-PH, side-entry (`cadkit/pcb.py` supports this), co-designed with the
-  printed mount rather than built around an off-the-shelf module's dimensions
+**Joystick: keep the existing KY-023 module.** Measured noise on battery is sd 7-9
+counts, which is healthy — the ~120-count noise that cost a session to diagnose was a
+USB-tether artifact, not the wiper. There is no measured fault to justify replacing it.
 
-**Layout risk:** a 15 A switcher sits centimetres from the ADC whose noise floor this
-project has already spent real effort characterising. Separate power and signal pours
-joined at a single star point at battery negative; keep each motor current loop
-(battery -> FET -> pump -> diode) tight; route the joystick trace away from switching
-nodes. Note the v1 noise was a USB-tether artifact, not bad soldering — PCBA is for
-mechanical reliability, not to fix a noise problem that does not exist on battery.
+Rejected, and why: a **hall-effect thumbstick** would remove wiper wear, but the fault
+it fixes has not been observed here. **Industrial hall sticks** (APEM TS series) are
+$120 with a 12-week lead. **An encoder + printed lever** would be fully reflowable and
+sealed with a digital output, but cannot match a gimbal's compact bidirectional spring
+return — and a printed flexure *creeps*, which would reintroduce centre drift, the exact
+symptom that opened this investigation. Hall thumbsticks are also consumer repair parts,
+not distributor stock, so none of this is PCBA-assemblable anyway.
+
+**Wire all five KY-023 pins** even though only VRy is used — it costs nothing and leaves
+SW available as a mode button. The 2.54 mm housing on the module end does not latch, so
+**the printed mount must capture the connector** so it cannot vibrate loose. That is the
+real fix for v1's flying leads; a new PCB was not required to get it.
 
 ### 7. Tank level — single full/not-full, non-contact capacitive
 
