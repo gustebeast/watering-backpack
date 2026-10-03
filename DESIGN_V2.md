@@ -157,31 +157,86 @@ side**. The housing is the transition.
 The 3/8" constraint is only the probe that goes down the inner-pot channel. The main
 run goes to 5/8", cutting ~6 psi of friction and one reducer instead of four.
 
-### 6. Electronics
+### 7. Electronics — two boards, PCBA
 
-**Delete the Pololu D42V110F12 buck.** It is the leading suspect for the
-"slows down after a few seconds at full speed" fault: 12V/9A against a 7.5 A pump
-peak, in a sealed box with no heatsink and no airflow — the v1 BOM itself warned
-*"add a heatsink / ensure airflow."* Pololu bucks thermally fold back, which matches
-both the symptom and the timescale, and explains why telemetry showed commanded duty
-pinned at 255 while the pump slowed. **Not yet confirmed** — see open questions.
+v1's hand-soldered flying leads are a latent failure on something carried, shaken and
+splashed. v2 is two assembled boards.
 
-Instead, drive the pumps straight off the Makita pack through the BTS7960 and cap duty
-to synthesize 12 V. PWM already chops the supply, so the motor does not care. This
-deletes the hottest and most expensive ($60) part in the box.
+**The two-pump decision deletes the H-bridge.** Each pump now runs in exactly one
+direction — direction is chosen by *which pump is energised*, not by polarity. So each
+needs a single switched leg, not four quadrants: one N-channel MOSFET + gate driver +
+Schottky freewheel diode. A BTS7960 half dissipates ~0.9 W at 7.5 A; a 3 mOhm 40 V FET
+dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
 
-**Add battery voltage sense** (divider → spare ADC) to hold effective voltage constant
-as the pack drains, and to expose sag in telemetry. Would have diagnosed the slowdown
-in thirty seconds.
+**Main board**
+- 2x MOSFET pump drivers (40 V, low Rds(on), DPAK on copper pour; gate driver, not a
+  bare GPIO, at 7.5 A and 20 kHz). Plain Schottky freewheel rather than synchronous:
+  it only conducts during off-time, and usage is mostly full-on.
+- 18 V -> 3.3 V synchronous buck, ~1 A. Must be rated **>= 36 V in** — a fresh Makita
+  pack is 20 V and inductive spikes exceed that, so common 24 V-max parts are too close
+  to the edge. Single stage; this also deletes the Traco TSR.
+- ESP32-WROOM-32E module (crystal, antenna, shielding, FCC pre-cert; bare silicon buys
+  nothing here)
+- Battery voltage divider -> ADC: duty compensation as the pack drains, and sag visible
+  in telemetry
+- Buzzer for the tank-full alert — you are at the spigot with the pack on the ground,
+  not looking at the handle
+- Tank level input: 3.3 V pull-up for the sensor's open-collector output
+- Reverse-polarity P-FET, TVS, bulk electrolytics near the switches
+- 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
+  path outdoors, and OTA covers everything after bring-up.
+- Connectors: XT30 battery in, XT30 per pump, JST-PH to joystick, JST-PH to level sensor
+- Optional: low-side shunt per pump -> ADC (would have diagnosed the v1 slowdown
+  immediately)
 
-**One BTS7960 drives both pumps:** pump A between M+ and GND, pump B between M− and
-GND. `RPWM` runs A, `LPWM` runs B, never both — the same structure the firmware had
-before it was made forward-only.
+**Joystick board**
+- **Hall-effect** stick, not resistive. This device is wet and outdoors; a liquid-fouled
+  wiper produces exactly the drifting, noisy ADC behaviour that cost a whole session to
+  chase, and it degrades gradually rather than failing cleanly.
+- Buffer op-amp (SOT-23-5 rail-to-rail, ~$0.10). A pot's source impedance at mid-travel
+  is R/4 (~2.5k), which is *why* injected noise becomes millivolts over a metre of strap
+  cable. A follower drops output impedance below an ohm. Insurance rather than a fix —
+  measured on-battery noise is already sd 7-9 — but the v2 cable passes two motors.
+- 100 nF at the wiper; RC filter at the ADC end on the main board
+- 3-4 pin JST-PH, side-entry (`cadkit/pcb.py` supports this), co-designed with the
+  printed mount rather than built around an off-the-shelf module's dimensions
 
-**PCBA instead of hand-soldered flying leads.** v1's "wires soldered to boards" is a
-latent reliability problem on a device that gets carried, shaken, and splashed.
+**Layout risk:** a 15 A switcher sits centimetres from the ADC whose noise floor this
+project has already spent real effort characterising. Separate power and signal pours
+joined at a single star point at battery negative; keep each motor current loop
+(battery -> FET -> pump -> diode) tight; route the joystick trace away from switching
+nodes. Note the v1 noise was a USB-tether artifact, not bad soldering — PCBA is for
+mechanical reliability, not to fix a noise problem that does not exist on battery.
 
-### 7. Firmware
+### 8. Tank level — single full/not-full, non-contact capacitive
+
+An **external capacitive sensor** (XKC-Y25 class) clamped to the *outside* of the tank
+wall at the full line. Nothing penetrates the tank and nothing touches the water, which
+sidesteps the 44 mm opening entirely — the binding constraint on every other approach.
+
+- Powered **directly from the battery rail** (5-24 V spec covers the pack's 18-20 V), so
+  it needs no 5 V rail — important, since the board now only makes 3.3 V.
+- Configure the output **NPN open-collector** and pull it up to 3.3 V on the main board.
+  The sensor runs at 18 V but an open-collector output only pulls down, so the GPIO sees
+  a safe level with no divider. Push-pull mode would put 18 V into a GPIO.
+- Printed bracket clamping it flat to the wall; consistent contact matters more than
+  force, since a gap shifts sensitivity. Scepter HDPE is a few mm, well inside the
+  0-20 mm range.
+
+**Mount it slightly BELOW the true full line.** False positives are cheap (stop early,
+look, carry on) but a false negative means overflow, and capacitive thresholds drift
+with temperature. Tripping early gives margin in the direction that actually costs
+something.
+
+Rejected: a conductivity probe needs alternating-polarity excitation to avoid
+electrolysis and still fouls as fertilizer salts film the electrodes — it drifts rather
+than fails, so it would be diagnosed twice. A float switch is more reliable than either
+but must pass through the 44 mm opening and needs a sealed-ish top plug. Non-contact
+won on assembly simplicity, with the false-positive risk accepted explicitly.
+
+This also simplifies the top plug back to just **vent + spigot fill line**.
+
+### 9. Firmware
 
 The joystick finally works as originally intended: **forward = dispense, back =
 retract**, because direction is now an electrical choice rather than a hand-turned
@@ -198,9 +253,11 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
    see whether it fades; if so, feel the buck (it will be hot). This decides whether
    deleting the buck actually fixes the slowdown or just removes a part.
 2. **PCBA fab.** JLCPCB? Their assembly library constrains part selection enough that
-   picking the fab after choosing parts means redoing work. Also: keep the ESP32
-   module or go bare chip, and connector family (`cadkit/pcb.py` already supports
-   JST-PH side-entry).
+   picking the fab after choosing parts means redoing work.
+3. **Specific hall-effect joystick part** — not yet chosen. Selection criteria: output
+   range compatible with a 3.3 V ADC, spring return to centre, single axis sufficient,
+   footprint that suits a printed mount. This footprint drives both the joystick board
+   and `joystick_mount.step`, so it blocks layout.
 3. **Makita pack capacity**, for runtime estimates.
 4. **Uniseal size** against the Scepter wall, once a panel is measured.
 5. **Ramp / dose metering.** v1's 1000 ms ramp made "feather the trigger for small
