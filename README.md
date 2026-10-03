@@ -37,7 +37,7 @@ cadkit/
   pcbflow/           MAKE a board from code: one `elec/<board>.py` (SKiDL circuit +
                      placements) -> placed, autorouted, DRC-clean, labelled board,
                      its geom file and its fab package. gen.py (generator helpers),
-                     layout/route/finish/verify/close_last, fab.py, example/blinky.py
+                     layout/route/finish/verify/close_last, fab_package.py, example/
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP
