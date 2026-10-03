@@ -256,7 +256,11 @@ class ScratchView:
             try:
                 bad += fn(comps)
             except Exception as exc:                  # a gate crash must not end the loop
-                print("[scratch] %s skipped: %s" % (label, exc))
+                # ...BUT IT IS NOT A PASS. This used to print "skipped" and leave `bad`
+                # alone, so a gate that could not run exited 0 -- indistinguishable, to
+                # anything reading the exit code, from a gate that ran and found nothing.
+                print("[scratch] %s DID NOT RUN (counted as a FAILURE): %r" % (label, exc))
+                bad += 1
         return 1 if bad else 0
 
     # ── render ──────────────────────────────────────────────────────────────

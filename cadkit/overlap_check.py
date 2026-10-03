@@ -284,8 +284,44 @@ def _scan(components, jobs, min_vol=None, cache=None):
         os.close(fd)
         try:
             _serialize(shapes, path)
-            with _detached_main(),                     mp.Pool(jobs, initializer=_worker_load, initargs=(path, eps)) as pool:
-                computed = list(pool.imap_unordered(_pair_vol, todo, chunksize=1))
+            # NOT mp.Pool. A Pool whose worker dies mid-task (an OCCT segfault, the OOM
+            # killer) never delivers that task's result and never raises: imap blocks
+            # forever with the surviving workers idle. Seen twice in one day on 3,349
+            # pairs. ProcessPoolExecutor notices the death and fails every outstanding
+            # future with BrokenProcessPool, so the run ENDS -- and the pairs it could
+            # not finish come back as NaN, which the caller already reports as
+            # "could not be checked" rather than as clean.
+            import concurrent.futures as _cf
+            computed, lost = [], 0
+            with _detached_main(), _cf.ProcessPoolExecutor(
+                    jobs, mp_context=mp.get_context(),
+                    initializer=_worker_load, initargs=(path, eps)) as ex:
+                futs = {ex.submit(_pair_vol, ij): ij for ij in todo}
+                orphans = []
+                for fut in _cf.as_completed(futs):
+                    try:
+                        computed.append(fut.result())
+                    except Exception:                 # worker died or the boolean raised
+                        orphans.append(futs[fut])
+            # A dead worker takes EVERY outstanding pair down with it, not just the one it
+            # was on, so the orphans are mostly innocent. Re-run them one at a time on a
+            # single worker: now the pair in flight when a worker dies IS the culprit, so
+            # only it is given up as NaN and the rest get real answers. Slower than the
+            # pool, but it only happens after a death, and it names the pair.
+            while orphans:
+                print(f"  !! a worker died; isolating the cause over {len(orphans)} pair(s), serially")
+                with _detached_main(), _cf.ProcessPoolExecutor(
+                        1, mp_context=mp.get_context(),
+                        initializer=_worker_load, initargs=(path, eps)) as ex:
+                    while orphans:
+                        i, j = orphans.pop(0)
+                        try:
+                            computed.append(ex.submit(_pair_vol, (i, j)).result())
+                        except Exception:
+                            computed.append((float("nan"), i, j))
+                            lost += 1
+                            print(f"  !! NOT CHECKED: {names[i]} <-> {names[j]} kills its worker")
+                            break                     # that pool is dead; start another
         finally:
             os.remove(path)
 

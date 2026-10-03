@@ -10,6 +10,10 @@ depend only on CadQuery/OCP (no FreeCAD): import them directly, e.g.
     from cadkit.joinery import ...
     from cadkit.printing import min_wall        # min-material floor (whole nozzle beads, no buffer)
     from cadkit import cq_colors
+    from cadkit.board_geom import Boards        # a ROUTED KiCad board as CAD solids
+    from cadkit.board_check import check        # ...and the gate that it is the routed one
+                                                # (read PCB_README.md; kicad_geom.py and
+                                                # kicad_silk.py run under KiCad's Python)
     from cadkit.agents import current_agent, get_scope   # multi-agent: who owns what
     from cadkit.scratch import ScratchView               # fast per-part iteration loop
 
