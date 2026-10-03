@@ -22,7 +22,31 @@ sys.path.insert(0, os.path.dirname(HERE))
 from cadkit.board_check import check          # noqa: E402
 from cadkit.board_geom import Boards          # noqa: E402
 
-BOARDS = Boards(os.path.join(HERE, "geom"))
+# Heights for footprints cadkit's shared table does not carry yet. KiCad has no Z,
+# so a footprint with no entry RAISES rather than being silently left out of the
+# CAD — which is the behaviour we want. Every number says where it came from;
+# an estimate is allowed, an unlabelled one is not (PCB_README).
+HEIGHT = {
+    # from the footprint name, which states the body size
+    "Buzzer_12x9.5RM7.6":                    9.5,    # 12 dia x 9.5 high
+    "CP_Elec_10x10.5":                      10.5,    # 10 dia x 10.5 high
+    # from the maker's drawing / JEDEC outline
+    "ESP32-WROOM-32E-FABDRILL":              3.1,    # Espressif datasheet, 18 x 25.5 x 3.1
+    "L_Bourns_SRN6045TA":                    4.5,    # Bourns SRN6045, 6.0 x 6.0 x 4.5
+    "TO-252-3_TabPin2":                      2.3,    # JEDEC TO-252 (DPAK) body
+    "TO-263-2":                              4.6,    # JEDEC TO-263 (D2PAK) body
+    # catalogue line
+    "PinHeader_1x06_P2.54mm_Vertical":       8.5,    # 2.54 header, pin above board
+    "C_0603_1608Metric":                     0.9,    # 0603 MLCC, typical max
+    # ESTIMATE -- replace when a terminal block is in hand and can be measured.
+    # These set how far the PCB shroud must stand off the board face, so an
+    # estimate here is a real tolerance, not a cosmetic one.
+    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal":  17.0,  # ESTIMATE
+    "TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal": 15.0,  # ESTIMATE
+    "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,  # ESTIMATE
+}
+
+BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)
 
 
 def _cad(board):
