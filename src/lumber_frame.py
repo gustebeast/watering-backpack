@@ -62,6 +62,26 @@ DECK_Z   = RAIL_Z1 + PLANK_T             # 208 — the tank sits here
 
 N_DECK_PLANKS = 3
 
+# ── Battery access notch ────────────────────────────────────────────────────
+# The battery hangs on the -X face of the frame and seats by sliding DOWN --
+# src/housing.py asserts that, because a pack that seated upward would be
+# fighting its own latch against gravity. So changing it means lifting it clear
+# of the dock's rails, 93 mm, straight up. The deck's outboard overhang is a
+# roof directly over that path: the battery ran into the plank after 43.5 of
+# the 93 mm, which means it could not be changed at all. Nothing caught this
+# because the gate weighed the battery SEATED, as a static envelope.
+#
+# A notch, and not a narrower or shifted deck. What it removes is the part of
+# the plank that laps past the rail at x=-190 and bears on nothing, so it costs
+# no strength, and the deck stays three full planks -- centred, un-ripped, the
+# whole reason the deck is 411 wide in the first place. Shifting the deck clear
+# instead would have put another 14 mm outside the pack frame on the far side.
+#
+# src/build.py gates the swept volume, so neither this notch nor the dock can
+# drift back into blocking it.
+NOTCH_X  = -195.5        # inboard limit; still laps the rail's outer face by 5.5
+NOTCH_Y0, NOTCH_Y1 = 10.0, 96.0
+
 
 def _box(x0, x1, y0, y1, z0, z1):
     return (cq.Workplane("XY").center((x0 + x1) / 2.0, (y0 + y1) / 2.0)
@@ -93,9 +113,22 @@ def pieces():
     span = N_DECK_PLANKS * PLANK_W
     for i in range(N_DECK_PLANKS):
         x0 = -span / 2.0 + i * PLANK_W
-        out.append(("plank_deck", FRAME_D,
-                    _box(x0, x0 + PLANK_W, 0.0, FRAME_D, RAIL_Z1, DECK_Z)))
+        plank = _box(x0, x0 + PLANK_W, 0.0, FRAME_D, RAIL_Z1, DECK_Z)
+        if i == 0:                      # the outboard plank, over the battery
+            plank = plank.cut(_box(x0 - 1.0, NOTCH_X, NOTCH_Y0, NOTCH_Y1,
+                                   RAIL_Z1 - 1.0, DECK_Z + 1.0))
+        out.append(("plank_deck", FRAME_D, plank))
     return out
+
+
+def notch_note():
+    """The one cut that is not a length. Without it the battery cannot come
+    out, and a cut list of four lengths gives no hint that it exists."""
+    edge = -N_DECK_PLANKS * PLANK_W / 2.0
+    return ("notch the OUTBOARD deck plank: %.0f mm deep x %.0f mm long in its "
+            "outer edge, %.0f..%.0f mm from the front. The battery lifts out "
+            "through it." % (NOTCH_X - edge, NOTCH_Y1 - NOTCH_Y0,
+                             NOTCH_Y0, NOTCH_Y1))
 
 
 def frame() -> cq.Workplane:
@@ -146,6 +179,7 @@ def _build() -> None:
     print("=== cut list (38x38 beam, 137x20 plank) ===")
     for (nm, L), n in cut_list():
         print("   %2d x  %-12s %6.1f mm" % (n, nm, L))
+    print("    + " + notch_note())
     deck_w = N_DECK_PLANKS * PLANK_W
     print("\nposts/rails %.0f wide x %.0f deep; DECK %.0f wide — three full "
           "planks, %.0f proud of the rails each side (no ripping; the tank "

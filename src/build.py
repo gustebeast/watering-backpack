@@ -64,6 +64,27 @@ def battery_envelope() -> cq.Workplane:
             .rect(BATT_W, BATT_L).extrude(BATT_D))
 
 
+def battery_sweep():
+    """The corridor the pack travels to come OFF the dock, and how far.
+
+    The seated envelope is not enough and that is how this was missed: the
+    battery was weighed as a static box in its seated position, which says
+    nothing about whether you can get it out. The dock's rails are 93 mm long,
+    so the pack has to rise its full engagement before it is free, and the deck
+    sits directly above it. It hit the deck plank after 43.5 of those 93 mm.
+
+    Only the part ABOVE the seated top is checked. The seated part of the sweep
+    overlaps the dock by design -- that is the whole point of a dock.
+    """
+    dock = H._dock_placed().val().BoundingBox()
+    b = battery_envelope().val().BoundingBox()
+    travel = dock.zmax + BATT_L - b.zmax
+    sweep = (cq.Workplane("XY")
+             .center((b.xmin + b.xmax) / 2.0, (b.ymin + b.ymax) / 2.0)
+             .rect(b.xlen, b.ylen).extrude(travel).translate((0, 0, b.zmax)))
+    return travel, sweep
+
+
 def printed_parts():
     return (("v2_housing", H.housing(), H.PRINT_ROT["v2_housing"]),
             ("v2_housing_lid", H.lid(), H.PRINT_ROT["v2_housing_lid"]),
@@ -121,6 +142,7 @@ def main() -> int:
     print("\n=== lumber cut list (38x38 beam, 137x20 plank) ===")
     for (nm, length), n in L.cut_list():
         print("  %2d x  %-12s %6.1f mm" % (n, nm, length))
+    print("  + " + L.notch_note())
 
     comps = components()
     asm = cq.Assembly()
@@ -151,12 +173,29 @@ def main() -> int:
     from cadkit import overlap_check
     bad = overlap_check.run([(n, s.val()) for n, s in comps], intended)
 
+    print("\n=== battery access gate ===")
+    travel, sweep = battery_sweep()
+    by_name = dict(comps)
+    blocked = 0
+    for nm in ("wood", "housing"):
+        i = sweep.intersect(by_name[nm])
+        v = i.val().Volume() if i.val() is not None else 0.0
+        blocked += 0 if v <= 1.0 else 1
+        print("  %-8s %s" % (nm, "clear" if v <= 1.0 else
+                             "*** BLOCKS THE PACK, %.0f mm3 ***" % v))
+    i = sweep.intersect(L.tank())
+    v = i.val().Volume() if i.val() is not None else 0.0
+    blocked += 0 if v <= 1.0 else 1
+    print("  %-8s %s" % ("tank", "clear" if v <= 1.0 else
+                         "*** BLOCKS THE PACK, %.0f mm3 ***" % v))
+    print("  the pack needs %.0f mm of lift to clear its rails" % travel)
+
     b = asm.toCompound().BoundingBox()
     print("\nwhole assembly %.0f x %.0f x %.0f mm"
           % (b.xlen, b.ylen, b.zlen))
     print("Wrote %s  [build #%d]" % (out, build_n))
     show(out)
-    return bad + oversize
+    return bad + oversize + blocked
 
 
 if __name__ == "__main__":
