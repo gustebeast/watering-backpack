@@ -139,6 +139,11 @@ def components():
 def intended(a, b):
     pair = {a, b}
     if "fittings" in pair:
+        # A BLANKET rule, and it is only safe because tools/check_plumbing.py
+        # now puts a MEASURED ceiling on every hose-to-fitting pair. It did not,
+        # and a hose drawn curving through 45 mm of rigid elbow -- 9962 mm3,
+        # sixty times its neighbours -- sat here unremarked. This predicate only
+        # gets names, never volumes, so the size has to be checked there.
         other = (pair - {"fittings"}).pop()
         return other.startswith(("pump_", "tank_", "green_"))
     # Measured, so a number that moves is visible rather than absorbed. An entry

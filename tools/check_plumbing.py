@@ -29,11 +29,74 @@ from src import pump_frame as F        # noqa: E402
 
 MIN_VOL = 1.0        # mm3 — below this is boolean noise, not a collision
 
-# A hose TOUCHING its own fitting is the joint, not a collision.
-INTENDED = {("tank_to_A", "elbows"), ("tank_to_B", "elbows"),
-            ("green_from_A", "elbows"), ("green_from_B", "elbows"),
-            ("tank_down", "tank")}
+# A hose TOUCHING its own fitting is the joint, not a collision -- but HOW MUCH
+# it touches is the whole question, and this used to be a bare set of pairs with
+# no number in it. Each entry now carries the volume it is allowed to be and the
+# reason, so an entry can never again mean "whatever turns up here is fine".
+#
+# That is not hypothetical. The bare set was hiding a 9962 mm3 reading: see
+# green_from_B below, where the hose is drawn curving through 45 mm of rigid
+# fitting. Its neighbours, routed the same way, measure 163.
+INTENDED = {
+    ("tank_to_A", "elbows"):
+        (250.0, "the joint: the hose slides onto the leg end and the two "
+                "overlap by a sphere's worth at the knuckle"),
+    ("green_from_A", "elbows"):
+        (250.0, "same joint, pump A's outlet"),
+    ("green_from_B", "elbows"):
+        (10100.0,
+         "NOT A JOINT. 9962 mm3, sixty times its neighbours, and it is a real "
+         "blocker held open by an unmeasured number -- see the note below."),
+}
 
+# TWO ENTRIES WERE DROPPED, because measuring them showed they held nothing:
+#
+#   tank_to_B x elbows   0.0 mm3. It and tank_to_A are the same joint drawn the
+#                        same way, and tank_to_A reads 163 -- all of which is
+#                        one chord KNUCKLE where the first bend's tangent
+#                        sphere reaches back into the leg. B's first bend is
+#                        further from its leg, so there is no knuckle in it.
+#   tank_down x tank     0.0 mm3. UNISEAL_Y is the tank's +Y FACE, so the line
+#                        starts flush against the wall it is supposed to pass
+#                        through. The Uniseal has no size yet (BOM: "TBD once a
+#                        Scepter panel is measured"), so the seal is not
+#                        modelled and there is nothing to declare until it is.
+#
+# Both were standing ready to hide the first real clash that appeared there.
+
+# ── THE green_from_B BLOCKER, in full ──────────────────────────────────────
+# Pump B's INNER port is the one port on the machine with nowhere to go but UP:
+# forward is pump A's body, and left and right are the two pump bodies. Every
+# other route picks the hose up at its elbow's LEG END; this one is drawn from
+# the PORT, 45 mm earlier, and src/plumbing.py says so in B_IN's comment.
+#
+# That is not a modelling shortcut, it is the only way the route closes. The
+# arithmetic, all of it measured off the model:
+#
+#     port centreline                                  z =  84.0
+#     elbow leg ends (ELBOW_LEG_L = 45)                z = 129.0
+#     the hose's first corner needs BEND_R above that  z = 179.0
+#     the rails cap the centreline at RAIL_Z0 - OD/2   z = 140.5
+#     ------------------------------------------------------------
+#     short by                                              38.5 mm
+#
+# Put the other way round: this frame can accept a 6.5 mm elbow leg on that
+# port. There is no such fitting.
+#
+# TWO THINGS COULD RESOLVE IT, and the first is cheap:
+#
+#   1. MEASURE THE ELBOW. ELBOW_LEG_L = 45 is an estimate -- pump_frame says so
+#      ("should shrink, never grow, when the real number lands"). At 6.5 or
+#      less the route closes as drawn and this entry goes away. The whole
+#      blocker rests on a number nobody has put a caliper to.
+#   2. RAISE THE FRAME. RAIL_Z0 is documented as being SET by this very hose,
+#      so this is the design's own stated dependency, not a workaround. It
+#      needs RAIL_Z0 >= 188.5, i.e. +38.5 mm: taller posts, a deck and tank
+#      38.5 mm higher, and a 38.5 mm taller housing back plate.
+#
+# The frame is NOT being raised on the strength of an estimate. The ceiling
+# here pins the defect at its measured size instead: change the route, the
+# elbow or the rail height and this gate fires.
 
 def parts():
     return [("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
@@ -57,18 +120,26 @@ def main():
         print()
 
     others = parts()
+    declared, seen = [], set()
     for name, hose in solids:
         hits = []
         for pname, part in others:
-            if (name, pname) in INTENDED:
-                continue
             try:
                 i = hose.intersect(part)
                 v = i.val().Volume() if i.val() is not None else 0.0
             except Exception:
                 v = 0.0
-            if v > MIN_VOL:
+            if v <= MIN_VOL:
+                continue
+            dec = INTENDED.get((name, pname))
+            if dec is not None:
+                seen.add((name, pname))      # measured; over or under, not missing
+            if dec is None:
                 hits.append((pname, v))
+            elif v > dec[0]:
+                hits.append((pname + " OVER ITS DECLARED %.0f" % dec[0], v))
+            else:
+                declared.append((name, pname, v, dec[0]))
         b = hose.val().BoundingBox()
         print("%-14s y[%6.1f,%6.1f] z[%6.1f,%6.1f]  %s"
               % (name, b.ymin, b.ymax, b.zmin, b.zmax,
@@ -87,6 +158,17 @@ def main():
                 v = 0.0
             if v > MIN_VOL and not (na.split("_")[0] == nb.split("_")[0]):
                 print("  hose clash: %s x %s  %.0f mm3" % (na, nb, v))
+                bad += 1
+
+    if declared:
+        print()
+        print("  declared contacts (each one named and measured, never lumped):")
+        for na, nb, v, cap in declared:
+            print("    %-14s x %-8s %8.0f of %8.0f mm3" % (na, nb, v, cap))
+        for key in sorted(INTENDED):
+            if key not in seen:
+                print("    %-14s x %-8s      NOT MEASURED -- is it still there?"
+                      % key)
                 bad += 1
 
     total = bad + unmakeable
