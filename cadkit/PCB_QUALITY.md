@@ -43,7 +43,7 @@ Everything a board declares lives in its generator, under `BOARD_NOTES["quality"
         {"net": "+3V3", "from": "U6.5", "to": "U1.19", "amps": 0.25},
     ],
     "temp_rise_c": 10, "copper_oz": 1, "inner_oz": 0.5,          # defaults
-    "max_drop_mv": 50,                     # default; or per path: {"max_drop_mv": 20}
+    "max_drop_pct": 2,                     # default; or "max_drop_mv", also per path
     "not_power": ["+VREF_SENSE"],          # looks like a rail by name, carries no current
     # A2 -- how close a bypass capacitor must be, and the pins that need none
     "decoupling": {"ic_mm": 5.0, "connector_mm": 25.0,
@@ -70,7 +70,9 @@ Everything a board declares lives in its generator, under `BOARD_NOTES["quality"
 pad, load pads, amps). Along the best copper path between them, the narrowest point must
 be wide enough for that current (IPC-2221 at the declared temperature rise; inner layers
 need about twice the width of outer ones), **and** the track resistance along the path
-must not drop more than `max_drop_mv` (50 mV) at that current. A net that looks like a
+must not drop more than `max_drop_pct` (2 %) of the rail the net's name states — or
+`max_drop_mv`, per board or per path, where that is the wrong measure (50 mV when the name
+states no voltage). A net that looks like a
 rail by name and declares nothing **fails** — so a new rail cannot be added without
 stating its current. A net whose name says it is not connected (`_NC`) is not a rail.
 
@@ -93,7 +95,8 @@ pour it. Then check **M3** (the return path).
 
 **Rule.** Each IC pin (`U*`) on a supply net has a capacitor to ground on that net within
 `ic_mm` (5 mm). Each connector pin (`J*`, `P*`) on a supply net — every power input and
-output of the board — has one within `connector_mm` (25 mm).
+output of the board — has one within `connector_mm` (25 mm). A rail that only passes
+between connectors, with no part on it, is reported and not failed.
 
 **Why.** A load that steps its current pulls the rail down for as long as the inductance
 between it and the nearest charge lasts. The capacitor is that charge; a capacitor on the
@@ -199,16 +202,49 @@ connects to.
 load capacitance (the frequency is off), an antenna, and a pickup for whatever runs beside
 it; marginal oscillators fail to start. The load-capacitor arithmetic is **M24**.
 
-**How it is checked.** Pad-to-pin distance on each crystal net that reaches an IC directly.
+**How it is checked.** Pad-to-pin distance on each crystal net that reaches an IC
+directly. A via on a crystal net is reported as a note: worth removing, not worth a
+re-route on its own at the frequencies these boards use.
+
+### A10 — A USB device presents no more than 10 µF on VBUS
+
+**Rule.** On a USB-C port wired as a device (a resistor to ground on CC), the capacitors
+directly on the connector's VBUS net total no more than 10 µF. Under 1 µF is reported as
+a note, not a failure.
+
+**Why.** The USB 2.0 specification (section 7.2.4.1, inrush) limits what a device may
+connect at plug-in: more than 10 µF can trip the host's over-current protection or sag
+the hub's rail. Bulk capacitance belongs behind a load switch or a soft-started
+regulator. The 1 µF lower figure is common guidance; confirm it against the
+specification before treating it as a limit.
+
+**How it is checked.** The sum of capacitor values with one pad on the receptacle's VBUS
+net and the other on ground.
+
+### A11 — One value, one spelling
+
+**Rule.** No resistance or capacitance appears on a board under two spellings in the same
+package (`100n` and `0.1uF`; `4.7k` and `4k7`).
+
+**Why.** Two spellings are two BOM lines: two feeders at the assembler, two part numbers
+to source, and two parts that can be changed independently when they were meant to be
+one. It is also the cheapest sign that a value was typed rather than derived.
+
+**How it is checked.** Values parsed to a number and grouped by footprint. A qualifier
+after the value (`10k 0.1%`, `10uF/16V`) makes it a different part on purpose; whether it
+needs to be one is **M42**.
 
 ---
 
 ## Manual checks
 
 Sign each in `quality["manual"]` with what you checked against. If a rule does not apply
-to the board, sign it with the reason ("no external connectors", "no switching
-regulator"). M1–M12 apply to every board; M13 onward are each about one kind of circuit,
-so most boards sign several of them in a line. Thresholds quoted here are starting points
+to the board, sign it with the reason ("no external connectors"). M1–M12 apply to
+nearly every board; M13 onward are each about one kind of circuit. **The script marks a
+rule `n/a` itself when the board has none of the parts that circuit needs** (no inductor:
+no switching-regulator rules; no IC: no strap pins, op-amps or errata; no crystal, no
+USB, no transistor, no switch, likewise) — the table is `NOT_APPLICABLE` in
+`quality.py`. Anything it cannot tell from the parts list stays `OPEN` for you. Thresholds quoted here are starting points
 from published guidance: where a part's own datasheet says otherwise, the datasheet wins.
 
 - **M1 — Mating connectors agree pin for pin.** For every cable and board-to-board joint,
@@ -232,7 +268,7 @@ from published guidance: where a part's own datasheet says otherwise, the datash
 - **M5 — Nothing is run past its ratings.** Every part on a rail survives that rail's
   WORST case — a fresh battery, a supply's tolerance, an inductive spike, a hot-plug —
   with margin. Check absolute-maximum voltage on every pin a rail can reach, GPIO levels
-  between domains, and regulator dissipation (Vin − Vout) × I against the package.
+  between domains. (Heat is **M25**.)
 - **M6 — High-speed buses are matched and have an unbroken reference.** Clocked parallel
   buses and anything above ~50 MHz or with fast edges (ULPI, SDIO, RGMII, SPI at tens of
   MHz) are in `match` groups with a budget derived from the bit time. Each runs over a
@@ -249,14 +285,16 @@ from published guidance: where a part's own datasheet says otherwise, the datash
   access on every MCU; a labelled test pad on each rail and on each signal the bring-up
   guide tells someone to probe; ground somewhere a clip can reach.
 - **M10 — External connections are protected.** ESD/TVS on every pin a hand or a long
-  cable reaches; reverse-polarity and over-current protection on the power input; nothing
+  cable reaches, placed at the connector — nearer its pins than any capacitor or ferrite
+  on the same line; reverse-polarity and over-current protection on the power input; nothing
   outside the enclosure can back-feed a rail.
 - **M11 — It fits and can be assembled.** The CAD check passes on the mated envelope
   (`solid(mated=True)`); every connector can be plugged with the board installed; tails
   clear along the install stroke; mounting holes have laminate round them and no copper
-  under the screw head; parts the fab cannot place are zero.
+  or part under the screw head, washer or standoff — measured hardware, both faces, which
+  differ; parts the fab cannot place are zero.
 - **M12 — The order is right.** Every part number read off its listing and in stock
-  today, with what it mates to; rotations checked in the fab's previewer for every
+  today, with what it mates to (lifecycle and alternates are **M42**); rotations checked in the fab's previewer for every
   polarised and multi-pin part; board name and revision in silk; order-form settings
   (mask colour, mark removal, rail edges) written down.
 - **M13 — Switching regulators are laid out as the datasheet draws them.** The input
@@ -292,7 +330,10 @@ from published guidance: where a part's own datasheet says otherwise, the datash
 - **M19 — Each MOSFET is fully on at the voltage that drives it, and off in reset.** The
   datasheet gives Rds(on) AT or BELOW the gate drive actually available (Vgs(th) is the
   250 µA point, not "on"). Every gate driven by a pin that floats in reset has a
-  pull-down (or pull-up, for a P-channel) so the load is off until firmware says so.
+  pull-down (or pull-up, for a P-channel) so the load is off until firmware says so —
+  also when the driving cable is unplugged. The gate never sees more than its rated Vgs
+  (a 24 V signal on a ±20 V gate needs a clamp or divider), and has a series resistor
+  where the driver or the layout could ring it.
 - **M20 — Buses are terminated and pulled once, at the right places.** I2C pull-up value
   is inside both bounds: at least (VDD − 0.4 V) / 3 mA, at most rise time / (0.8473 × bus
   capacitance). CAN has exactly two 120 Ω terminations, at the two ends of the bus, and
@@ -313,17 +354,21 @@ from published guidance: where a part's own datasheet says otherwise, the datash
   pair has few vias (at most four per line for USB 2.0, the same number on each half,
   a ground via beside each layer change) and no stubs (a through-hole receptacle entered
   so its pin is not one). The D+ pull-up and any series resistors are fitted or internal, as the PHY's
-  datasheet says. The clock meets USB's accuracy (±0.25 % full speed; far tighter for high
+  datasheet says, and any series resistors sit at the IC. The clock meets USB's accuracy (±0.25 % full speed; far tighter for high
   speed). VBUS is not fed backwards from a self-powered board.
 - **M24 — Crystals have the load capacitors their CL requires.** C1 = C2 = 2 × (CL −
   Cstray), Cstray 2–5 pF; the oscillator's drive/gain margin covers the crystal's ESR (the
   MCU maker's oscillator note has the test). Traces are short and symmetric, with nothing
-  routed under or beside them and ground around.
+  routed under or beside them — on ANY layer — and ground around. The crystal sits
+  between the IC and its load capacitors, not beyond them; the load capacitors are
+  C0G/NP0; a powered oscillator has its own bypass capacitor.
 - **M25 — Thermal pads carry the heat they must.** Each exposed pad is on the net the
   datasheet names (not always ground) and has the via count and
   size the datasheet asks for, solid (not thermal-relief) connection, and paste in a
   windowpane (roughly 50–80 % coverage) rather than one full opening. Each regulator's and
-  driver's junction temperature at full load is computed and under its limit.
+  driver's junction temperature at full load is computed and under its limit. A tab or
+  heatsink is on the net the datasheet says the tab is (often NOT ground), and is not
+  left floating by accident.
 - **M26 — Signals named by direction land on the opposite direction.** For every UART,
   SPI and similar link: a net named TX reaches exactly one transmitter and the far end's
   RECEIVER. Name nets by function and direction (`MCU_TX_TO_PI`), then read both ends'
@@ -346,16 +391,22 @@ from published guidance: where a part's own datasheet says otherwise, the datash
 - **M30 — The assembly order has no surprises.** Every placed part is one the service can
   place in the chosen tier (some parts force a costlier tier or a minimum board size);
   the count of extra-fee part lines is known; the board is inside the service's size
-  limits or panelised with rails; the option to review the production files before build
+  limits or panelised with rails, and its size has been checked against the fab's price
+  breaks (a millimetre over one costs a tier); the option to review the production files before build
   is ticked.
 - **M31 — Markings survive assembly.** Pin-1 and polarity marks are visible with the part
   fitted (outside the body, not under it); text is at least the fab's minimum height and
-  stroke and not over pads; the board's name, revision and date are on it.
+  stroke and not over pads, holes or the board edge; the board's name and revision are
+  on it (`kicad_silk.py` prints both). Every LED, button, switch and connector a person uses says what it is for,
+  and connector pins that will be wired or probed carry their signal names (with
+  direction where it is not obvious: `RX <`, `TX >`).
 - **M32 — Connectors are the series the harness uses, and rated for it.** Pitch measured
   on the footprint equals the series' pitch (2.50 is not 2.54, XH is not PH); contact
   current and wire gauge suit the circuit; the housing's pin 1 is where the footprint's
   pad 1 is, checked against the maker's drawing from the correct face. Print the board
-  1:1 and offer the real connector to it before ordering.
+  1:1 and offer the real connector to it before ordering. A standard connector (USB,
+  audio jack) is numbered as its standard numbers it, and every connector that carries a
+  single-ended signal also carries a ground.
 - **M33 — Every rail has a power budget.** Worst-case current of every load on each
   rail, added up, is inside the regulator's rating with margin (50 % on a first board),
   and those are the amps declared in `power_paths`. Connectors and cables on the rail are
@@ -374,7 +425,7 @@ from published guidance: where a part's own datasheet says otherwise, the datash
   cable.
 - **M37 — The files sent are the board that was checked.** Zones were refilled and DRC
   re-run immediately before export; gerbers and drill were exported together, from that
-  state; the package was opened in an independent gerber viewer and looked at, layer by
+  state (`fab_package.py` does both and checks the drill file against the board); the package was opened in an independent gerber viewer and looked at, layer by
   layer, with the drills over the copper. Stack-up, finish and any controlled impedance
   are stated on the order.
 - **M38 — Nothing is stressed, and everything can be reached.** Ceramic capacitors are
@@ -382,6 +433,28 @@ from published guidance: where a part's own datasheet says otherwise, the datash
   that will flex. Every pluggable connector has room for its plug AND the fingers or tool
   that mate it; test points have room for a probe. Each mounting hole is deliberately
   grounded or deliberately isolated. Indicators and controls face the side a person sees.
+- **M39 — Unused pins are treated as the datasheet says.** Every unused INPUT is
+  terminated: logic inputs tied high or low (through a resistor where the pin could ever
+  become an output, as on an MCU or a transceiver), comparator inputs held apart so the
+  output is steady, MCU pins configured in firmware as outputs or as inputs with a pull.
+  Unused outputs that need a load (current outputs, amplifier and reference outputs) have
+  one. Spare MCU pins worth having later are brought to a pad.
+- **M40 — The design record says what must not change.** Every value is one that can be
+  bought (preferred-number series; 5.1 k exists, 5 k does not). A part chosen for a
+  critical parameter says so in the generator, with the parameter and "do not
+  substitute"; a part needing a heatsink, or a tab that is electrically live, says so
+  where the part is defined.
+- **M41 — Switches and buttons are debounced on purpose.** Each mechanical contact is
+  debounced in hardware (RC and a Schmitt input) or in firmware, and the generator says
+  which. A contact that wakes, resets or interrupts is debounced in hardware.
+- **M42 — Every part can be bought, and bought again.** Each part's lifecycle status is
+  active (not "not for new designs", not obsolete) and its lead time is acceptable; this
+  was checked when the part was chosen, before layout, and is checked again at order
+  time. A part with a single maker has a named alternate that fits the same footprint and
+  pinout, or the generator says there is none. The count of distinct part numbers has
+  been looked at: same value and package at different ratings or tolerances collapse to
+  the stricter one, and an odd value next to a common one (120 nF beside 100 nF) is
+  questioned.
 
 ---
 
@@ -415,4 +488,6 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-02 | a ribbon between two of our own boards | the two ends were designed with different connectors and different pin orders | M1 |
 | 2026-10-04 | (survey of published design-review checklists and first-board post-mortems) | the faults reviewers report most: regulator layout and stability, converter grounding, USB-C CC resistors, I2C pull-ups, crystal load capacitors, loaded strap pins, mistyped net labels, same-package pin-order variants, swapped TX/RX, fab-capability and assembly-tier surprises | A5, A6, A7, A8, M13–M32 |
 | 2026-10-04 | (second survey: a widely used open review checklist, a first-board mistakes guide, vendor notes read in full) | power budget per rail, level and polarity of every control signal, errata, current-limited outputs, exporting stale files, board-edge stress on ceramics, crystals placed far from the MCU. Numbers confirmed at source: I2C rise-time bound and 3 mA / 0.4 V sink; USB 2.0 four vias per line and equal count per half; regulator feedback routed away from the inductor | A9, M33–M38 |
+| 2026-10-04 | (third survey: a community review FAQ for schematics, read by the owner and summarised here in our own words) | USB device inrush capacitance, unused inputs and outputs, gate over-voltage and series resistance, live tabs and heatsinks, connectors without a ground, values that cannot be bought, undebounced contacts | A10, M39–M41; M19, M25, M32 extended |
+| 2026-10-04 | (same community FAQ: its layout and bill-of-materials pages, summarised in our own words) | crystal traces changing layer and load capacitors on the wrong side of the crystal, protection parts placed after the capacitor instead of at the connector, hardware keep-out differing per face, unlabelled controls and connector pins, one value typed two ways, parts that are obsolete or single-sourced at order time | A11, M42; A9, M10, M11, M23, M24, M31 extended |
 | 2026-10-04 | (design review, before first order) | four classes of fault named as the ones to stop before a board is ordered: supply choke points, missing surge capacitance, unmatched high-speed traces, mirrored pinouts | A1, A2, A3, A4, M3, M4, M6 |
