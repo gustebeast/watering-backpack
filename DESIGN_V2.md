@@ -268,8 +268,9 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
    picking the fab after choosing parts means redoing work.
 3. **Specific hall-effect joystick part** — not yet chosen. Selection criteria: output
    range compatible with a 3.3 V ADC, spring return to centre, single axis sufficient,
-   footprint that suits a printed mount. This footprint drives both the joystick board
-   and `joystick_mount.step`, so it blocks layout.
+   footprint that suits a printed mount. It drives `joystick_mount.step`. It does **not**
+   block board layout: the joystick comes in off-board on J4, a 5-pin terminal block, so
+   the main board is indifferent to which part is behind it.
 3. **Makita pack capacity**, for runtime estimates.
 4. **Uniseal size** against the Scepter wall, once a panel is measured.
 5. **Ramp / dose metering.** v1's 1000 ms ramp made "feather the trigger for small

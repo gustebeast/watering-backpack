@@ -159,20 +159,16 @@ UP = PrintSpec(nozzle=0.4, facing="up")
 
 _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161, 49
 
-# ── PCB — built from the ROUTED board, never a typed placement ──────────────
-# PCB_README: "Model from the routed board, never from the placement table. A
-# hand-typed copy can only be checked against itself, and it always agrees. It
-# agreed while two connectors sat 0.54 mm short of the board edge."
-PCB_BOSS_D   = 9.0
-# Hole positions come FROM THE ROUTED BOARD, never typed here. They were typed
-# once, and when the board was re-laid from 140x100 to 95x100 the CAD kept
-# drilling bosses at the old (+-64, +-44) while the laminate had moved to
-# (+-41, +-44) — a drift a typed copy cannot catch, because it agrees with
-# itself. PCB_README: "model from the routed board, never from the placement
-# table".
-PCB_CLR      = 6.0       # cavity clearance around the board and its tallest part
-PCB_WALL_T   = 3.0
-PCB_COVER_T  = 3.0
+# ── PCB ────────────────────────────────────────────────
+# PCB_BOSS_D / PCB_CLR / PCB_WALL_T / PCB_COVER_T are gone with the rest of the
+# dead block below: nothing read them, and PCB_CLR here was 6.0 while the live
+# one in src/housing.py is 2.0 — two values behind one name, which is how the
+# wrong one gets picked up. The PCB_README warning they carried ("model from
+# the routed board, never from the placement table") belongs with the live
+# geometry: a typed copy agreed while two connectors sat 0.54 mm short of the
+# board edge, and kept drilling bosses at +-64 after the laminate had moved to
+# +-41. src/housing.py states it where it sources the board from
+# Boards("elec/geom").
 
 # Heights for footprints cadkit's shared table does not carry. Mirrors
 # elec/cad_geom_check.py — a footprint with no height RAISES rather than being

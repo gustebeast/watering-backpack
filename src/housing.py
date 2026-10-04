@@ -174,6 +174,19 @@ LID_T      = 3.0
 # ceiling printed over air. The overhang gate agrees -- it is still clean.
 SEAL_T     = 1.5
 
+# ── The board comes from the ROUTED board, never a typed placement ──────────
+# PCB_README: "Model from the routed board, never from the placement table. A
+# hand-typed copy can only be checked against itself, and it always agrees."
+# This repo has the scars. A typed copy agreed while two connectors sat 0.54 mm
+# short of the board edge; and when the board was re-laid from 140x100 to
+# 95x100 the CAD kept drilling mounting bosses at the old (+-64, +-44) while
+# the laminate had moved to (+-41, +-44). Neither drift is catchable by a copy
+# that agrees with itself.
+#
+# So everything below reads geom.json: outline, cutouts, hole positions and
+# part heights. src/build.py runs the agreement gate (elec/cad_geom_check.py)
+# that fails if this solid and the routed board diverge -- and it is pointed at
+# THIS solid, the one the assembly actually places.
 _BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
 
 
