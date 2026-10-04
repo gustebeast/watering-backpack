@@ -230,38 +230,3 @@ def shelf() -> cq.Workplane:
     return (cq.Workplane("XY").workplane(offset=-SHELF_T)
             .center(0, F.SHELF_D / 2.0).rect(F.SHELF_W, F.SHELF_D)
             .extrude(SHELF_T))
-
-
-def _build() -> None:
-    import cadquery as cq
-    from cadkit.cq_colors import color
-    from cadkit.freecad import show
-    asm = (cq.Assembly()
-           .add(F.frame_left,  name="frame_left",  color=color("#3a7bd5"))
-           .add(F.frame_right, name="frame_right", color=color("#2a5d9f"))
-           .add(F._pump_placed(-1), name="pump_a", color=color("slategray"))
-           .add(F._pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
-           .add(F._elbows(), name="fittings", color=color("#c8a24a"))
-           .add(F.pcb_solid(), name="pcb", color=color("#2f7d4f"))
-           .add(F.pcb_plate_part,  name="pcb_plate",  color=color("#8fb56a"))
-           .add(F.pcb_shroud_part, name="pcb_shroud", color=color("#6a8fb5"))
-           .add(F._dock_placed(), name="battery_dock", color=color("#d08a3e"))
-           .add(F._tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
-           .add(shelf(), name="shelf_viz", color=color("#808080", alpha=0.5))
-           .add(pack_frame(), name="pack_viz", color=color("#4a4a4a", alpha=0.5)))
-    for name, pts in routes():
-        try:
-            hose = run(pts)
-        except ValueError as e:
-            print("  %-14s NOT MAKEABLE: %s" % (name, e))
-            continue
-        tint = "#b03030" if name.startswith("tank") else "#30a050"
-        asm.add(hose, name=name, color=color(tint, alpha=0.85))
-    out = str(OUT / "assembly_v2_plumbed.step")
-    asm.save(out, mode="default")
-    print("wrote", out)
-    show(out)
-
-
-if __name__ == "__main__":
-    _build()
