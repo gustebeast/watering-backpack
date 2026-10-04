@@ -4048,9 +4048,27 @@ def _add_via(board, net, x, y, drill=0.3, diameter=0.6):
     board.Add(v)
 
 
-def _add_zone(board, net, layer, inset, w, h):
+def _add_zone(board, net, layer, inset, w, h, poly=None, priority=0):
     """A copper pour over the whole board less `inset`. Not decoration: it is
-    how the THT pads reach GND at all, since no GND track is drawn."""
+    how the THT pads reach GND at all, since no GND track is drawn.
+
+    `poly` REPLACES the board rectangle with an explicit outline, and that is
+    what a high-current net needs. A plane over the whole board is the only
+    shape a return needs, so that is the only shape this grew for; but a rail
+    carrying tens of amps cannot be a track at all. IPC-2221 wants 3.18 mm for
+    7.5 A at a 20 C rise, and the note that set this board's 1.2 mm said the
+    quiet part out loud: "a track that wide is not a track, it is a pour."
+    Without a polygon the only pour available was the whole board, which no
+    supply but ground can have, so the choice was a track the current does not
+    fit through or a via array nothing measures. A region fixes that, and it
+    fixes it better than hand-laid copper does: the FILLER keeps clearance to
+    every pad, track and other zone it finds, so the pour stays legal when the
+    router moves underneath it, where a typed polyline goes stale silently.
+
+    `priority` decides which of two OVERLAPPING pours wins the contested copper
+    (higher first); equal priorities keep clearance from each other instead. It
+    is here so a small rail region can sit inside a larger one without the
+    author having to cut the hole by hand."""
     zone = pcbnew.ZONE(board)
     zone.SetLayer(_LAYERS[layer])
     zone.SetNet(net)
@@ -4075,10 +4093,23 @@ def _add_zone(board, net, layer, inset, w, h):
     # copper not connected to its net is an antenna, so drop it. The islands that
     # matter are the ones touching a pad, and those are connected by definition.
     zone.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)
-    hw, hh = w / 2.0 - inset, h / 2.0 - inset
+    zone.SetAssignedPriority(priority)
+    if poly:
+        # ⚠ AT LEAST THREE DISTINCT CORNERS, checked here rather than left to the
+        # filler. A degenerate outline does not raise: it fills to zero area, and
+        # PCB_QUALITY A1 then reads the net as "no copper joins" -- a sentence
+        # that points at the routing, not at the typo three files away.
+        pts = [(float(x), float(y)) for x, y in poly]
+        if len(set(pts)) < 3:
+            raise SystemExit("zone on %s: %d distinct corner(s); a pour needs 3"
+                             % (net.GetNetname(), len(set(pts))))
+        corners = pts
+    else:
+        hw, hh = w / 2.0 - inset, h / 2.0 - inset
+        corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
     outline = zone.Outline()
     outline.NewOutline()
-    for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
+    for x, y in corners:
         pt = _to_board(x, y)
         outline.Append(pt.x, pt.y)
     board.Add(zone)
@@ -4423,8 +4454,21 @@ def build(stem):
     for sl in notes.get("outline_slots", ()):
         _edge_slot(board, [tuple(p) for p in sl["poly"]], sl["rects"])
 
-    for net_name, layer, inset in notes.get("zones", []):
-        _add_zone(board, nets_by_name[net_name], layer, inset, *notes["outline_mm"])
+    for z in notes.get("zones", []):
+        # Two spellings, because the three-tuple is every board's ground plane and
+        # should not have to grow a dict to stay itself. A dict is for the rest:
+        # `poly` for a region, `priority` for which of two overlapping pours wins.
+        if isinstance(z, dict):
+            net_name, layer = z["net"], z["layer"]
+            inset, poly = float(z.get("inset", 0.3)), z.get("poly")
+            prio = int(z.get("priority", 0))
+        else:
+            (net_name, layer, inset), poly, prio = z, None, 0
+        if net_name not in nets_by_name:
+            raise SystemExit("zone asks for a pour on %r, which is not a net on "
+                             "this board" % net_name)
+        _add_zone(board, nets_by_name[net_name], layer, inset,
+                  *notes["outline_mm"], poly=poly, priority=prio)
     if notes.get("zones"):
         # ⚠ BUILD THE CONNECTIVITY GRAPH FIRST. A board assembled by script has none --
         # it is built by the editor as you work, and nothing here was ever "worked on".

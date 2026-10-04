@@ -393,7 +393,10 @@ def _check_gerbers(gdir, notes, board, pcb):
     F.Cu and B.Cu fragment freely and are meant to -- optical's F.Cu is 26 islands --
     which is why only the DECLARED plane is held to one.
     """
-    zones = {z[1] for z in notes.get("zones", []) or []}
+    # A zone note is a (net, layer, inset) tuple or a dict; both carry "layer",
+    # and reading it positionally out of a dict raises rather than skipping.
+    zones = {(z["layer"] if isinstance(z, dict) else z[1])
+             for z in notes.get("zones", []) or []}
     planes = set(notes.get("plane_layers", ()) or ())
     seen = {}
     for fn in sorted(os.listdir(gdir)):
