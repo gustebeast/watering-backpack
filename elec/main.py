@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cadkit.pcbflow import gen  # noqa: E402
+from elec.quality_signoff import MANUAL as QUALITY_MANUAL  # noqa: E402
 
 OUT_DIR = gen.begin(__file__)           # before skidl is imported — see gen.begin
 
@@ -137,10 +138,40 @@ assert GATE_DRV_VDD_MIN <= VGATE_V <= GATE_DRV_VDD_MAX, (
 assert VGATE_I_MIN_MA > VGATE_LOAD_MA, (
     "at a %.0f V pack the dropper passes %.1f mA and the drivers want %.1f: "
     "VGATE collapses" % (VBAT_MIN, VGATE_I_MIN_MA, VGATE_LOAD_MA))
+# R9's own rating, which nothing checked. The dropper stands across VBAT - VGATE
+# the whole time the pack is on: at a FRESH pack that is 10 V across 1k5, and
+# R9 is an 0805 -- 0.125 W, the standard rating for that size. 67 mW is 54 % of
+# it, which is margin but not much, and it is the reason R9 is 0805 and not the
+# 0603 every other resistor on this board is.
+VGATE_R_W_MAX = 0.125        # W, a standard 0805 thick-film
+VGATE_R_W     = (VBAT_MAX - VGATE_V) ** 2 / VGATE_R_OHM
+assert VGATE_R_W < VGATE_R_W_MAX * 0.75, (
+    "R9 burns %.0f mW at a fresh pack against an 0805's %.0f mW: that is %.0f %% "
+    "of rating, and a dropper runs at it continuously"
+    % (VGATE_R_W * 1000, VGATE_R_W_MAX * 1000, 100 * VGATE_R_W / VGATE_R_W_MAX))
+
+# ── Ceramic voltage ratings: 2x the rail, and the rail written down ────────
+# ⚠ EVERY CERAMIC ON THIS BOARD NOW STATES ITS RATING, because two of them sat
+# on a rail nobody had checked them against. PCB_QUALITY M4: "a ceramic at its
+# rated voltage has lost most of its capacitance -- use >= 2x the rail".
+#
+#   C13 was 10u/16V on VGATE. VGATE is 10 V, so that is 1.6x -- under the rule,
+#        and an 0805 X5R at 10 V of bias keeps well under half its marking.
+#   C9/C10 were plain "100n", which is a value with no rating at all, and they
+#        are the UCC27517 bypasses: also on VGATE, also 10 V. A generic 0603
+#        100n can be a 16 V part, and nothing here said it could not be.
+#
+# The fix is one spelling for all of them rather than a third value: 50 V is
+# what a commodity 0603 X7R 100n already is, so "100n/50V" costs nothing, keeps
+# A11's one-value-one-spelling, and removes the question everywhere at once --
+# including C3, the bootstrap, whose 100n sits on a node the datasheet rates to
+# 49 V even though it only ever sees BOOT-SW.
+CAP_100N  = "100n/50V"
+CAP_VGATE = "10u/25V"        # 2.5x a 10 V rail, same 0805 land as the 16 V part
 
 # Joystick RC: the ONLY noise defence, since there is no joystick board to buffer
 # at the source. 1k + 100n = 1.6 kHz — far above a hand, far below switching.
-RC_R, RC_C = "1k", "100n"
+RC_R, RC_C = "1k", CAP_100N
 
 # ── Pump power semiconductors: REQUIREMENTS, not part numbers ───────────────
 # CIRCUIT.md §1 fixes both, and the value strings below are DERIVED from these
@@ -163,10 +194,39 @@ PUMP_FET_VDS_MIN   = 60.0        # V, CIRCUIT.md §1
 PUMP_FET_RDSON_MAX = 10.0        # mOhm at 4.5 V Vgs
 FREEWHEEL_VR_MIN   = 60.0        # V
 FREEWHEEL_IF_MIN   = 15.0        # A
-TVS_CLAMP          = 39.0        # SMBJ24A, approx
+PUMP_FET_VGS_MAX   = 20.0        # V, the +-20 V every DPAK N-FET in this class has
+# ⚠ 38.9, NOT "39.0, approx". The clamp voltage is the number EVERY part on VBAT
+# is judged against, so it is read off the table, not rounded from memory:
+# Littelfuse SMBJ24A, 24 V standoff, 26.7 V min breakdown, VC = 38.9 V MAX at
+# IPP = 15.5 A, 600 W. That is the worst case the board sees, and the three
+# asserts below are the three parts it has to survive.
+TVS_CLAMP          = 38.9        # V, SMBJ24A VC max at 15.5 A Ipp
+BUCK_VIN_ABSMAX    = 44.0        # V, SNVSAA5B 5.1, VIN/EN to GND
+BUCK_VIN_RECMAX    = 40.0        # V, SNVSAA5B 5.3, recommended operating
 assert TVS_CLAMP < PUMP_FET_VDS_MIN, (
-    "the TVS clamps at %.0f V; a pump FET rated %.0f V has no margin behind it"
+    "the TVS clamps at %.1f V; a pump FET rated %.0f V has no margin behind it"
     % (TVS_CLAMP, PUMP_FET_VDS_MIN))
+# THE BUCK IS ON THE SAME NODE AS THE FETS AND IS THE WEAKEST THING ON IT. The
+# assert above only ever coupled the clamp to the FETs, which are the part with
+# the MOST margin behind it (21.1 V). U1's VIN pin sits on the same copper with
+# 5.1 V of absolute maximum and 1.1 V of recommended maximum left -- so the TVS
+# is what keeps the buck inside its datasheet, and raising the clamp by 1.2 V
+# would take it outside while the FETs still looked fine.
+assert TVS_CLAMP < BUCK_VIN_RECMAX, (
+    "the TVS clamps at %.1f V and the buck's recommended maximum VIN is %.0f: "
+    "a clamp event runs U1 outside its datasheet" % (TVS_CLAMP, BUCK_VIN_RECMAX))
+assert TVS_CLAMP < BUCK_VIN_ABSMAX, (
+    "the TVS clamps at %.1f V and the buck's VIN absolute maximum is %.0f"
+    % (TVS_CLAMP, BUCK_VIN_ABSMAX))
+# The GATE side of the same FET. VGATE is a shunt-regulated rail, so the number
+# the gate sees is set by D5 and not by the pack, and the only way it reaches
+# the FET's +-20 V is if D5 is the wrong Zener or is not fitted -- in which case
+# R9 pulls the gate rail to the pack and 20 V arrives at a gate rated 20 V. This
+# is why there is a Zener and not just a dropper, written as a check.
+assert VGATE_V < PUMP_FET_VGS_MAX * 0.75, (
+    "VGATE is %.1f V against a %.0f V gate rating: a shunt rail wants real "
+    "headroom, because the failure mode of the shunt is the full pack"
+    % (VGATE_V, PUMP_FET_VGS_MAX))
 # Neither part is sourced. The value carries the REQUIREMENT so that whoever
 # sources it has to satisfy it, and elec/fab.py counts both as open.
 PUMP_FET_VALUE  = "NFET-%.0fV-%.0fmR" % (PUMP_FET_VDS_MIN, PUMP_FET_RDSON_MAX)
@@ -198,8 +258,20 @@ def circuit():
     n_vg   = Net("VGATE")
     n_en   = Net("EN")
     n_io0  = Net("IO0")
-    n_rx   = Net("RXD0")
-    n_tx   = Net("TXD0")
+    # ⚠ NAMED BY DIRECTION, BECAUSE "TXD" ON A HEADER IS A TRAP. PCB_QUALITY
+    # M26 wants a net named TX to reach one transmitter and the far end's
+    # RECEIVER, and M31 wants a pin someone will wire to say which way it goes.
+    # These were nets "TXD0"/"RXD0" landing on J6 pins silkscreened "TXD"/"RXD"
+    # -- and every USB-UART adapter also labels its own pins TXD and RXD, from
+    # ITS point of view. Wire like to like and it is output to output: the
+    # board will not program, and nothing on either silk says why.
+    #
+    # The module's own pin names stay RXD0/TXD0 (that is what Espressif calls
+    # pins 34/35, and tools/check_pin_map.py ALIASes those spellings to IO3 and
+    # IO1), so the rename is on the NETS and on J6's pin names, which are what
+    # kicad_silk prints next to the header.
+    n_rx   = Net("ESP_RX_FROM_PROG")
+    n_tx   = Net("ESP_TX_TO_PROG")
 
     # ── Connectors — terminal blocks, not JST. Every one of these is landed once
     # at assembly, so JST's plug/unplug advantage goes unused, and a terminal is
@@ -215,8 +287,10 @@ def circuit():
     j_lvl = gen.part("J5", "TB-3.5-4", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal",
                      ["VBAT", "GND", "OUT", "MODE"], "XKC-Y25 level, open-collector out")
     j_prg = gen.part("J6", "PROG", "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical",
-                     ["3V3", "GND", "TXD", "RXD", "EN", "IO0"],
-                     "programming; no USB-C — a connector is a water path outdoors")
+                     ["3V3", "GND", "ESP_TX", "ESP_RX", "EN", "IO0"],
+                     "programming; no USB-C — a connector is a water path "
+                     "outdoors. ESP_TX/ESP_RX are named from the BOARD's end: "
+                     "cross them to the adapter")
 
     # ── Input protection ────────────────────────────────────────────────────
     d_tvs = gen.part("D1", "SMBJ24A", "Diode_SMD:D_SMB", ["K", "A"],
@@ -256,7 +330,7 @@ def circuit():
     # inside A2's 25 mm of J2 and J3.
     c_bki = gen.part("C15", "4u7/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
                      "buck input -- the hot loop. Keep it AT pins 2 and 7")
-    c_bt = gen.part("C3", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "boot")
+    c_bt = gen.part("C3", CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2, "boot")
     c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2, "3V3 out")
     c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "3V3 out")
     r_f1 = gen.part("R1", FB_TOP, "Resistor_SMD:R_0603_1608Metric", 2, "FB top")
@@ -300,7 +374,7 @@ def circuit():
                       11: "IO26", 12: "IO27", 13: "IO14", 15: "GND", 25: "IO0",
                       34: "RXD0", 35: "TXD0", 38: "GND", 39: "GND"}, "MCU + WiFi. LOCAL footprint: KiCad's stock one has twelve 0.2 mm thermal vias, below the 0.3 mm fab minimum — 12 of this board's 14 DRC violations were that one footprint")
     c_m1 = gen.part("C6", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "MCU bulk")
-    c_m2 = gen.part("C7", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "MCU decoupling")
+    c_m2 = gen.part("C7", CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2, "MCU decoupling")
     r_en = gen.part("R3", "10k", "Resistor_SMD:R_0603_1608Metric", 2, "EN pull-up")
     c_en = gen.part("C8", "1u", "Capacitor_SMD:C_0603_1608Metric", 2, "EN RC, power-on reset")
 
@@ -308,8 +382,8 @@ def circuit():
     gnd  += u_mcu["GND"], c_m1[2], c_m2[2], c_en[2]
     n_en += u_mcu["EN"], r_en[2], c_en[1], j_prg["EN"]
     n_io0 += u_mcu["IO0"], j_prg["IO0"]
-    n_rx += u_mcu["RXD0"], j_prg["RXD"]
-    n_tx += u_mcu["TXD0"], j_prg["TXD"]
+    n_rx += u_mcu["RXD0"], j_prg["ESP_RX"]
+    n_tx += u_mcu["TXD0"], j_prg["ESP_TX"]
     gnd  += j_prg["GND"]
 
     # ── VGATE: the rail the gate drivers actually need ──────────────────────
@@ -337,7 +411,7 @@ def circuit():
                     "VGATE dropper — %.1f mA at a flat pack" % VGATE_I_MIN_MA)
     d_vg = gen.part("D5", VGATE_ZENER, "Diode_SMD:D_SOD-123", ["K", "A"],
                     "VGATE shunt — the gate drivers' supply")
-    c_vg = gen.part("C13", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+    c_vg = gen.part("C13", CAP_VGATE, "Capacitor_SMD:C_0805_2012Metric", 2,
                     "VGATE bulk — the gate peaks come from here, not through R9")
     vbat += r_vg[1]
     n_vg += r_vg[2], d_vg["K"], c_vg[1]
@@ -383,7 +457,7 @@ def circuit():
         rg = gen.part("R%d" % (3 + n), "10R", "Resistor_SMD:R_0603_1608Metric", 2, "gate")
         rp = gen.part("R%d" % (5 + n), "100k", "Resistor_SMD:R_0603_1608Metric", 2,
                       "gate pull-down — FET off while the MCU boots")
-        cv = gen.part("C%d" % (8 + n), "100n", "Capacitor_SMD:C_0603_1608Metric", 2,
+        cv = gen.part("C%d" % (8 + n), CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2,
                       "driver decoupling")
         pwm += u["IN+"]
         n_vg += u["VDD"], cv[1]
@@ -408,7 +482,7 @@ def circuit():
     # ── Sensing ─────────────────────────────────────────────────────────────
     r_d1 = gen.part("R20", RDIV_TOP, "Resistor_SMD:R_0603_1608Metric", 2, "VBAT sense top")
     r_d2 = gen.part("R21", RDIV_BOT, "Resistor_SMD:R_0603_1608Metric", 2, "VBAT sense bottom")
-    c_d  = gen.part("C11", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "VBAT sense filter")
+    c_d  = gen.part("C11", CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2, "VBAT sense filter")
     vbat += r_d1[1]
     n_vsen += r_d1[2], r_d2[1], c_d[1], u_mcu["IO35"]
     gnd += r_d2[2], c_d[2]
@@ -782,8 +856,19 @@ BOARD_NOTES = {
                         "54 mm3 behind +Y against 232 behind -Y",
             "PROG": "a 1x06 2.54 header has no maker pinout: the order is this "
                     "board's own, printed on the back silk by kicad_silk and "
-                    "listed in elec/CIRCUIT.md -- 3V3, GND, TXD, RXD, EN, IO0",
+                    "listed in elec/CIRCUIT.md -- 3V3, GND, ESP_TX, ESP_RX, "
+                    "EN, IO0. The two UART pins are named from the BOARD's end "
+                    "on purpose (PCB_QUALITY M26): an adapter's own TXD goes to "
+                    "ESP_RX, not to a pin that also says TXD",
         },
+        # == THE MANUAL ITEMS ===============================================
+        # Thirty-eight sign-offs, each against a primary source or a
+        # measurement off the ROUTED board, live in elec/quality_signoff.py
+        # -- lifted out of this file because the evidence would have
+        # doubled it and buried the circuit. That module also carries an
+        # OPEN dict saying, item by item, what is MISSING for the ones
+        # that are not signed, which is the half that is easy to fudge.
+        "manual": QUALITY_MANUAL,
         "waive": {
             "A8:U1": "the six vias ARE in the pad, but they are footprint PADS "
                      "rather than board vias, so A8 counts zero. "

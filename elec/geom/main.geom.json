@@ -2139,17 +2139,17 @@
    ]
   },
   {
-   "text": "J6\n1 +3V3\n2 GND\n3 TXD0\n4 RXD0\n5 EN\n6 IO0",
+   "text": "J6\n1 +3V3\n2 GND\n3 ESP_TX_TO_PROG\n4 ESP_RX_FROM_PROG\n5 EN\n6 IO0",
    "side": "B",
-   "x": 1.15,
+   "x": -1.35,
    "y": 41.0,
    "size": 1.0,
-   "angle": 0.0,
+   "angle": 90.0,
    "box": [
-    -1.832,
-    4.132,
-    35.322,
-    46.678
+    -7.028,
+    4.328,
+    32.423,
+    49.577
    ]
   },
   {
