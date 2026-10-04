@@ -164,6 +164,31 @@ a water path and the tank sits directly above it. The level sensor's lead leaves
 through it too and climbs the outside of the housing — longer than going straight
 up through the roof, which is the point.
 
+**J1–J4 are rotated 180 degrees from where they want to be.** MEASURED, not
+inferred: Phoenix's own STEP model for the PT-1,5 family
+(`TerminalBlock_Phoenix.3dshapes/...PT-1,5-4-3.5-H...step`) has 43 mm3 of material
+in the first 1.5 mm behind its **+Y** face and 184 mm3 behind its −Y face, of 197
+possible. The hollow face is the wire entry, so entry is at footprint **+Y**, with
+the solder pads at y=0.
+
+J1–J4 sit at board y=−41 on the bottom edge at rot 0, so their entries face board
++Y — inward, which is world +Z, UP. Every power wire (battery and both pumps) plus
+the joystick therefore leaves its connector running up the inside of the bay and
+has to double back ~90 mm to reach the chase at the bottom, in a bay the board
+fills in Y with ~11 mm of clearance under its edge. It also defeats the tie rib: a
+tie there cannot relieve a cable that loops upward before it arrives.
+
+They want **rot 180**. The body moves 1.4 mm toward the board edge (footprint y
+−3.1..+4.5 becomes −4.5..+3.1), landing at y −45.5..−37.9 against an edge at −50,
+so it fits — but it moves four courtyards and needs a re-route back to "0
+unconnected, 0 violation(s)" before it can be believed.
+
+**J5 is correct as placed.** At board y=+41 on the top edge, rot 0 already points
+its entry at the edge. An earlier note in this repo's history claimed the opposite
+— that J5 was the wrong one and J1–J4 were fine. That was inferred from the
+footprint's fab outline, which does not mark the entry face. It is wrong; the
+measurement above supersedes it.
+
 **They are through-hole**, so either a THT assembly surcharge at JLCPCB or hand
 soldering. Terminal blocks are large forgiving parts, so hand soldering is trivial
 — the same call already made for the KY-023.
