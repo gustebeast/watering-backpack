@@ -92,11 +92,17 @@ ORDER_EVERY_BOARD = (
     ("prod file", "Confirm Production File: Yes. The last look at the panel before it is cut."),
 )
 AFTER = None             # optional callable(names), run after a build (a BOM-document check)
+# Refuse to leave a package behind for a board that is not quality-clean (0 FAIL, 0 OPEN;
+# see cadkit/PCB_QUALITY.md). Off by default: the report is always written and printed.
+REQUIRE_QUALITY = False
 
 
-def configure(project_dir, boards, lcsc, open_values=(), order_every_board=None, after=None):
+def configure(project_dir, boards, lcsc, open_values=(), order_every_board=None, after=None,
+              require_quality=False):
     """Point this module at a project. `project_dir` is the generator folder (elec/)."""
     global HERE, OUT_DIR, FAB_DIR, BOARDS, LCSC, OPEN_VALUES, ORDER_EVERY_BOARD, AFTER
+    global REQUIRE_QUALITY
+    REQUIRE_QUALITY = bool(require_quality)
     HERE = os.path.abspath(project_dir)
     OUT_DIR = os.path.join(HERE, "out")
     FAB_DIR = os.path.join(OUT_DIR, "fab")
@@ -621,13 +627,27 @@ def _sweep_stale(names):
                   % (n, board))
 
 
+def _quality(board, z):
+    """Run the quality pass on `board`, put its report in the package as QUALITY.txt, and
+    return (fail, open) -- or None if the pass could not run."""
+    stem = os.path.join(OUT_DIR, board)
+    r = subprocess.run([KICAD_PY, os.path.join(FLOW, "quality.py"), stem],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    text = "\n".join(ln for ln in (r.stdout or "").splitlines()
+                     if "image handler" not in ln and "memory leak" not in ln)
+    m = re.search(r"quality (\d+) FAIL, (\d+) OPEN", text)
+    with zipfile.ZipFile(z, "a", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("QUALITY.txt", text + "\n")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def main(names=None):
     if HERE is None:
         raise SystemExit("fab: call configure() first")
     names = list(names or BOARDS)
     os.makedirs(FAB_DIR, exist_ok=True)
     _sweep_stale(names)
-    blocked, order = {}, {}
+    blocked, order, dirty = {}, {}, {}
     for b in names:
         n, g, open_real, open_generic, z, opts = fab(b)
         if opts:
@@ -636,6 +656,9 @@ def main(names=None):
               % (b, n, g, len(open_generic), len(open_real), os.path.basename(z)))
         if open_real:
             blocked[b] = open_real
+        dirty[b] = _quality(b, z)
+        if REQUIRE_QUALITY and dirty[b] != (0, 0):
+            os.remove(z)
     if blocked:
         print("\nSOURCING STILL OPEN -- these cannot be ordered assembled:")
         for b, vals in blocked.items():
@@ -646,6 +669,13 @@ def main(names=None):
         for b, opts in order.items():
             for k in sorted(opts):
                 print("   %-13s %-11s %s" % (b, k, opts[k].split(" -- ")[0]))
+    if any(v != (0, 0) for v in dirty.values()):
+        print("\nQUALITY NOT CLEAN (cadkit/PCB_QUALITY.md; each zip's QUALITY.txt has the list)%s:"
+              % (" -- THESE PACKAGES WERE REMOVED" if REQUIRE_QUALITY else ""))
+        for b, v in dirty.items():
+            if v != (0, 0):
+                print("   %-13s %s" % (b, "the pass did not run" if v is None
+                                       else "%d FAIL, %d OPEN manual item(s)" % v))
     if AFTER:
         AFTER(names)
     # ASCII on purpose: this prints to a Windows console whose default
