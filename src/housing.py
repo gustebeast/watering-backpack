@@ -791,7 +791,22 @@ def housing() -> cq.Workplane:
 # labyrinth the butt joint never was. It stops short of the plate on purpose:
 # the lid seats on the bay RIM, not on the skirt's end, so the lap carries no
 # load and its depth is free to choose.
-SKIRT_D   = 25 * BEAD             # 20.0 -- how far it drops. The dock's +Y face
+# HOW DEEP, AND WHY NOT DEEPER. The skirt used to drop 20.0 while the BOSS
+# reaches the full 25.1 to the back plate, so 5.1 x 16 mm of boss stuck out past
+# the skirt's end with its underside hanging in open air -- a step that looks
+# like an oversight and very nearly is.
+#
+# The two X limits are set by different jobs and cannot be the same number. The
+# boss MUST touch the back plate: the screw clamps lid, plate and timber in one
+# stack, and a gap there is a gap the lid rocks through. The skirt must NOT
+# touch it: the lid seats on the bay RIM, and a skirt that bottoms out on the
+# plate first holds the lid off the rim it is supposed to be sealing against.
+#
+# Measured: the bay is 25.1 deep, a test skirt is clear of the dock, the pack
+# and the timber at 25.1, and fouls the back plate at 26.0. 24.0 is the last
+# whole bead short of the plate -- 1.1 mm of gap for the lid to close on, and
+# the step the user was looking at drops from 81.6 mm2 to 17.6.
+SKIRT_D   = 30 * BEAD             # 24.0 -- how far it drops. The dock's +Y face
                                   # limit and it is 6.3 mm clear at this depth.
 BAY_Y0, BAY_Y1 = Y_PCB0 - WALL, Y_OUTER       # the bay's outer faces
 LID_Y0 = BAY_Y0 - SKIRT_CLR - SKIRT_T
@@ -803,6 +818,15 @@ assert LID_Y0 > Y_DOCK1, (
     % (LID_Y0, Y_DOCK1))
 assert LID_Y1 <= L.FRAME_D, "the +Y skirt runs past the frame"
 assert SKIRT_D < abs(WALL_X - FLOOR_X), "the skirt is deeper than the bay is tall"
+# ⚠ AND IT HAS TO STAY SHORT OF THE PLATE BY A REAL GAP, not just by epsilon.
+# The lid seats on the bay RIM. If the skirt reaches the back plate it lands
+# there first and holds the lid off the rim -- the one joint under five gallons
+# of water -- and nothing downstream would notice, because every part still
+# fits and the install gate still sweeps clear.
+SKIRT_PLATE_GAP = abs(WALL_X - FLOOR_X) - SKIRT_D
+assert SKIRT_PLATE_GAP >= 1.0, (
+    "the skirt ends %.2f mm from the back plate; the lid would close on its "
+    "skirt instead of on the bay rim" % SKIRT_PLATE_GAP)
 
 # ── The -Z skirt has to let the wiring out ─────────────────────────────────
 # Every other side laps a closed wall. This one laps the wall the cable chase
