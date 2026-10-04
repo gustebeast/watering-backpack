@@ -81,6 +81,12 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - **The green line stays 3/8"** where it enters the inner-pot tube — that diameter is
     fixed by the pot. Only the probe; the main run is 1/2". The printed filter housing is
     the transition (3/8" barb pot-side, 1/2" barb pump-side).
+  - ⚠️ **UNRESOLVED — 1/2" here vs 5/8" in DESIGN_V2.** §4 and §5 of DESIGN_V2 both
+    say 5/8" ("5/8 everywhere except the probe"); this line and the superseded-reducers
+    note below still say 1/2". §5 is the broader, later statement so 5/8" is probably
+    right, but **settle it before buying tubing, clamps, or the pump-side barb** — it
+    sets all three. `src/line_filter.py` deliberately does not pick: the screen's bore
+    is 1" either way, and only the unbuilt housing carries that barb.
 - [x] 🎒 **Hose clamps — 5574K13 — ALREADY OWNED, still correct** — McMaster, worm-drive,
   smooth-band, 304 SS, 1/2"–3/4" ID. Centres nicely on 1/2" barb + tubing OD.
 - [ ] 🎒 **Uniseal — size TBD once a Scepter panel is measured**
@@ -212,8 +218,8 @@ so the frame contains the 206 mm pumps.
 
 ## 7b. Printed parts  *(🎒)*
 
-Two parts, plus three carried over from v1. `py -3.12 -m src.build` exports them
-all and prints the sizes against the 255 mm bed.
+Two parts, plus three carried over from v1 and the filter screen. `py -3.12 -m
+src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
@@ -221,6 +227,7 @@ all and prints the sizes against the 255 mm bed.
 | `v2_housing_lid` | 40 cm³ | cover over the board |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
+| `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
 
 `joystick_mount` and `dual_clamp_19` attach to things this model does not draw —
 the shoulder strap, and the pack frame's tubing (`plumbing.pack_frame()` is a flat
@@ -228,11 +235,24 @@ reference panel). So they carry no position in the assembly and are **outside th
 interference gate**; only their print size is checked. Modelling the pack frame's
 tubing is what would bring them inside it.
 
+`line_filter_screen` is outside the gate for the same reason: §4 mounts the filter
+"partway along the green line, on the frame where the line leaves the pack", which
+is not a position. **Its housing is not modelled at all** — §4 fixes every
+dimension of the *screen* but leaves the housing's port arrangement, print split,
+and printed-vs-bought barbs undecided; `src/line_filter.py` lists what each one
+turns on. The screen is built first because it carries the makeability risk, not
+because the housing is finished.
+
+⚠️ **Print `test_screen_slice` before the real one.** §4 bets that a 0.2 mm nozzle
+renders 0.25 mm slots; nothing in the gate set can check minimum feature size, so
+the coupon (`py -3.12 -m src.test_pieces`, 21 mm tall, same slot/rib/wall as the
+real part) is the only thing that answers it. Hold it to a light.
+
 **`dual_clamp_23` is retired.** It gripped a 23 mm *valve* body, and §1 of
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~305 g** for the set (247 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~310 g** for the set (252 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*

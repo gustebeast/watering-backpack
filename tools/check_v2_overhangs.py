@@ -24,6 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from cadkit.step_export import print_pose      # noqa: E402
 from src import housing as H                   # noqa: E402
+from src import line_filter as LF              # noqa: E402
 
 # A planar ceiling has n.z = -1; a 45° ramp has n.z = -0.707. Flag anything
 # steeper than ~45°, with a small tolerance band so true 45° ramps pass.
@@ -32,7 +33,13 @@ BED_EPS = 0.2            # a face this close to z=0 rests on the plate
 MIN_AREA = 1.0           # ignore slivers; they are modelling noise, not overhangs
 
 PARTS = (("v2_housing",     H.housing()),
-         ("v2_housing_lid", H.lid()))
+         ("v2_housing_lid", H.lid()),
+         # the filter screen: 122 vertical slots and two ring
+         # flares. Its only downward faces are the 0.25 mm slot
+         # roofs, each 0.20 mm2 and so below MIN_AREA — a real
+         # self-supporting bridge, but src.line_filter.main()
+         # prints the total so the pass is visible, not assumed.
+         ("line_filter_screen", LF.screen()))
 
 
 def report(name, part):
