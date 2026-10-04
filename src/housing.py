@@ -376,14 +376,33 @@ def _hole_points():
     return out
 
 
+# ONE screw, at the corner furthest from the +Y retention lip. There were four,
+# one per corner, and three of them were holding a board that the lip and the Z
+# stops now hold for nothing: four blind bores, four heat-set inserts and four
+# screws, on a board that comes out for every firmware reflash until it has OTA.
+#
+# WHICH corner: -Y, because that is the end the lip does not reach, and the
+# BOTTOM one, because the cable bundle leaves from the bottom edge and a tugged
+# cable is the only real -X load this board sees. The screw belongs nearest the
+# load. The hole at (110.5, 31) is also clear of the terminal group, which stops
+# at y=123.7 -- the top -Y hole would have been just as clear, and the choice
+# between them is the cable, not the geometry.
+SCREW_HOLE = (0, 1)        # (index among _hole_points(): min y, min z)
+
+
+def _screw_hole_point():
+    """The one mounting hole that gets a screw: lowest y, lowest z."""
+    return min(_hole_points(), key=lambda p: (p[0], p[1]))
+
+
 def pcb_screws():
-    """One M4 per corner, board -> boss -> back plate, into a heat-set insert.
+    """The one M4: board -> boss -> back plate, into a heat-set insert.
 
     Stops SEAL_T short of the back face. It used to run through it; see SEAL_T
     for why that was unnecessary here and what it cost."""
     out = []
     depth = (BOARD_X0 - BOARD_X1) + STANDOFF + BACK_T - SEAL_T
-    for hy, hz in _hole_points():
+    for hy, hz in [_screw_hole_point()]:
         out.append(ScrewJoint(
             spec=M4, entry=(BOARD_X1, hy, hz), direction=(1.0, 0.0, 0.0),
             # M4x6, not x8. The insert ends 6.6 mm in, so the extra 2 mm of
@@ -509,6 +528,88 @@ def _check_dock_orientation():
 _check_dock_orientation()
 
 
+# ── HOW THE BOARD IS HELD: plastic on five sides, one screw on the sixth ───
+# It used to be four M4s and nothing else, and the four were doing every job at
+# once -- Y, Z, and holding the board down on its standoffs. That is three jobs
+# a shape can do for free and one it cannot, so the shapes do three of them now
+# and a single screw does the fourth.
+#
+#   -X (off its standoffs)  the +Y LIP, and the one screw at the far corner
+#   +X (into the floor)     the four standoff bosses
+#   +-Y                     the cavity walls, sized off the posed board
+#   +-Z                     four Z STOPS on the floor, at the laminate's edges
+#
+# THE INSTALLATION IS A SLOT AND A ROTATE. Tilt the board, slide its +Y edge in
+# under the lip, lower the -Y edge onto its standoffs, fit one screw. To take it
+# out: screw out, slide 2 mm toward -Y until the edge clears the lip's tip, lift.
+# That 2 mm is the antenna's clearance at the far wall, and it is the reason the
+# lip reaches only RET_OVER past the board: reach further and the board is in
+# for good.
+#
+# WHY THE LIP IS ROOTED 0.5 FROM THE BOARD AND NOT ON THE WALL. The lip's
+# underside is a ceiling, and the housing builds in -X, so it has to be a 45
+# degree ramp. A ramp rooted at the cavity wall would be 2.0 mm up by the time
+# it reached the board's edge, and 2.0 mm of float is most of the LID_GAP. So
+# the lip stands on its own 1.5 mm of rib first -- which has solid material
+# under it the whole way, the board does not reach there -- and only ramps over
+# the last stretch. The board floats RET_CLR + RET_OVER, not 2.3.
+RET_CLR      = 0.3      # air over the laminate at the lip's root
+RET_ROOT_GAP = 0.5      # lip root to the board's +Y edge
+RET_OVER     = 1.0      # how far the lip reaches over the board
+RET_LEN      = 14.0     # each lip's length along Z
+RET_LIP_ZS   = (35.0, 70.0, 105.0)       # three of them, spread up the edge
+RET_STOP_T   = 2.0      # Z stop thickness
+RET_STOP_CLR = 0.3      # air between a Z stop and the laminate
+
+BOARD_Y1 = PCB_Y_C + BOARD_Y_MINUS                  # 199.0 — laminate's +Y edge
+BOARD_Y0 = PCB_Y_C - BOARD_Y_MINUS                  # 104.0 — laminate's -Y edge
+BOARD_Z0 = PCB_Z_C + _BBB.ymin                      # 25.0
+BOARD_Z1 = PCB_Z_C + _BBB.ymax                      # 125.0
+assert Y_PCB1 - BOARD_Y1 > RET_ROOT_GAP, "no room between the board and the wall"
+BOARD_SLIDE_Y = (PCB_Y_C - BOARD_Y_PLUS) - Y_PCB0   # 2.0 — travel toward -Y,
+                                                    # set by the antenna, not
+                                                    # by the laminate
+assert RET_OVER < BOARD_SLIDE_Y, (
+    "the lip reaches %.1f over the board but it can only slide %.1f toward -Y: "
+    "the board would go in and never come out" % (RET_OVER, BOARD_SLIDE_Y))
+
+# Z stops go where the floor is free: clear of the cable chase, and clear of
+# the lip. Two bands, one each side of the chase.
+RET_STOP_YS = ((BOARD_Y0 + 1.0, BOARD_Y0 + 11.0),
+               (BOARD_Y1 - 11.0, BOARD_Y1 - 1.0))
+for _y0, _y1 in RET_STOP_YS:
+    assert _y1 <= CHASE_Y0 or _y0 >= CHASE_Y1, (
+        "a Z stop at y %.1f..%.1f sits over the cable chase" % (_y0, _y1))
+
+
+def _pcb_lip() -> cq.Workplane:
+    """The +Y retention lip: a rib on the wall side with a 45 deg hook."""
+    y_root = BOARD_Y1 + RET_ROOT_GAP
+    y_tip = BOARD_Y1 - RET_OVER
+    x_root = BOARD_X1 - RET_CLR
+    x_tip = x_root - (y_root - y_tip)               # 45 deg
+    pts = [(FLOOR_X, Y_PCB1), (x_tip, Y_PCB1), (x_tip, y_tip),
+           (x_root, y_root), (FLOOR_X, y_root)]
+    out = None
+    for z0 in RET_LIP_ZS:
+        s = (cq.Workplane("XY").polyline(pts).close()
+             .extrude(RET_LEN).translate((0.0, 0.0, z0)))
+        out = s if out is None else out.union(s)
+    return out
+
+
+def _pcb_z_stops() -> cq.Workplane:
+    """Four ribs on the bay floor, bounding the laminate's Z edges."""
+    out = None
+    for y0, y1 in RET_STOP_YS:
+        for z_in, side in ((BOARD_Z0, -1), (BOARD_Z1, +1)):
+            z_a = z_in + side * RET_STOP_CLR
+            z_b = z_a + side * RET_STOP_T
+            s = _slab(FLOOR_X, BOARD_X1, y0, y1, min(z_a, z_b), max(z_a, z_b))
+            out = s if out is None else out.union(s)
+    return out
+
+
 def _tie_slots() -> cq.Workplane:
     """Two diamond slots through the bay floor, one each side of the chase.
 
@@ -538,6 +639,8 @@ def housing() -> cq.Workplane:
     for hy, hz in _hole_points():
         h = h.union(cq.Workplane("YZ").workplane(offset=BOARD_X0)
                     .center(hy, hz).circle(BOSS_D / 2.0).extrude(STANDOFF))
+    # the board's own retention: a hooked lip on the +Y wall and four Z stops
+    h = h.union(_pcb_lip()).union(_pcb_z_stops())
     # cable chase — the terminals faced a closed box before this. It spans the
     # whole bottom connector group (see _edge_connector_span).
     h = h.cut(_slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,

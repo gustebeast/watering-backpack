@@ -12,7 +12,7 @@ Status is maintained here; the reasoning lives next to the code.
 | 4 | The extra chunk at the wiring window is unnecessary — plain wall, then cut | **done** |
 | 5 | Battery-mount wings are v1 joinery, dead in v2 (one side: Y 3.00..17.30) | **done** |
 | 6 | The green water line makes a strange vertical jump | **done** (and it is a blocker — see DESIGN_V2 open question 0) |
-| 7 | PCB retained by plastic on all sides but -X; drop to one M4 via cadkit's hole cutter; 45 ramp -X retention on +Y edge, slot-and-rotate install | open |
+| 7 | PCB retained by plastic on all sides but -X; drop to one M4 via cadkit's hole cutter; 45 ramp -X retention on +Y edge, slot-and-rotate install | **done** |
 | 8 | Wiring window is not placed to reach the four blocks on the board's bottom edge | **done** |
 | 9 | Port bronner's PCB debuggability work (test pads, silkscreen); re-audit the board end to end | open |
 

@@ -232,7 +232,7 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 146 cm³ | battery mount + PCB case, one piece |
+| `v2_housing` | 148 cm³ | battery mount + PCB case, one piece |
 | `v2_housing_lid` | 74 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
@@ -269,18 +269,23 @@ v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
   Each pump has four Ø4 mounting holes on a 73 × 83 mm pattern (exact, from the drawing);
   the floor is 20 mm plank, so M4×45 clears bracket + plank + nut. Nuts go on
   UNDERNEATH, so bolt the pumps down before the floor goes on the frame.
-- [ ] 🎒 **M4 heat-set inserts × 4** (Ø6.0 × 5.0 pocket) — they hold the board down.
-  **Not × 8.** The other four held the lid onto four Ø10 pillars; the lid is a
-  shoebox lid now, held by its skirt and one wood screw, and the pillars are gone.
-- [ ] 🎒 **M4 × 6 socket screws × 4** — board → boss → back plate (4.4 mm of bite
-      in a 5 mm insert). **Not × 8.** The insert ends 6.6 mm in, so the extra 2 mm of
-      screw bought no engagement — it only forced the bore to within 0.6 mm of the
-      back face. At × 6 the bore stops 1.5 mm short and the bay's back wall stays
-      closed.
+- [ ] 🎒 **M4 heat-set insert × 1** (Ø6.0 × 5.0 pocket) — it holds the board down.
+  **Not × 8.** Four held the lid onto four Ø10 pillars, and the lid is a shoebox
+  lid now, held by its skirt and one wood screw. Three of the other four held a
+  board that a hooked lip on the +Y wall and four Z stops hold for nothing.
+- [ ] 🎒 **M4 × 6 socket screw × 1** — board → boss → back plate (4.4 mm of bite
+      in a 5 mm insert). **Not × 8, and not × 4.** The board goes in by tilting it,
+      sliding its +Y edge under the retention lip and lowering the -Y edge onto its
+      standoffs; this screw is at the -Y bottom corner, the end the lip does not
+      reach. To take it out: screw out, slide 2 mm toward -Y, lift.
+      × 6 and not × 8: the insert ends 6.6 mm in, so the extra 2 mm of screw bought
+      no engagement — it only forced the bore to within 0.6 mm of the back face. At
+      × 6 the bore stops 1.5 mm short and the bay's back wall stays closed.
 *The PCB bay is closed except for the down-facing cable chase and the four
 wood screws, which their own heads fill. All eight insert bores used to run clean
 through the back wall — four into the open air between the posts — which is eight
-water paths into the electronics on a machine carrying five gallons above them.*
+water paths into the electronics on a machine carrying five gallons above them.
+There is one bore now.*
 
 - [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. Two diamond slots through
       the bay floor, 6 × 4 mm, flank the cable chase: the tie goes up through one,
