@@ -52,14 +52,16 @@ BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)
 def _cad(board):
     """The solid THE ASSEMBLY ACTUALLY PLACES for `board`.
 
-    Pointed at src.pump_frame rather than left at the shipped BOARDS.solid(),
-    which can only prove the geom loads and every part has a height. This version
-    catches what the check exists for: an assembly that draws the board somewhere
-    the routed board is not — a mirrored placement, a stale outline, a missing
-    cutout.
+    Pointed at src.housing, which is what src/build.py places. It used to point
+    at src.pump_frame.pcb_solid, and that is worth spelling out: pump_frame put
+    the board on the frame's +X face, from the printed-frame design. The housing
+    puts it at x -219..-197 on the OTHER SIDE of the machine. So this check --
+    the one whose entire job is catching "an assembly that draws the board
+    somewhere the routed board is not" -- was itself aimed at a board that
+    nothing places, and it passed.
     """
-    from src import pump_frame
-    return {"main": pump_frame.pcb_solid}[board]()
+    from src import housing
+    return {"main": housing.pcb_solid}[board]()
 
 
 def main(names):
