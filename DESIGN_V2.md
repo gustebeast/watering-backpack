@@ -261,7 +261,7 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
 
 ## What checks this design, and what each one is for
 
-Ten gates. Every one of them exists because something it now catches had already
+Eleven gates. Every one of them exists because something it now catches had already
 got through, so the list below says what each was *written for* rather than what
 it nominally covers. All exit non-zero on failure, so any of them works in CI.
 
@@ -283,6 +283,7 @@ Standalone:
 | `tools/check_pin_map.py` | six GPIOs typed in three places — firmware, `elec/main.py`, CIRCUIT.md — with nothing requiring them to agree. Also enforces the ESP32 rules (ADC1 for analog, no outputs on 34–39, no gates on strapping pins) against the role the firmware *actually uses* |
 | `tools/check_bom.py` | the BOM's volumes and cut list are generated fact written by hand. Both had gone stale within a day of the edits that moved them |
 | `tools/check_pump_dirs.py` | "never both pumps at once" has to hold, not usually hold. Transcribes the firmware and fails if the C++ it claims to transcribe changed |
+| `tools/check_plumbing.py` | a route that cannot be bent, or one that passes through something. Every hose-to-fitting contact now carries a MEASURED ceiling: the bare pair list it replaced was hiding a hose drawn curving through 45 mm of rigid elbow, sixty times its neighbours' reading |
 | `tools/check_level_alarm.py` | the tank is carried on someone's back, so the sensor is crossed constantly. The debounce *is* the feature and a still bucket cannot test it |
 
 Two habits go with them, and they matter more than the list:
@@ -300,6 +301,29 @@ Two habits go with them, and they matter more than the list:
 ---
 
 ## Open questions
+
+0. **Measure the pump elbows — one caliper reading unblocks a 38.5 mm decision.**
+   `ELBOW_LEG_L = 45` is an estimate, and pump B's INNER port is the one port on
+   the machine with nowhere to go but up. The hose's first corner has to sit
+   `BEND_R` above wherever the elbow leg ends, and the rails cap the centreline
+   at 140.5:
+
+   | | |
+   |---|---|
+   | port centreline | 84.0 |
+   | elbow leg ends (at the estimated 45) | 129.0 |
+   | first corner must be at | 179.0 |
+   | rails cap it at | 140.5 |
+   | **short by** | **38.5 mm** |
+
+   This frame accepts a **6.5 mm** elbow leg on that port, and no such fitting
+   exists. Either the real leg is far shorter than 45, or `RAIL_Z0` has to go
+   from 150 to ≥ 188.5 — taller posts, and the deck and tank 38.5 mm higher.
+   `RAIL_Z0` is already documented as being set by this hose, so option two is
+   the design's own stated dependency, not a workaround. The frame is **not**
+   being raised on the strength of an estimate. `tools/check_plumbing.py` pins
+   the defect at its measured 9962 mm³ meanwhile, so nothing about it can move
+   quietly.
 
 1. **Confirm the buck thermal theory.** Run continuously into a bucket for 60 s and
    see whether it fades; if so, feel the buck (it will be hot). This decides whether
