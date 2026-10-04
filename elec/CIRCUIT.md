@@ -47,6 +47,27 @@ change that deletes the BTS7960.
   leaves 40. The part costs the same.
   At 7.5 A and 5 mΩ this dissipates **~0.28 W** — against ~0.9 W for a BTS7960
   half. Both of v1's hot parts are gone.
+  **Both power parts were previously specified by part numbers that did not meet
+  this.** Recorded because the value string is the only human-readable thing in
+  the BOM, and both of these read as decided while being wrong:
+
+  | was | actual part | requirement | verdict |
+  |---|---|---|---|
+  | `AOD4184A-60V` | AOD4184A is **40 V** / 50 A, DPAK | ≥ 60 V | fails — and 40 V is rejected by name above |
+  | `SS16H-60V-15A` | SS16H is **1 A** / 60 V, SMA | ≥ 15 A, D2PAK | fails — this leg carries ~3.75 A average, 7.5 A peak |
+
+  The 40 V part also broke the protection coordination: the TVS below was chosen
+  so its ~39 V clamp sits *under* the FET rating, and 39 of 40 V is no margin at
+  all. `elec/main.py` now asserts that coupling.
+
+  Neither is sourced, so both values carry the REQUIREMENT rather than a part
+  number — `NFET-60V-10mR` and `SCHOTTKY-60V-15A` — and `elec/fab.py` counts
+  both as open, which blocks an assembled order until someone satisfies the spec.
+  A verified-compliant freewheel candidate, if useful: Vishay **VS-15TQ060S-M3**,
+  60 V / 15 A, TO-263AB, V<sub>f</sub> 620 mV at 15 A. The FET is harder — the
+  common 60 V DPAK parts sit at 19–23 mΩ at 4.5 V V<sub>GS</sub>, so meeting
+  ≤ 10 mΩ needs a deliberate pick, not the first search hit.
+
 - **Gate driver** — single-channel, ≥1 A, e.g. UCC27517 class. Not optional: a
   3.3 V GPIO switching a ~10 nC gate at 20 kHz spends too long in the linear
   region, and the loss lands in the FET.

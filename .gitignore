@@ -19,3 +19,6 @@ firmware/src/secrets.h
 
 # Generated board output — regenerate with: py -3.12 elec/main.py && finish.py
 elec/out/
+
+# finish.py drops its DRC report in the repo root, not in elec/out
+*-drc.rpt
