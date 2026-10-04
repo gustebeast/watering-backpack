@@ -150,6 +150,7 @@ def main() -> int:
     for (nm, length), n in L.cut_list():
         print("  %2d x  %-12s %6.1f mm" % (n, nm, length))
     print("  + " + L.notch_note())
+    print("  + " + L.floor_note())
 
     comps = components()
     asm = cq.Assembly()

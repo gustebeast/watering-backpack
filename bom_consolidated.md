@@ -256,6 +256,10 @@ v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
+- [ ] 🎒 **M4 x 45 bolts + nyloc nuts × 8** — the pumps bolt through the floor planks.
+  Each pump has four Ø4 mounting holes on a 73 × 83 mm pattern (exact, from the drawing);
+  the floor is 20 mm plank, so M4×45 clears bracket + plank + nut. Nuts go on
+  UNDERNEATH, so bolt the pumps down before the floor goes on the frame.
 - [ ] 🎒 **M4 heat-set inserts × 8** (Ø6.0 × 5.0 pocket) — 4 hold the board down, 4 hold
   the lid on.
 - [ ] 🎒 **M4 × 6 socket screws × 4** — board → boss → back plate (4.4 mm of bite

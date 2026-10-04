@@ -116,7 +116,13 @@ SHELF_W, SHELF_D = 340.0, 250.0
 # ── Sections ────────────────────────────────────────────────────────────────
 SECT    = 30.0           # post side AND beam width — one number, flush faces
 BEAM_H  = 40.0           # beam depth in Z (the bending dimension)
-FLOOR_T = 4.0            # pump deck; carries no tank load, so it stays thin
+# The pump SEATING PLANE: the height of the surface the pumps bolt down to.
+# This was a printed 4 mm deck that never survived the move to a lumber frame,
+# leaving the pumps resting on nothing -- src.lumber_frame now puts real wood
+# here, with its TOP face at this z, so the pumps and all the plumbing keep the
+# heights they already had. src.build asserts the two agree.
+FLOOR_T = 4.0            # carries no tank load, so the floor stays thin
+BOLT_HOLE_R = 2.0        # the pump's own mounting bores (D4, exact from drawing)
 POST_Z0 = FLOOR_T
 # Beam underside. NOT just "clears the pumps" — it also has to clear the HOSE
 # that crosses over them. Pump B's inner port sits at x=0 with its nut reaching
@@ -196,6 +202,38 @@ def _pump(flip: bool) -> cq.Workplane:
     if flip:
         p = p.rotate((0, 0, 0), (0, 0, 1), 180)
     return p
+
+
+def pump_bolt_xy():
+    """The eight M4 bolt positions, MEASURED off the placed pumps.
+
+    Read out of the pump solid (its four vertical 4.0 mm bores) rather than
+    re-derived from BOLT_DX/BOLT_DY/BOLT_ROW1_X. The pattern in the drawing is
+    stated relative to the pump's own rear edge and its own axes, and the pumps
+    are rotated 90 degrees and one of them a further 180 -- so re-deriving it
+    here means redoing that transform by hand, which is exactly the kind of sign
+    error this project has already paid for twice. Measuring the placed solid
+    cannot drift from where the pump actually is.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    out = []
+    for side in (-1, 1):
+        seen = set()
+        for f in _pump_placed(side).faces().vals():
+            if f.geomType() != "CYLINDER":
+                continue
+            c = BRepAdaptor_Surface(f.wrapped).Cylinder()
+            if abs(c.Radius() - BOLT_HOLE_R) > 0.01:
+                continue
+            if abs(c.Axis().Direction().Z()) < 0.9:      # must run up the floor
+                continue
+            loc = c.Location()
+            seen.add((round(loc.X(), 3), round(loc.Y(), 3)))
+        if len(seen) != 4:
+            raise SystemExit("pump %+d: found %d mounting bores, expected 4 -- "
+                             "the pump model changed" % (side, len(seen)))
+        out.extend(sorted(seen))
+    return out
 
 
 def _pump_placed(side: int) -> cq.Workplane:
