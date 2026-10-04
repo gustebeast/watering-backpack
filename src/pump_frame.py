@@ -168,7 +168,12 @@ _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161
 PCB_PANEL_T  = 4.0       # backing panel on the +X face, the board's mounting surface
 PCB_STANDOFF = 3.0       # panel face -> board underside; bottom-side parts clear
 PCB_BOSS_D   = 9.0
-PCB_HOLE_XY  = ((-64.0, -44.0), (64.0, -44.0), (-64.0, 44.0), (64.0, 44.0))
+# Hole positions come FROM THE ROUTED BOARD, never typed here. They were typed
+# once, and when the board was re-laid from 140x100 to 95x100 the CAD kept
+# drilling bosses at the old (+-64, +-44) while the laminate had moved to
+# (+-41, +-44) — a drift a typed copy cannot catch, because it agrees with
+# itself. PCB_README: "model from the routed board, never from the placement
+# table".
 PCB_CLR      = 6.0       # cavity clearance around the board and its tallest part
 PCB_WALL_T   = 3.0
 PCB_COVER_T  = 3.0
@@ -199,6 +204,13 @@ PCB_FACE_X = FRAME_W / 2.0 + PCB_PANEL_T          # 186 — panel outer face
 # is a coincidence of three independent numbers (the hole pitch, the rib inset
 # that sets the posts, and the deck height) and any of them can move.
 PCB_Y_C = sum(BEAM_YS) / 2.0                      # 86.5
+
+
+def _board_holes():
+    return tuple((x, y) for x, y, _d in _BOARDS.holes("main"))
+
+
+PCB_HOLE_XY = _board_holes()
 
 
 def _pose_board(solid):
