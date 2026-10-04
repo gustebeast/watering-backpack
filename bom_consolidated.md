@@ -183,16 +183,25 @@ frame was contorted around.
   × 250 deep.
 - [x] 🎒 **Scepter 5 gal military water can — OWNED.** Base ≈ 348 × 173 mm, standing on
   **two wide ribs**, ~12 mm in from each end.
-- [ ] 🎒 **38 × 38 mm beam — 1.63 m of stock** (one 8 ft / 2.4 m length covers it with
+- [ ] 🎒 **38 × 38 mm beam — 1.61 m of stock** (one 8 ft / 2.4 m length covers it with
   spare). Cut list, straight out of `src/lumber_frame.py`:
   | qty | piece | length |
   |---|---|---|
-  | 4 | post | 150 mm |
+  | 4 | post | 146 mm |
   | 2 | cross rail | 380 mm |
   | 2 | side rail | 134 mm |
-- [ ] 🎒 **137 × 20 mm plank — 3 × 210 mm** (630 mm of stock). Laid front-to-back on
-  the cross rails. Three full planks make a 411 mm deck, 16 mm proud of the rails
-  each side — **no ripping needed**; the tank only needs 348.
+
+  *The posts are 146, not 150: the frame now stands ON the pump floor, so they
+  start at the floor's top face rather than at z=0.*
+- [ ] 🎒 **137 × 20 mm plank — 6 × 210 mm** (1.26 m of stock): three for the deck,
+  three for the pump floor. Laid front-to-back.
+  **Deck** — three full planks make a 411 mm deck on the cross rails, 16 mm proud
+  each side, **no ripping**; the tank only needs 348.
+  **Floor** — under the posts, carrying the pumps. The two outer planks are
+  **ripped to 121.5 mm** so the floor spans exactly the 380 mm frame width and
+  stops at the post outer face; three full 137s would reach x = −205.5 and foul
+  the electronics housing. Drill **8 × Ø4.5** for the pump M4s at the positions
+  `src.pump_frame.pump_bolt_xy()` reports.
   **One notch, in the outboard plank only:** 10 mm deep × 86 mm long in its outer
   edge, 10–96 mm from the front. The battery seats by sliding down and has to lift
   93 mm to clear the dock's rails, and this plank's overhang is the roof over that
