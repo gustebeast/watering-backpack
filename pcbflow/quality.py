@@ -66,6 +66,8 @@ HINT = {
     "A6": "one 5.1 k 1% from EACH CC pin to ground on a device port",
     "A7": "one pull-up pair per bus: say where it is, and that it is the only one",
     "A8": "connect the pad as the datasheet says and put vias in it",
+    "A10": "keep 1-10 uF directly on VBUS; bulk goes behind a load switch or soft-start",
+    "A11": "write each value one way throughout the generator",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
@@ -289,6 +291,14 @@ class _Net:
         return (w,) + ((info[1], info[2], info[3]) if info else ("pour", "-", (0.0, 0.0)))
 
 
+def _rail_volts(net):
+    """The voltage a rail's NAME states: "+24V" 24, "+3V3A" 3.3, "+5V_PI" 5, "VBUS" 5."""
+    m = re.match(r"^\+?(\d+)V(\d*)", net)
+    if m:
+        return float("%s.%s" % (m.group(1), m.group(2) or "0"))
+    return 5.0 if net.upper().startswith("VBUS") else None
+
+
 @rule("A1")
 def power_paths(ctx):
     out = []
@@ -330,7 +340,12 @@ def power_paths(ctx):
                 # and thin enough to starve the load
                 ohm = g.resistance(p["from"], dst) or 0.0
                 drop_mv = ohm * amps * 1000.0
-                limit_mv = float(p.get("max_drop_mv", ctx.q.get("max_drop_mv", 50.0)))
+                limit_mv = p.get("max_drop_mv", ctx.q.get("max_drop_mv"))
+                if limit_mv is None:
+                    volts = _rail_volts(net)
+                    pct = float(ctx.q.get("max_drop_pct", 2.0))
+                    limit_mv = volts * 10.0 * pct if volts else 50.0
+                limit_mv = float(limit_mv)
                 if drop_mv > limit_mv:
                     out.append((subject + " drop", False,
                                 "%s %s -> %s, %.2f A: %.0f mOhm of track drops %.0f mV "
@@ -370,6 +385,8 @@ def decoupling(ctx):
     out = []
     for net in sorted(ctx.power):
         rows = {}                    # subject -> (limit, best distance, cap ref)
+        active = any(_prefix(r) in ("U", "Q", "D", "L", "K", "F", "FB", "R")
+                     for r, _n, _p in ctx.by_net[net])
         for ref, num, pad in ctx.by_net[net]:
             kind = _prefix(ref)
             if kind not in ("U", "J", "P"):
@@ -387,6 +404,11 @@ def decoupling(ctx):
             why = exempt.get(subject) or exempt.get(subject.split(".")[0])
             if why:
                 out.append((subject, None, "exempt: %s" % why))
+            elif not active and (dist is None or dist > limit):
+                # a rail that only passes between connectors has no load here to step
+                out.append((subject, None,
+                            "%s passes through this board with no load on it: no "
+                            "capacitor required at %s" % (net, subject)))
             elif dist is not None and dist <= limit:
                 out.append((subject, True, "%s: %s at %.1f mm" % (net, cref, dist)))
             else:
@@ -669,12 +691,158 @@ def crystal_distance(ctx):
                 continue
             d, pin = min(ics)
             ok = d <= limit
+            nvia = sum(1 for t in ctx.board.GetTracks()
+                       if t.GetClass() == "PCB_VIA" and t.GetNetname() == net)
+            if nvia:
+                out.append(("%s vias" % net, None,
+                            "%s changes layer (%d via(s)): better kept on the crystal's "
+                            "own layer" % (net, nvia)))
             out.append(("%s.%s" % (ref, pad.GetNumber()), ok,
                         "%s.%s to %s on %s: %.1f mm%s"
                         % (ref, pad.GetNumber(), pin, net, d,
                            "" if ok else " (limit %.0f) -- a long crystal trace is stray "
                                          "capacitance and an antenna" % limit)))
     return out
+
+# ── A10: a USB device's VBUS capacitance is inside the inrush limit ──────────────────
+def _farads(value):
+    """"100n" / "4.7uF" / "4u7" / "22p" -> farads, or None."""
+    v = (value or "").strip().replace("µ", "u").replace(" ", "")
+    mult = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3}
+    m = re.match(r"^(\d+)([pnum])(\d+)", v)
+    if m:
+        return float("%s.%s" % (m.group(1), m.group(3))) * mult[m.group(2)]
+    m = re.match(r"^(\d+(?:\.\d+)?)([pnum])F?", v)
+    return float(m.group(1)) * mult[m.group(2)] if m else None
+
+
+@rule("A10")
+def usb_vbus_capacitance(ctx):
+    out = []
+    lo, hi = 1e-6, 10e-6
+    for ref in sorted(ctx.fps):
+        pads = {p.GetNumber(): p for p in ctx.fps[ref].Pads()}
+        if "A5" not in pads or "B5" not in pads or "A4" not in pads:
+            continue
+        cc = [pads[k].GetNetname() for k in ("A5", "B5")]
+        if not any(n and _resistors_to(ctx, n, ctx.grounds) for n in cc):
+            continue                        # not a device (sink) port: the limit is the sink's
+        vbus = pads["A4"].GetNetname()
+        if not vbus or NOT_CONNECTED.search(vbus):
+            continue
+        total, caps, unknown = 0.0, [], []
+        for cref, _n, _p in ctx.by_net[vbus]:
+            if _prefix(cref) != "C":
+                continue
+            if not ({p.GetNetname() for p in ctx.fps[cref].Pads()} & ctx.grounds):
+                continue
+            f = _farads(ctx.fps[cref].GetValue())
+            if f is None:
+                unknown.append(cref)
+            else:
+                total += f
+                caps.append(cref)
+        if unknown:
+            out.append((ref, False, "%s: cannot read the value of %s on %s"
+                        % (ref, ", ".join(unknown), vbus)))
+            continue
+        if total > hi:
+            ok, tail = False, (" -- over 10 uF at plug-in trips a host's inrush limit: put "
+                               "the rest behind a load switch or a soft-start")
+        elif total < lo:
+            # guidance, not the specification's hard limit: reported, never a FAIL
+            ok, tail = None, " -- under the 1 uF usually recommended on a device's VBUS"
+        else:
+            ok, tail = True, ""
+        out.append((ref, ok, "%s: %.1f uF directly on %s (%s)%s"
+                    % (ref, total * 1e6, vbus, ", ".join(sorted(caps)) or "no capacitor",
+                       tail)))
+    return out
+
+# ── A11: one value, one spelling ─────────────────────────────────────────────────────
+@rule("A11")
+def value_spelling(ctx):
+    """The same resistance or capacitance written two ways ("100n" and "0.1uF") is two
+    BOM lines, two feeders and a part that can drift apart."""
+    out = []
+    seen = collections.defaultdict(lambda: collections.defaultdict(list))
+    for ref, fp in ctx.fps.items():
+        kind = _prefix(ref)
+        if kind not in ("R", "C"):
+            continue
+        text = (fp.GetValue() or "").strip()
+        num = _ohms(text) if kind == "R" else _farads(text)
+        if num is None:
+            continue
+        # the VALUE token and whatever qualifies it ("10k" + "0.1%"): a different rating
+        # or tolerance is a different part on purpose, a different spelling of the same
+        # number is not
+        token = re.split(r"[\s/]", text, 1)[0]
+        qualifier = re.sub(r"\s+", "", text[len(token):].lower())
+        key = (kind, fp.GetFPIDAsString().split(":")[-1], "%.4g" % num, qualifier)
+        seen[key][token].append(ref)
+    for key in sorted(seen):
+        spellings = seen[key]
+        if len(spellings) > 1:
+            out.append(("/".join(sorted(spellings)), False,
+                        "%s in %s is written %s: one part, one spelling"
+                        % ("the same value", key[1],
+                           " and ".join("'%s' (%s)" % (t, ", ".join(sorted(r)[:3]))
+                                        for t, r in sorted(spellings.items())))))
+        else:
+            out.append((next(iter(spellings)), True, "one spelling"))
+    return out
+
+
+# ── which manual rules a board cannot need ───────────────────────────────────────────
+# A manual rule about a kind of circuit is signed BY THE SCRIPT when the board has none of
+# the parts that make that circuit, so a passive board is not asked thirty questions about
+# regulators. Conservative on purpose: absence of the part, never a guess about its use.
+# A signature in the board's notes always wins.
+def _census(ctx):
+    kinds = collections.Counter(_prefix(r) for r in ctx.fps)
+    names = [fp.GetFPIDAsString().split(":")[-1] for fp in ctx.fps.values()]
+    nets = [n.upper() for n in ctx.by_net]
+    usb = any({"A5", "B5"} <= {p.GetNumber() for p in fp.Pads()} for fp in ctx.fps.values()) \
+        or any(re.search(r"USB|(^|_)D[PM]$|D[+-]$|VBUS", n) for n in nets)
+    return {
+        "ic": kinds["U"] > 0,
+        "active": kinds["U"] + kinds["Q"] > 0,
+        "inductor": kinds["L"] > 0,
+        "ferrite": kinds["FB"] > 0,
+        "transistor": kinds["Q"] > 0,
+        "crystal": kinds["Y"] + kinds["X"] > 0,
+        "switch": kinds["SW"] + kinds["S"] + kinds["K"] > 0,
+        "polarised": kinds["D"] + kinds["LED"] > 0 or any(n.startswith("CP_") for n in names),
+        "usb": usb,
+        "bus": kinds["U"] > 0 or any(I2C.search(n) or "CAN" in n for n in nets),
+        "thermal": kinds["U"] + kinds["Q"] > 0,
+    }
+
+
+NOT_APPLICABLE = {      # rule -> (census key that must be true for it to apply, the reason)
+    "M2": ("polarised", "no diode, LED or polarised capacitor"),
+    "M6": ("ic", "no IC: no high-speed bus"),
+    "M7": ("ic", "no IC"),
+    "M8": ("ic", "no IC: no configuration pins"),
+    "M13": ("inductor", "no inductor: no switching regulator"),
+    "M14": ("inductor", "no inductor"),
+    "M15": ("ic", "no IC: no regulator"),
+    "M17": ("ferrite", "no ferrite bead"),
+    "M18": ("active", "no IC or transistor to back-power"),
+    "M19": ("transistor", "no discrete transistor"),
+    "M20": ("bus", "no IC and no I2C or CAN net"),
+    "M21": ("ic", "no IC: no converter"),
+    "M22": ("ic", "no IC: no op-amp"),
+    "M23": ("usb", "no USB connector or net"),
+    "M24": ("crystal", "no crystal"),
+    "M25": ("thermal", "no IC or transistor to cool"),
+    "M26": ("ic", "no IC: no directional link ends here"),
+    "M27": ("ic", "no IC: no strap or debug pins"),
+    "M35": ("ic", "no IC"),
+    "M39": ("ic", "no IC: no unused pins"),
+    "M41": ("switch", "no switch, button or relay"),
+}
 
 
 def doc_rules():
@@ -732,8 +900,15 @@ def run(stem, verbose=True, brief=False):
             say("        -> %s" % HINT[rid])
     signed = ctx.q.get("manual", {}) or {}
     opens = 0
+    census = _census(ctx)
     for mid, title, text in manual:
         note = signed.get(mid)
+        key, why = NOT_APPLICABLE.get(mid, (None, None))
+        if not note and key and not census[key]:
+            results.append({"rule": mid, "subject": title, "status": "n/a", "text": why})
+            if not brief:
+                say("  n/a  %-4s %s -- %s" % (mid, title, why))
+            continue
         results.append({"rule": mid, "subject": title, "status": "signed" if note else "OPEN",
                         "text": note or text})
         if note:
