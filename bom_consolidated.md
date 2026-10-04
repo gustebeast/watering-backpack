@@ -225,6 +225,9 @@ all and prints the sizes against the 255 mm bed.
   the lid on.
 - [ ] 🎒 **M4 × 8 socket screws × 4** — board → boss → back plate (6.4 mm of bite).
 - [ ] 🎒 **M4 × 12 socket screws × 4** — lid → pillars (9.0 mm of bite).
+- [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. The housing's tie rib
+      takes a 10 × 7 mm slot, so anything up to ~4 mm wide threads. These are the
+      only strain relief the screw terminals have.
 - [ ] 🎒 **#8 flat-head wood screws × 4**, ≥ 25 mm — housing → posts. Ø4.5 clearance
   with a Ø9 countersink, so the heads sit flush inside the housing.
 
