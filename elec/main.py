@@ -203,9 +203,9 @@ def circuit():
 # board lies flat on the frame's +X outer face, which is FRAME_D x DECK_Z =
 # 210 x 164. 140 x 100 leaves ~35 mm of margin all round for the shroud wall and
 # its cable anchor.
-BOARD_W, BOARD_L = 140.0, 100.0
+BOARD_W, BOARD_L = 95.0, 100.0
 HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
-HOLES = [(-64.0, -44.0), (64.0, -44.0), (-64.0, 44.0), (64.0, 44.0)]
+HOLES = [(-41.0, -44.0), (41.0, -44.0), (-41.0, 44.0), (41.0, 44.0)]
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
@@ -215,40 +215,56 @@ BOARD_NOTES = {
     # Zoned so each cluster sits beside the pin it serves (PCB_README §4: a part
     # with a value but no required position gets stranded, and the router then
     # carries its net across the board for nothing). Power down the left, buck
-    # top-left, MCU right, terminals along the bottom edge so every cable leaves
-    # the same face and the shroud's openings all point down.
+    # top-left, MCU right.
+    #
+    # CONNECTORS ARE ON BOTH EDGES, which the 140-wide board did not need. At 95
+    # the bottom edge has ~72 mm clear of the corner holes and the five terminals
+    # want 72.7, so the joystick (J5) and the programming header (J6) move to the
+    # top edge. The four that carry POWER or leave the pack downward -- battery,
+    # both pumps, the level sensor -- stay on the bottom, which is the edge the
+    # housing opens at.
     "placements": {
-        # terminals, bottom edge (MKDS-3 is ~12.5 x 15; PT-1,5 ~12 deep)
-        # J1 was at -58: MKDS-3 is ~12.5 wide, so it straddled the mounting
-        # hole at (-64,-44) and its body wire FUSED with the hole's on the top
-        # face, which is why board_check saw 3 cutouts where the board has 4.
-        "J1": (-50.0, -41.0, 0.0), "J2": (-34.0, -41.0, 0.0), "J3": (-18.0, -41.0, 0.0),
-        "J4": (10.0, -41.0, 0.0),  "J5": (36.0, -41.0, 0.0),
-        "J6": (62.0, 32.0, 90.0),
-        # input protection + bulk
-        "D1": (-58.0, 8.0, 0.0), "C1": (-58.0, -18.0, 0.0), "C2": (-58.0, -4.0, 0.0),
+        # terminals, bottom edge (MKDS-3 is ~12.5 wide; PT-1,5-4 ~17.6)
+        "J1": (-29.0, -41.0, 0.0), "J2": (-15.0, -41.0, 0.0),
+        "J3": (-1.0, -41.0, 0.0),  "J4": (19.0, -41.0, 0.0),
+        # joystick + programming, top edge. J6 is turned 90 so its six pins run
+        # ALONG the edge instead of reaching down into the decoupling cluster.
+        "J5": (-20.0, 41.0, 0.0),  "J6": (12.0, 41.0, 90.0),
+        # MCU. The ESP32 footprint's COURTYARD is not the module -- it is a
+        # T-shaped polygon that includes the antenna fan (local x +-24.25,
+        # y -28..13.54), and the matching keepout bans tracks, vias, pads, pour
+        # AND footprints. So the fan has to hang off a board edge, not lie
+        # across the board.
+        #
+        # 270, not 90: at rot 90 the fan points -X, straight back over the
+        # board, which is what put C7, R21 and all six J6 pads inside it. 270
+        # turns it to +X, where it leaves the laminate at x=47.5 and the only
+        # thing it still covers is the corner mounting hole -- a cutout, which
+        # the keepout does not forbid.
+        "U2": (34.4, 19.5, 270.0),
+        # MCU decoupling, left of the module and clear of its body
+        "C6": (8.0, 32.0, 0.0), "C7": (8.0, 26.0, 0.0),
+        "R3": (2.0, 32.0, 0.0), "C8": (2.0, 26.0, 0.0),
+        # input protection + bulk, left column
+        "D1": (-36.0, 2.0, 0.0), "C1": (-36.0, -12.0, 0.0), "C2": (-36.0, -24.0, 0.0),
         # pump legs: FET / driver / freewheel in a row, gate parts beside the FET
-        "Q1": (-40.0, -18.0, 0.0), "Q2": (-40.0, -2.0, 0.0),
-        "U3": (-28.0, -18.0, 0.0), "U4": (-28.0, -2.0, 0.0),
-        "D2": (-14.0, -18.0, 0.0), "D3": (-14.0, -2.0, 0.0),
-        "R4": (-33.0, -24.0, 0.0), "R6": (-33.0, -12.0, 0.0),
-        "R5": (-33.0, -8.0, 0.0),  "R7": (-33.0, 4.0, 0.0),
-        "C9": (-21.0, -26.0, 0.0), "C10": (-21.0, -10.0, 0.0),
+        "Q1": (-18.0, -10.0, 0.0), "Q2": (-18.0, 4.0, 0.0),
+        "U3": (-8.0, -10.0, 0.0),  "U4": (-8.0, 4.0, 0.0),
+        "D2": (5.0, -10.0, 0.0),   "D3": (5.0, 4.0, 0.0),
+        "R4": (-27.0, -14.0, 0.0), "R5": (-27.0, -8.0, 0.0),
+        "R6": (-27.0, 2.0, 0.0),   "R7": (-27.0, 8.0, 0.0),
+        "C9": (-2.0, -20.0, 0.0),  "C10": (-2.0, 12.0, 0.0),
         # buck, top left
-        "U1": (-56.0, 30.0, 0.0), "L1": (-40.0, 30.0, 0.0),
-        "C3": (-56.0, 42.0, 0.0), "C4": (-26.0, 28.0, 0.0), "C5": (-26.0, 40.0, 0.0),
-        "R1": (-44.0, 42.0, 0.0), "R2": (-50.0, 42.0, 0.0),
-        # MCU, right
-        "U2": (40.0, 28.0, 0.0),
-        "C6": (12.0, 42.0, 0.0), "C7": (12.0, 36.0, 0.0),
-        "R3": (12.0, 30.0, 0.0), "C8": (12.0, 24.0, 0.0),
-        # sensing
-        "R20": (56.0, 10.0, 0.0), "R21": (62.0, 10.0, 0.0), "C11": (50.0, 10.0, 0.0),
-        "R22": (20.0, -22.0, 0.0), "C12": (20.0, -28.0, 0.0),
-        "R23": (40.0, -22.0, 0.0),
-        # buzzer
-        "BZ1": (58.0, -18.0, 0.0), "Q3": (40.0, -10.0, 0.0),
-        "R24": (46.0, -10.0, 0.0), "D4": (52.0, -10.0, 0.0),
+        "U1": (-36.0, 26.0, 0.0), "L1": (-20.0, 26.0, 0.0),
+        "C3": (-36.0, 14.0, 0.0), "C4": (-8.0, 20.0, 0.0), "C5": (-8.0, 26.0, 0.0),
+        "R1": (-27.0, 16.0, 0.0), "R2": (-27.0, 22.0, 0.0),
+        # sensing — moved off x=40, which is now inside the antenna keepout
+        "R20": (22.0, 6.0, 0.0), "R21": (22.0, 0.0, 0.0), "C11": (33.0, 0.0, 0.0),
+        "R22": (14.0, -22.0, 0.0), "C12": (14.0, -28.0, 0.0),
+        "R23": (14.0, -18.0, 0.0),
+        # buzzer — below the keepout's y band
+        "BZ1": (33.0, -24.0, 0.0), "Q3": (22.0, -14.0, 0.0),
+        "R24": (28.0, -8.0, 0.0), "D4": (28.0, -2.0, 0.0),
     },
     "zones": [("GND", "B.Cu", 0.3)],
     "stitch_nets": ("GND",),
@@ -266,8 +282,16 @@ for _xy in HOLES:
 _ANT = BOARD_W / 2.0 - BOARD_NOTES["placements"]["U2"][0]
 assert _ANT <= 50.0, "ESP32 is %.1f mm from the +X edge; the antenna wants to be at it" % _ANT
 
-# The frame's +X outer face is 210 x 164 — the board plus a shroud wall must fit.
-assert BOARD_W <= 210.0 - 20.0 and BOARD_L <= 164.0 - 20.0, "board will not fit the +X face"
+# The HOUSING's y budget, which is what actually caps the board now: the frame
+# is 210 deep, the Makita dock is 100.6 across its slide, and the printed walls
+# and board clearance take ~13. BOARD_W is the leftover, and it is the binding
+# constraint -- not the old printed frame's face.
+_DOCK_W, _WALLS = 100.6, 13.0
+assert BOARD_W <= 210.0 - _DOCK_W - _WALLS, (
+    "board is %.1f wide; only %.1f fits beside the battery in a 210 deep frame"
+    % (BOARD_W, 210.0 - _DOCK_W - _WALLS))
+# ... and staying inside 100 x 100 keeps it in JLCPCB's cheapest 2-layer tier.
+assert BOARD_W <= 100.0 and BOARD_L <= 100.0, "board leaves the <=100x100 price tier"
 
 
 if __name__ == "__main__":
