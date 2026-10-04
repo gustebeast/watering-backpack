@@ -170,6 +170,53 @@ def _load_footprint(spec):
     raise SystemExit("footprint not found: %s (looked in %s)" % (spec, FP_DIRS))
 
 
+# ⚠ A STOCK FOOTPRINT'S ANNULAR RING IS NOT THE FAB'S. KiCad's 1.27 mm pin headers put a
+# 1.0 mm pad on a 0.65 mm drill: 0.175 mm of ring, and JLCPCB's absolute minimum on two
+# layers at 1 oz is 0.18 (0.15 on four and up). DRC is silent -- its annular rule guards
+# vias, and the library is assumed right. The quality pass (A12) measures it; this is the
+# fix, applied to every plated pad as it is loaded: a ring under the fab's minimum is grown
+# to that minimum plus 0.02, and nothing else is touched. The drill is NOT shrunk -- the
+# pin has to go in it, and the fab's hole tolerance is -0.08.
+# BOARD_NOTES["min_pth_ring"] overrides the figure (0 turns it off).
+PTH_RING = {2: 0.18, 4: 0.15}       # by copper layers; more than four uses the 4-layer figure
+PTH_RING_MARGIN = 0.02
+
+
+def _legible_fields(fp):
+    """A footprint's own visible silk text (its designator, usually) at no less than the
+    fab's legible minimum: 1.0 mm high, 0.15 stroke (quality A12). Library and local
+    footprints carry whatever their author liked -- 0.8 x 0.12 is common."""
+    for f in fp.GetFields():
+        if f.IsVisible() and f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            h, t = pcbnew.ToMM(f.GetTextHeight()), pcbnew.ToMM(f.GetTextThickness())
+            if h < 0.999:
+                f.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.0), pcbnew.FromMM(1.0)))
+            if t < 0.149:
+                f.SetTextThickness(pcbnew.FromMM(0.15))
+
+
+def _grow_thin_rings(fp, layers, notes):
+    want = notes.get("min_pth_ring")
+    if want is None:
+        want = PTH_RING[2 if layers <= 2 else 4]
+    if not want:
+        return 0
+    n = 0
+    for pad in fp.Pads():
+        if pad.GetAttribute() != pcbnew.PAD_ATTRIB_PTH:
+            continue
+        d, sz = pad.GetDrillSize(), pad.GetSize()
+        if min(d.x, d.y) <= 0:
+            continue
+        need = pcbnew.FromMM(want)
+        if min(sz.x - d.x, sz.y - d.y) / 2.0 >= need - 1000:
+            continue
+        grow = pcbnew.FromMM(want + PTH_RING_MARGIN)
+        pad.SetSize(pcbnew.VECTOR2I(max(sz.x, d.x + 2 * grow), max(sz.y, d.y + 2 * grow)))
+        n += 1
+    return n
+
+
 def _place_ref(fp, target):
     """Put the reference designator at an absolute board position, upright and
     small. Left where the footprint puts it, a designator sits over the part --
@@ -178,7 +225,8 @@ def _place_ref(fp, target):
     between the parts are the only place it can be READ once the board is
     populated, so the board module names them."""
     ref = fp.Reference()
-    ref.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(0.8), pcbnew.FromMM(0.8)))
+    # 1.0 x 0.15: the fab's stated minimum height and stroke for legible silk (quality A12)
+    ref.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.0), pcbnew.FromMM(1.0)))
     ref.SetTextThickness(pcbnew.FromMM(0.15))
     ref.SetPosition(target)
     ref.SetTextAngleDegrees(0.0)      # upright regardless of how the part turned
@@ -4106,6 +4154,10 @@ def build(stem):
         if ref in post:
             continue
         fp = _load_footprint(fp_spec)
+        _grown = _grow_thin_rings(fp, int(notes.get("layers", 2)), notes)
+        _legible_fields(fp)
+        if _grown:
+            print("  %s: %d plated pad(s) grown to the fab's minimum annular ring" % (ref, _grown))
         # LAND RESIZE: [(ref regex, x or None, y or None)] -- a stock footprint with its pads
         # resized in the footprint's own frame (None keeps that dimension). Kept as a board
         # note rather than a copied .kicad_mod, so the part stays KiCad's and only the one

@@ -189,7 +189,34 @@ def _check_fresh(stem):
                    os.path.relpath(src)))
 
 
-def finish(stem, rounds=1):
+def _legible_refs(stem):
+    """Raise every VISIBLE silkscreen designator on the finished board to the legible
+    minimum (1.0 mm high, 0.15 stroke -- quality A12). layout.py sets these when it places
+    a part; a board routed before that changed keeps its old size until it is re-routed,
+    and --keep-route exists so that it does not have to be. Run as a child, like every
+    other step: pcbnew aborts in teardown often enough that it must not take finish with it."""
+    code = (
+        "import sys, pcbnew\n"
+        "b = pcbnew.LoadBoard(sys.argv[1]); n = 0\n"
+        "for fp in b.GetFootprints():\n"
+        "    for f in fp.GetFields():\n"
+        "        if f.IsVisible() and f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):\n"
+        "            h, t = pcbnew.ToMM(f.GetTextHeight()), pcbnew.ToMM(f.GetTextThickness())\n"
+        "            if h < 0.999 or t < 0.149:\n"
+        "                f.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(max(h, 1.0)), pcbnew.FromMM(max(h, 1.0))))\n"
+        "                f.SetTextThickness(pcbnew.FromMM(max(t, 0.15))); n += 1\n"
+        "pcbnew.SaveBoard(sys.argv[1], b)\n"
+        "print('  %d designator(s) raised to the legible minimum' % n)\n"
+        "sys.stdout.flush()\n"
+        "import os; os._exit(0)\n")
+    proc = subprocess.run([PY, "-c", code, stem + ".kicad_pcb"], stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    for line in proc.stdout.splitlines():
+        if "designator" in line:
+            print(line)
+
+
+def finish(stem, rounds=1, keep_route=False):
     """Route `stem`; with rounds>1, retry the nets the router could not finish.
 
     ⚠ THE RETRY IS OFF BY DEFAULT BECAUSE IT HAS NEVER YET PAID. Re-measured on the
@@ -231,11 +258,21 @@ def finish(stem, rounds=1):
     retry = stem + ".retry.json"
     if os.path.isfile(retry):
         os.remove(retry)          # always start from the board as designed
-    _run("layout.py", stem)
-    _run("route.py", stem)
-    _run("repair_planes.py", stem)
+    if keep_route:
+        # --keep-route: THE COPPER ON DISK IS THE BOARD. Nothing is placed or routed; the
+        # run re-does everything AFTER the route (labels, DRC, verify, quality, geometry,
+        # CAD check) on the board as it stands. For a change that touches no copper -- a
+        # label size, a quality record -- on a board whose route was hard won. A change
+        # to the netlist or a placement is NOT that: _check_fresh above refuses it.
+        rounds = 1
+        _legible_refs(stem)
+    else:
+        _run("layout.py", stem)
+        _run("route.py", stem)
+        _run("repair_planes.py", stem)
     best_n, nets, best_v = _drc(stem)
-    print("  pass 1: %d unconnected, %d violation(s)" % (best_n, best_v))
+    print("  %s: %d unconnected, %d violation(s)"
+          % ("kept route" if keep_route else "pass 1", best_n, best_v))
     # ⚠ THE DRC FILE TRAVELS WITH THE BOARD, because otherwise it does not. This routine
     # keeps the BEST board but _drc overwrites .finish.drc.json on every pass, so after a
     # two-round run the board on disk was pass 1 and the DRC file beside it described
@@ -300,7 +337,7 @@ def finish(stem, rounds=1):
     # "strictly better or it does not count" test as a routing round -- the search works
     # to the netclass rule on a grid, DRC is the judge, and a repair that buys a
     # connection with a violation is put back.
-    if best_n and not best_v:
+    if best_n and not best_v and not keep_route:
         shutil.copy(stem + ".kicad_pcb", stem + ".preclose.kicad_pcb")
         shutil.copy(stem + ".finish.drc.json", stem + ".preclose.drc.json")
         try:
@@ -456,6 +493,8 @@ if __name__ == "__main__":
     _rounds = None                 # None = not given: take the board's own finish_rounds
     _stems = []
     _argv = sys.argv[1:]
+    _keep = "--keep-route" in _argv
+    _argv = [x for x in _argv if x != "--keep-route"]
     _i = 0
     while _i < len(_argv):
         if _argv[_i] == "--rounds":
@@ -468,7 +507,7 @@ if __name__ == "__main__":
             _stems.append(_argv[_i])
             _i += 1
     if not _stems:
-        raise SystemExit("usage: finish.py [--rounds N] <stem> [<stem> ...]")
+        raise SystemExit("usage: finish.py [--rounds N] [--keep-route] <stem> [<stem> ...]")
     for st in _stems:
         # ⚠ A BOARD CAN SAY HOW MANY ROUNDS IT NEEDS (BOARD_NOTES["finish_rounds"]), because
         # a result that only exists under a flag is a result the next plain run loses.
@@ -482,4 +521,4 @@ if __name__ == "__main__":
                     _r = int(json.load(_fh).get("finish_rounds", 1))
             except OSError:
                 _r = 1
-        finish(os.path.abspath(st), rounds=_r)
+        finish(os.path.abspath(st), rounds=_r, keep_route=_keep)

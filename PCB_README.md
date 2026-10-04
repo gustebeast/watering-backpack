@@ -76,6 +76,10 @@ The last line must end `blinky: 0 unconnected, 0 violation(s)`. Then in the CAD:
 route if `<board>.py` is newer than its netlist, because routing stale placements returns
 a believable answer to a question nobody asked.
 
+**A change that touches no copper** (a quality record, a label size): regenerate, then
+`finish.py --keep-route <stem>`. Nothing is placed or routed; every step after the route
+(labels, DRC, verify, quality, geometry export, CAD check) runs on the board on disk.
+
 ### `BOARD_NOTES`
 
 Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to KiCad's).
