@@ -65,6 +65,23 @@ def battery_envelope() -> cq.Workplane:
             .rect(BATT_W, BATT_L).extrude(BATT_D))
 
 
+def _swept(solid, direction, travel, steps=20):
+    """The volume a part passes through on its way in or out.
+
+    A seated part proves only that it FITS where it ends up. The battery gate
+    below exists because a dock the pack could not be lifted out of passed
+    every static check in this file; these two are the same question asked of
+    the lid and the contact block.
+    """
+    dx, dy, dz = direction
+    sweep = None
+    for i in range(steps + 1):
+        f = travel * i / float(steps)
+        s = solid.translate((dx * f, dy * f, dz * f))
+        sweep = s if sweep is None else sweep.union(s)
+    return sweep
+
+
 def battery_sweep():
     """The corridor the pack travels to come OFF the dock, and how far.
 
@@ -124,13 +141,16 @@ def intended(a, b):
     if "fittings" in pair:
         other = (pair - {"fittings"}).pop()
         return other.startswith(("pump_", "tank_", "green_"))
-    if pair == {"pcb", "housing"}:          # board on its standoff bosses
+    # Measured, so a number that moves is visible rather than absorbed. An entry
+    # here is a claim that two solids SHOULD interpenetrate; three former ones
+    # were measuring 0.0 mm3, which means they were not whitelisting anything --
+    # they were only standing ready to hide the first real clash that appeared.
+    # housing<->wood (bolted flat to the posts), housing<->housing_lid and
+    # housing<->terminal are all face contact, so they were dropped and the gate
+    # now catches them if they ever stop being zero.
+    if pair == {"pcb", "housing"}:          # board on its standoff bosses, 12.5
         return True
-    if pair == {"housing", "wood"}:         # bolted flat to the posts
-        return True
-    if pair == {"housing", "housing_lid"}:  # lid closed on its pillars
-        return True
-    if pair == {"battery", "housing"}:      # the pack seated in its dock
+    if pair == {"battery", "housing"}:      # the pack seated in its dock, 12528
         return True
     if pair == {"battery", "terminal"}:
         # The contact blades engaged in the pack -- the point of the connector,
@@ -140,8 +160,6 @@ def intended(a, b):
         # nowhere to be except inside that solid. Measured 1762.7 mm3 as ten
         # separate bodies at 3.45 mm penetration, spread over the whole contact
         # field -- a body clash would be one lump, not ten.
-        return True
-    if pair == {"housing", "terminal"}:     # seated in its pocket (0 mm3 anyway)
         return True
     if all(n.startswith(("tank_", "green_")) for n in pair):
         return True
@@ -214,6 +232,31 @@ def main() -> int:
     print("  %-8s %s" % ("tank", "clear" if v <= 1.0 else
                          "*** BLOCKS THE PACK, %.0f mm3 ***" % v))
     print("  the pack needs %.0f mm of lift to clear its rails" % travel)
+
+    # Same question for the two parts that go in and out along X. The lid is
+    # retained by a tab that reaches 28.5 mm inboard to the wood screw, and the
+    # contact block seats behind flange lips -- both are shapes that can fit
+    # where they end up and still be impossible to get there.
+    print("\n=== install/removal gate ===")
+    housing_solid = by_name["housing"]
+    for nm, solid, direction, travel_mm, what in (
+            ("lid", H.lid(), (-1.0, 0.0, 0.0), 60.0, "lifts off outboard"),
+            ("terminal", H.terminal_placed(), (1.0, 0.0, 0.0), 40.0,
+             "enters from the rear")):
+        if solid is None:
+            continue
+        seated = housing_solid.intersect(solid)
+        seated_v = seated.val().Volume() if seated.val() is not None else 0.0
+        sw = _swept(solid, direction, travel_mm)
+        i = sw.intersect(housing_solid)
+        v = i.val().Volume() if i.val() is not None else 0.0
+        # the swept volume may not clash any worse than the seated part does
+        extra = v - seated_v
+        blocked += 0 if extra <= 1.0 else 1
+        print("  %-9s %-20s over %2.0f mm: %s"
+              % (nm, what, travel_mm,
+                 "clear" if extra <= 1.0 else
+                 "*** BLOCKED, %.0f mm3 beyond seated ***" % extra))
 
     # Does the CAD draw the board that was actually ROUTED? PCB_README lists
     # cad_geom_check under "your build gate should too", and it was not here --
