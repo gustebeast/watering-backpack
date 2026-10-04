@@ -9,7 +9,9 @@ COPY THIS FILE TO YOUR PROJECT AS `elec/fab.py`, then:
 
 It refuses to package a board that is not finished (unconnected items, DRC violations, a
 failed length-match), checks the gerbers and drill against the board, and writes
-ROTATION-CHECK.txt and ORDER.txt into each zip. See cadkit/pcbflow/fab_package.py.
+ROTATION-CHECK.txt, ORDER.txt and QUALITY.txt (the quality pass, cadkit/PCB_QUALITY.md)
+into each zip. Pass `require_quality=True` to `configure` to refuse a package for a board
+that is not at `0 FAIL, 0 OPEN`. See cadkit/pcbflow/fab_package.py.
 """
 from __future__ import annotations
 

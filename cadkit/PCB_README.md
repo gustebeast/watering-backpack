@@ -102,6 +102,7 @@ Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to 
 | `router_passes`, `finish_rounds` | autorouter passes (10) and route-retry rounds (1). Raise only with evidence |
 | `refs_on_fab`, `ref_pos` | move designators to F.Fab on a dense board; or place one by hand |
 | `strip_silk` | ref prefixes of parts no ink may come near (optical sensors) |
+| `quality` | the board's quality record: supply paths and currents, decoupling limits, pinout citations, manual sign-offs, waivers. **Every key is in `PCB_QUALITY.md`** |
 | `order_options` | `{key: text}` extra order-form settings for this board's `ORDER.txt` |
 | `qty_per_instrument` | how many the product uses (for totals) |
 
@@ -128,7 +129,9 @@ of the real body** — that outline is what the CAD draws — and add its `HEIGH
 
 ### Reading a result
 
-* **`0 unconnected, 0 violation(s)`** with no `FAIL` line from verify is the only clean.
+* **`0 unconnected, 0 violation(s)`** with no `FAIL` line from verify is the only clean
+  ROUTE. The same line ends `| quality: N FAIL, M OPEN`: the standard validation pass
+  (`PCB_QUALITY.md`). A board may be ordered only at `0 FAIL, 0 OPEN`.
 * `N unconnected`: read *which* nets and *where* in `<board>.finish.drc.json` before
   touching anything. If they cluster at one part, it is a placement problem (§4), not a
   router problem.
@@ -342,6 +345,12 @@ repo, then propagate) once it has a source worth citing.
 ---
 
 ## 5. Before ordering
+
+**Run the quality pass to `0 FAIL, 0 OPEN`.** `PCB_QUALITY.md` is the standard validation
+list every board is held to — automated rules (`pcbflow/quality.py`, run by `finish.py`)
+and a manual checklist signed with evidence in the board's generator. It is also **where
+a lesson from an ordered board goes**, so the next board is checked for it. What follows
+here is guidance; that file is the gate.
 
 **On the board**
 
