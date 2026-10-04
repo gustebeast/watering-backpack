@@ -1,15 +1,25 @@
 /*
- * Watering-backpack pump controller
- * QuinLED-ESP32 (ESP32-WROOM-32) + BTS7960 H-bridge + single-axis analog joystick.
+ * Watering-backpack pump controller — v2 board
+ * ESP32-WROOM-32E + two low-side pump FETs + single-axis analog joystick.
  *
- * FORWARD-ONLY: flow direction (fill vs. suck) is set by the manual X-port
- * reversing valve, so the pump only ever runs ONE way. The joystick sets pump
- * SPEED on one axis; deflection the "reverse" way is ignored.
+ * TWO PUMPS, ONE AXIS. A diaphragm pump cannot be reversed — its check valves
+ * are passive — so DESIGN_V2.md §1 puts two of them in anti-parallel across
+ * shared tees and direction becomes which pump you run:
  *
- * Only the RPWM (forward) half of the BTS7960 is driven; LPWM (reverse) is held
- * LOW and unused. Both enable inputs (R_EN + L_EN, wired together to EN_PIN) are
- * driven HIGH while the pump is commanded and dropped LOW at idle — a true
- * coast/disable.
+ *     stick hard FORWARD -> pump A, tank -> pot   (water the plant)
+ *     stick hard BACK    -> pump B, pot  -> tank  (suck the line back)
+ *     stick near centre  -> neither
+ *
+ * The idle pump's own check valves seal its branch. Running both at once would
+ * make them fight through the shared tees and pull 2 x 7.5 A off one pack, so
+ * the interlock is structural: drivePumps() is the only thing that can raise a
+ * gate, and it writes BOTH pins on every call. Every direction change also
+ * passes through "neither" and waits out DIR_DEAD_MS, so there is no A->B edge
+ * in the state machine at all.
+ *
+ * tools/check_pump_dirs.py drives traces through a transcription of that state
+ * machine — including the flick straight from hard-forward to hard-back, which
+ * crosses the release band faster than the release vote can see it.
  *
  * PUMP VOLTAGE IS REGULATED. The pumps are 12 V and the pack is 15-20 V, so the
  * duty ceiling tracks the pack through the VBAT divider on IO35 and holds the
@@ -17,29 +27,22 @@
  * existed, RUN_DUTY was PWM_MAX and every engage put the whole pack across a
  * 12 V pump.
  *
- * ── THIS FILE STILL DESCRIBES v1 HARDWARE, AND MOSTLY RUNS ON v2 BY LUCK ─────
- * v2 has no BTS7960. elec/CIRCUIT.md §1 replaced it with a discrete low-side
- * MOSFET + gate driver PER PUMP, and DESIGN_V2.md §1 replaced the manual X-port
- * valve with TWO pumps in anti-parallel. What that means here:
+ * THIS IS NOW v2-ONLY. It will not drive v1's QuinLED + BTS7960 rig: that had
+ * one pump and a manual X-port valve, and the enable pin this used to hold HIGH
+ * (IO4) is connected to nothing on the v2 board, so it is gone.
  *
- *   - IO26/IO25 still land on something real: they are pump A and pump B's gate
- *     drivers on the v2 board. "Forward" happens to mean pump A. Coincidence.
- *   - EN_PIN (IO4) is connected to NOTHING on the v2 board. The writes to it are
- *     harmless and meaningless; the low-side FETs coast whenever PWM is 0.
- *   - FORWARD-ONLY is now a real functional gap, not a design choice. Direction
- *     is supposed to come from running pump B instead of pump A, and pump B is
- *     never driven, so suck is unimplemented.
- *   - IO14 (tank level) and IO27 (buzzer) are provisioned on the board and unread.
+ * STILL UNIMPLEMENTED, both provisioned on the board and unread: IO14, the tank
+ * level sensor (open-collector, pulled up — DESIGN_V2.md §7), and IO27, the
+ * buzzer (elec/CIRCUIT.md §5).
  *
- * Power: feed the board 5 V (from the TSR) through the 5vF pad (PTC-fused).
- *
- * Pads (QuinLED-ESP32, chosen non-adjacent for direct soldering):
- *   IO25  left-outer  -> LPWM (reverse)
- *   IO26  right-inner -> RPWM (forward)
- *   IO4   left-outer  -> EN  (to BOTH R_EN and L_EN on the driver)
- *   IO34  right-outer -> joystick SIG (ADC1, input-only)
- *   3v3 -> joystick VCC + driver VCC,  GND pads -> joystick/board/driver GND,
- *   5vF -> board 5 V
+ * Pins, from elec/main.py — the schematic is the authority, not this comment:
+ *   IO26  -> pump A gate driver   (tank -> pot)
+ *   IO25  -> pump B gate driver   (pot  -> tank)
+ *   IO35  -> VBAT_SENSE, off the R20/R21 divider (ADC1, input-only)
+ *   IO34  -> joystick SIG, after its RC filter   (ADC1, input-only)
+ *   IO14  -> tank level  (unread)
+ *   IO27  -> buzzer      (unread)
+ *   EN / IO0 / RXD0 / TXD0 -> programming header
  *
  * ── NOISE REJECTION ──────────────────────────────────────────────────────────
  * This joystick's wiper sits on ~100 counts of RMS noise (peaks past +-450),
@@ -54,10 +57,18 @@
  *     and points at the ground reference. It is a hardware fault; everything
  *     below is a workaround that makes the controller immune to it, not a cure.
  *
- * The original failure mode was noise RECTIFYING into motion: the control law is
- * forward-only, so symmetric noise becomes a one-sided command, and the ramp
+ * The original failure mode was noise RECTIFYING into motion: the control law
+ * was forward-only, so symmetric noise became a one-sided command, and the ramp
  * integrator ratcheted those one-sided kicks upward into a slow, self-sustaining
  * pump creep. The control law now closes that off:
+ *
+ * (The law is no longer one-sided -- reverse is live -- so symmetric noise no
+ * longer rectifies. It does mean there are now TWO ways to false-trigger rather
+ * than one, so the spurious-engage rate below doubles: ~1.2e-10 per window
+ * instead of ~6e-11, or roughly one per year of continuous running instead of
+ * one per two. Both are noise against the vote clearing it in ~25 ms, and a
+ * spurious REVERSE while a pump is running only ever stops it, which is the
+ * safe direction.)
  *
  *   1. K-of-N MAJORITY VOTE on the raw samples decides on/off. Because the noise
  *      is white, samples are independent, so requiring 6 of the last 10 samples
@@ -104,12 +115,16 @@
 // ── Pin map ──────────────────────────────────────────────────────────────────
 constexpr int JOY_PIN  = 34;   // ADC1 (input-only is fine for an analog read)
 constexpr int VBAT_PIN = 35;   // ADC1_CH7, input-only — VBAT_SENSE off R20/R21
-constexpr int RPWM_PIN = 26;   // BTS7960 RPWM — forward
-constexpr int LPWM_PIN = 25;   // BTS7960 LPWM — reverse
-constexpr int EN_PIN   = 4;    // BTS7960 R_EN + L_EN (tied together) — enable/coast
+// One low-side MOSFET per pump, each behind its own non-inverting gate driver,
+// so PWM high = that pump runs. No H-bridge and NO ENABLE PIN: a diaphragm pump
+// cannot be reversed (DESIGN_V2 §1 — the check valves are passive), so direction
+// is WHICH PUMP YOU RUN. v1's EN on IO4 is connected to nothing on the v2 board
+// and is gone.
+constexpr int PUMP_A_PIN = 26;  // tank -> pot  — water the plant
+constexpr int PUMP_B_PIN = 25;  // pot  -> tank — suck the line back
 
 // ── PWM (LEDC, pin-based API = Arduino-ESP32 3.x) ────────────────────────────
-constexpr int PWM_FREQ = 20000;              // 20 kHz — above audible, OK for BTS7960
+constexpr int PWM_FREQ = 20000;              // 20 kHz — above audible, easy for the gate driver
 constexpr int PWM_RES  = 8;                  // 8-bit duty (0..255)
 constexpr int PWM_MAX  = (1 << PWM_RES) - 1;
 constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g. 200)
@@ -228,6 +243,32 @@ constexpr int VOTE_K_ON  = 6;
 constexpr int VOTE_N_OFF = 5;                // 25 ms window
 constexpr int VOTE_K_OFF = 3;
 
+// ── Direction ───────────────────────────────────────────────────────────────
+// DESIGN_V2 §1: two pumps in anti-parallel sharing both lines through tees, pump
+// A tank->pot and pump B pot->tank, with the idle pump's own check valves
+// sealing its branch. So this is a THREE-state controller, and the one thing it
+// must never do is run both at once: they would fight through the shared tees,
+// and both FETs would be pulling 7.5 A off the same pack.
+enum Dir : int8_t { DIR_NONE = 0, DIR_A = 1, DIR_B = -1 };
+
+// Dead time between one pump stopping and either being allowed to start.
+// CHOSEN, not measured, and labelled as such per cadkit/AGENTS.md: the check
+// valves are passive and want the differential across them to collapse before
+// the other pump pulls on the same tee. DESIGN_V2 §1's stated open risk is an
+// air pocket parked in a tee branch, and slamming straight into reverse while
+// the column is still moving is how you drag an air slug across one.
+constexpr uint32_t DIR_DEAD_MS = 250;
+
+// Invariants the direction logic rests on, checked by the compiler rather than
+// trusted. The last two matter most: the release vote has to be able to fire
+// inside its own window, and the engage window has to fit the 16-bit shift
+// registers the votes are counted in.
+static_assert(DIR_A != DIR_B && DIR_NONE == 0, "the three states must be distinct");
+static_assert(DIR_A == -DIR_B, "A and B must be opposite signs for dir=-dir to hold");
+static_assert(DEADBAND_OFF < DEADBAND_ON, "release must be inside engage, or it chatters");
+static_assert(VOTE_K_ON <= VOTE_N_ON && VOTE_K_OFF <= VOTE_N_OFF, "unreachable vote");
+static_assert(VOTE_N_ON <= 16 && VOTE_N_OFF <= 16, "vote window exceeds its uint16_t");
+
 // Duty commanded while engaged. The stick is used hard-forward or hard-back in
 // practice, so there is no proportional mapping: engaged means run, at this duty.
 // Lower it to cap pump speed (and save battery) — it is a one-line OTA push.
@@ -252,6 +293,16 @@ bool armed     = true;                       // false = motor inhibited, telemet
 bool otaActive = false;
 
 int32_t dutyQ8 = 0;                          // current duty, Q8 fixed point
+
+Dir      runDir      = DIR_NONE;             // which pump, if any, is commanded
+uint32_t lastStopMs  = 0;                    // when it last went to DIR_NONE
+// The dead time is between a STOP and the next start, not a boot delay. Without
+// this flag, lastStopMs = 0 gates the first engage until millis() passes
+// DIR_DEAD_MS -- which on real hardware it already has by the first loop, so the
+// bench and the model would have disagreed about the one thing being tested.
+// A flag rather than seeding lastStopMs backwards, because millis() - 250 wraps
+// when millis() < 250 and would gate forever.
+bool     everStopped = false;
 
 // Pack voltage and the duty ceiling it implies. Both start at the SAFE end: as
 // if the pack were fresh, so the very first engage after boot is capped even if
@@ -343,7 +394,7 @@ struct Accum {
 
 struct Stats {
   Accum    raw, filt;
-  uint32_t rawOver = 0, filtOver = 0;   // samples whose offset exceeded DEADBAND_ON
+  uint32_t rawOver = 0, filtOver = 0;   // samples whose |offset| exceeded DEADBAND_ON
   uint32_t runLen = 0, maxRun = 0;      // consecutive RAW crossings (the old failure path)
   int      dutyMax = 0;
   // The bottom line. With the stick at rest this must stay 0: every increment is
@@ -353,9 +404,9 @@ struct Stats {
   void add(int r, int f, int rOff, int fOff, int duty) {
     raw.add(r);
     filt.add(f);
-    if (rOff > DEADBAND_ON) { rawOver++; if (++runLen > maxRun) maxRun = runLen; }
+    if (abs(rOff) > DEADBAND_ON) { rawOver++; if (++runLen > maxRun) maxRun = runLen; }
     else runLen = 0;
-    if (fOff > DEADBAND_ON) filtOver++;
+    if (abs(fOff) > DEADBAND_ON) filtOver++;
     if (duty > dutyMax) dutyMax = duty;
   }
   void reset() {
@@ -367,11 +418,13 @@ struct Stats {
 };
 Stats stats;
 
+// Deliberately writes the pins directly rather than going through drivePumps:
+// a safety stop should not depend on the duty-cap arithmetic being sane.
 void allStop() {
   curDuty = 0;
-  ledcWrite(RPWM_PIN, 0);
-  digitalWrite(LPWM_PIN, LOW);
-  digitalWrite(EN_PIN, LOW);
+  runDir  = DIR_NONE;
+  ledcWrite(PUMP_A_PIN, 0);
+  ledcWrite(PUMP_B_PIN, 0);
 }
 
 // analogReadMilliVolts applies the chip's factory ADC calibration. The raw
@@ -391,8 +444,13 @@ void readVbat() {
   vbatCap = constrain(cap, 1, PWM_MAX);          // a pack under 12 V gets it all
 }
 
-void driveMotor(int duty) {
-  ledcWrite(RPWM_PIN, constrain(duty, 0, min(DUTY_CAP, vbatCap)));
+// The ONLY place either gate gets a non-zero duty, and it writes BOTH pins every
+// call -- so "run A" is always also "B off". The interlock cannot be forgotten at
+// a call site because there is no call site that can set one pin alone.
+void drivePumps(Dir dir, int duty) {
+  int d = constrain(duty, 0, min(DUTY_CAP, vbatCap));
+  ledcWrite(PUMP_A_PIN, dir == DIR_A ? d : 0);
+  ledcWrite(PUMP_B_PIN, dir == DIR_B ? d : 0);
 }
 
 void setArmed(bool on) {
@@ -433,10 +491,13 @@ void handleCommand(char c) {
       measureCentre();
       break;
     case 's':
-      logf("state=%s centre=%d duty=%d | vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
+      logf("state=%s dir=%s deadtime=%lums centre=%d duty=%d "
+           "| vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
            "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d "
            "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
-           armed ? "ARMED" : "DISARMED", joyCentre, curDuty,
+           armed ? "ARMED" : "DISARMED",
+           runDir == DIR_A ? "A(tank>pot)" : runDir == DIR_B ? "B(pot>tank)" : "none",
+           (unsigned long)DIR_DEAD_MS, joyCentre, curDuty,
            VOTE_K_ON, VOTE_N_ON, VOTE_K_OFF, VOTE_N_OFF,
            DEADBAND_ON, DEADBAND_OFF, RUN_DUTY,
            RAMP_MS, START_DUTY, (double)vbatV, vbatOK ? "" : "?", vbatCap,
@@ -475,8 +536,8 @@ void netSetup() {
   } else {
     logf("OTA: UNAUTHENTICATED — anyone on this LAN can reflash this board.\n");
   }
-  // Safety: never reflash with the motor live. The BTS7960 would otherwise be left
-  // with undefined inputs across the reboot, with a pump attached.
+  // Safety: never reflash with a pump live. Both gates would otherwise be left
+  // with undefined drive across the reboot, with the pumps attached.
   ArduinoOTA.onStart([]() {
     otaActive = true;
     allStop();
@@ -540,12 +601,13 @@ void setup() {
   delay(200);
 
   // Motor outputs go to a known-safe state before anything else runs.
-  pinMode(EN_PIN, OUTPUT);
-  digitalWrite(EN_PIN, LOW);
-  ledcAttach(RPWM_PIN, PWM_FREQ, PWM_RES);
-  pinMode(LPWM_PIN, OUTPUT);
-  digitalWrite(LPWM_PIN, LOW);
-  driveMotor(0);
+  // Both gates held LOW as plain outputs BEFORE the LEDC channels attach, so
+  // neither pump can twitch while the peripheral is being set up.
+  pinMode(PUMP_A_PIN, OUTPUT); digitalWrite(PUMP_A_PIN, LOW);
+  pinMode(PUMP_B_PIN, OUTPUT); digitalWrite(PUMP_B_PIN, LOW);
+  ledcAttach(PUMP_A_PIN, PWM_FREQ, PWM_RES);
+  ledcAttach(PUMP_B_PIN, PWM_FREQ, PWM_RES);
+  allStop();
 
   prefs.begin("pump", false);
   armed = prefs.getBool("armed", true);
@@ -578,23 +640,49 @@ void loop() {
   int offset     = filt - joyCentre;   // diagnostic only, reported but never acted on
 
   // ── Fast path: K-of-N majority vote, no smoothing, so no filter lag ───────
-  static uint16_t aboveHist = 0, belowHist = 0;
-  static bool     engaged   = false;
-  aboveHist = (uint16_t)((aboveHist << 1) | (rawOffset > DEADBAND_ON  ? 1 : 0));
-  belowHist = (uint16_t)((belowHist << 1) | (rawOffset < DEADBAND_OFF ? 1 : 0));
-  int nAbove = __builtin_popcount((unsigned)(aboveHist & ((1u << VOTE_N_ON)  - 1)));
-  int nBelow = __builtin_popcount((unsigned)(belowHist & ((1u << VOTE_N_OFF) - 1)));
+  // Three histories now, because both polarities are live. The release vote is
+  // on the MAGNITUDE -- it used to be a signed "fell below +180", which quietly
+  // meant any rearward deflection read as released, which is exactly how
+  // forward-only was implemented.
+  static uint16_t fwdHist = 0, revHist = 0, nearHist = 0;
+  fwdHist  = (uint16_t)((fwdHist  << 1) | (rawOffset >  DEADBAND_ON ? 1 : 0));
+  revHist  = (uint16_t)((revHist  << 1) | (rawOffset < -DEADBAND_ON ? 1 : 0));
+  nearHist = (uint16_t)((nearHist << 1) | (abs(rawOffset) < DEADBAND_OFF ? 1 : 0));
+  int nFwd  = __builtin_popcount((unsigned)(fwdHist  & ((1u << VOTE_N_ON)  - 1)));
+  int nRev  = __builtin_popcount((unsigned)(revHist  & ((1u << VOTE_N_ON)  - 1)));
+  int nNear = __builtin_popcount((unsigned)(nearHist & ((1u << VOTE_N_OFF) - 1)));
 
-  bool wasEngaged = engaged;
-  if (!engaged) { if (nAbove >= VOTE_K_ON)  engaged = true;  }
-  else          { if (nBelow >= VOTE_K_OFF) engaged = false; }
+  Dir wasDir = runDir;
+  if (runDir == DIR_NONE) {
+    bool fwd = (nFwd >= VOTE_K_ON), rev = (nRev >= VOTE_K_ON);
+    // Both votes passing at once is not physically possible on one axis, so it
+    // means something is wrong with the stick or its wiring. Start neither.
+    if (fwd != rev &&
+        (!everStopped || (millis() - lastStopMs) >= DIR_DEAD_MS)) {
+      runDir = fwd ? DIR_A : DIR_B;
+    }
+  } else {
+    // Release on the near vote OR on the opposite direction's engage vote. That
+    // second clause is not belt-and-braces: a fast flick from hard-forward to
+    // hard-back crosses the +-DEADBAND_OFF band in well under the 25 ms the
+    // near vote needs, and without it the pump would keep running the WRONG WAY
+    // with the stick held hard over the other side.
+    bool opp = (runDir == DIR_A) ? (nRev >= VOTE_K_ON) : (nFwd >= VOTE_K_ON);
+    if (nNear >= VOTE_K_OFF || opp) {
+      runDir = DIR_NONE; lastStopMs = millis(); everStopped = true;
+    }
+  }
+  // Every direction change therefore passes through DIR_NONE and waits out
+  // DIR_DEAD_MS. There is no A->B edge anywhere in this state machine.
+  bool engaged    = (runDir != DIR_NONE);
+  bool wasEngaged = (wasDir != DIR_NONE);
 
-  // Forward only — deflection the "reverse" way is ignored. Engaged means run at
-  // RUN_DUTY; there is no intermediate level, so the pump can never sit at the slow
-  // trickle that started all this. The original failure mode is now structurally
-  // impossible rather than merely unlikely.
+  // Engaged means run at RUN_DUTY; there is no intermediate level, so neither
+  // pump can sit at the slow trickle that started all this. That failure mode
+  // stays structurally impossible rather than merely unlikely.
+  //
   // Capped by the pack voltage, not just RUN_DUTY. The ramp has to respect it
-  // too: clamping only inside driveMotor would let dutyQ8 wind up to 255 and
+  // too: clamping only inside drivePumps would let dutyQ8 wind up to 255 and
   // sit there, so the moment a sagging pack raised the cap the output would
   // jump instead of ramping.
   int target = engaged ? min(RUN_DUTY, vbatCap) : 0;
@@ -614,8 +702,7 @@ void loop() {
       }
       curDuty = (int)(dutyQ8 >> 8);
     }
-    digitalWrite(EN_PIN, curDuty != 0 ? HIGH : LOW);
-    driveMotor(curDuty);
+    drivePumps(runDir, curDuty);
   } else {
     // Disarmed or mid-OTA: motor off, but keep reading and reporting the joystick
     // so it can be characterised with no water moving.
@@ -630,7 +717,8 @@ void loop() {
   if (millis() - last > LINE_MS) {
     last = millis();
     logf("raw=%4d filt=%4d offset=%+5d duty=%+4d %s%s\n", raw, filt, offset, curDuty,
-         engaged ? "ON " : "off", armed ? "" : " [DISARMED]");
+         runDir == DIR_A ? "A tank>pot" : runDir == DIR_B ? "B pot>tank" : "off       ",
+         armed ? "" : " [DISARMED]");
   }
   if (millis() - lastStats > STATS_MS) {
     lastStats = millis();
