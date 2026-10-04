@@ -590,6 +590,13 @@ def _terminal_t_cutter() -> cq.Workplane:
     return nub.union(crossbar).union(stem)
 
 
+# Shared with src/housing.py, which has to cut the SAME opening through the v2
+# housing's back plate: the plate lands on the dock's mounting face and re-seals
+# the pocket this cuts, so the housing re-cuts it with this exact cutter rather
+# than a second set of numbers.
+terminal_cutter = _terminal_t_cutter
+
+
 # Connector (643852-2) geometry referenced by the chamfers so they track the
 # connector seat automatically (no hard-coded z values):
 CONN_FLANGE_HALF_X    = 23.90   # ±x flange-lip extent (measured; z-move-invariant)

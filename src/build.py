@@ -108,6 +108,12 @@ def components():
              ("battery", battery_envelope()),
              ("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
              ("fittings", F._elbows())]
+    # The Makita contact block, seated in the pocket the housing reopens for it.
+    # A bought part in a printed pocket is exactly the pair worth weighing: the
+    # pocket came from v1 and the back plate that seals it came from v2.
+    term = H.terminal_placed()
+    if term is not None:
+        comps.append(("terminal", term))
     for name, pts in P.routes():
         comps.append((name, P.run(pts)))
     return comps
@@ -125,6 +131,17 @@ def intended(a, b):
     if pair == {"housing", "housing_lid"}:  # lid closed on its pillars
         return True
     if pair == {"battery", "housing"}:      # the pack seated in its dock
+        return True
+    if pair == {"battery", "terminal"}:
+        # The contact blades engaged in the pack -- the point of the connector,
+        # and the same kind of reading as pump x fitting's thread engagement.
+        # references/makita_battery.step is a solid ENVELOPE with no contact
+        # cavities modelled, so blades that are correctly inside the pack have
+        # nowhere to be except inside that solid. Measured 1762.7 mm3 as ten
+        # separate bodies at 3.45 mm penetration, spread over the whole contact
+        # field -- a body clash would be one lump, not ten.
+        return True
+    if pair == {"housing", "terminal"}:     # seated in its pocket (0 mm3 anyway)
         return True
     if all(n.startswith(("tank_", "green_")) for n in pair):
         return True
