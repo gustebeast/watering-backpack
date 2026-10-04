@@ -232,8 +232,8 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 165 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 42 cm³ | cover over the board |
+| `v2_housing` | 150 cm³ | battery mount + PCB case, one piece |
+| `v2_housing_lid` | 72 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
@@ -261,7 +261,7 @@ real part) is the only thing that answers it. Hold it to a light.
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~287 g** for the set (233 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~305 g** for the set (248 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
@@ -269,29 +269,32 @@ v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
   Each pump has four Ø4 mounting holes on a 73 × 83 mm pattern (exact, from the drawing);
   the floor is 20 mm plank, so M4×45 clears bracket + plank + nut. Nuts go on
   UNDERNEATH, so bolt the pumps down before the floor goes on the frame.
-- [ ] 🎒 **M4 heat-set inserts × 8** (Ø6.0 × 5.0 pocket) — 4 hold the board down, 4 hold
-  the lid on.
+- [ ] 🎒 **M4 heat-set inserts × 4** (Ø6.0 × 5.0 pocket) — they hold the board down.
+  **Not × 8.** The other four held the lid onto four Ø10 pillars; the lid is a
+  shoebox lid now, held by its skirt and one wood screw, and the pillars are gone.
 - [ ] 🎒 **M4 × 6 socket screws × 4** — board → boss → back plate (4.4 mm of bite
       in a 5 mm insert). **Not × 8.** The insert ends 6.6 mm in, so the extra 2 mm of
       screw bought no engagement — it only forced the bore to within 0.6 mm of the
       back face. At × 6 the bore stops 1.5 mm short and the bay's back wall stays
       closed.
-- [ ] 🎒 **M4 × 12 socket screws × 4** — lid → pillars (9.0 mm of bite).
 *The PCB bay is closed except for the down-facing cable chase and the four
 wood screws, which their own heads fill. All eight insert bores used to run clean
 through the back wall — four into the open air between the posts — which is eight
 water paths into the electronics on a machine carrying five gallons above them.*
 
-- [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. The housing's tie rib
-      takes a 10 × 7 mm slot, so anything up to ~4 mm wide threads. These are the
-      only strain relief the screw terminals have.
+- [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. Two diamond slots through
+      the bay floor, 6 × 4 mm, flank the cable chase: the tie goes up through one,
+      over the bundle and down the other. Anything up to ~3.5 mm wide threads.
+      These are the only strain relief the screw terminals have.
 - [ ] 🎒 **#8 flat-head wood screws × 3**, ≥ 25 mm — housing → posts. Ø4.5 clearance
   with a Ø9 countersink, so the heads sit flush inside the housing.
 - [ ] 🎒 **#8 flat-head wood screw × 1**, ≥ 32 mm — the **+y +z** one, which now also
-  holds the LID. It passes through the lid's retention tab (3 mm), the housing's back
-  plate (3 mm) and then into the post, so it needs ~3 mm more than the other three;
-  32 mm leaves 25 mm in the wood. Its head lands in the TAB's countersink, not the
-  housing's. **Back this screw out to take the lid off** — that is what retains it.
+  holds the LID. It passes through the lid's retention boss (3 mm at the far end),
+  the housing's back plate (3 mm) and then into the post, so it needs ~3 mm more
+  than the other three; 32 mm leaves 25 mm in the wood. Its head lands in the BOSS's
+  countersink, not the housing's, and it is driven down a Ø9.5 access bore through
+  the lid — you need a bit at least 30 mm long past the chuck.
+  **Back this screw out to take the lid off** — that, and the skirt, is what retains it.
   The housing keeps its own countersink at that position so it can still be mounted
   on its own, lid off, during assembly.
 

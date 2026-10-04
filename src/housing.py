@@ -137,14 +137,20 @@ PCB_Z_C = 75.0
 
 # ── Z layout ────────────────────────────────────────────────────────────────
 PCB_L      = 100.0
-# The bay is taller than the board needs, and that is deliberate: the LID has
-# to screw into something, and there is no room for pillars inside the board's
-# own footprint (the board fills the bay in Y, which is the tight axis). So the
-# spare goes into Z, where there is plenty, giving an 11 mm border above and
-# below the board for the four lid pillars. Putting them in the corners instead
-# collided with the board's own M4s -- 4 x 10 mm2 of flat ceiling where the
-# corner bore clipped a pillar.
-BAY_BORDER = 11.0
+# The bay is taller than the board needs, and that is deliberate. It used to be
+# 11 mm of border above and below, sized to host the four lid pillars, because
+# there was no room for them inside the board's own footprint (the board fills
+# the bay in Y, which is the tight axis).
+#
+# The pillars are gone -- the lid is held by its skirt and one wood screw -- so
+# the border now answers to two other things, and 8 is what BOTH of them want:
+#
+#   * the board's own Z retention lives in it (see the retention ribs below);
+#   * the lid's screw boss has to clear the bay's +Z wall. The screw is fixed
+#     at z=145 and the boss needs 2 mm of lid under a Ø9.5 bore, which puts the
+#     boss's underside at 138.25. At BAY_BORDER=11 the bay wall reached 139 and
+#     the two interpenetrated -- 912 mm3, which the overlap gate caught.
+BAY_BORDER = 8.0
 BAY_Z0     = PCB_Z_C - (PCB_L / 2.0 + BAY_BORDER + WALL)  # 11
 BAY_Z1     = PCB_Z_C + (PCB_L / 2.0 + BAY_BORDER + WALL)  # 139
 # The back plate runs the posts' full height so the countersinks have laminate
@@ -161,45 +167,6 @@ SCREW_YS   = L.POST_YS                                    # 19 and 191 — on th
 # flat-head wood screw is what you would use into timber regardless.
 WOOD_CLR_D, WOOD_CSK_D = 4.5, 9.0
 
-# ── Cable exit and strain relief ────────────────────────────────────────────
-# The bay was a closed rectangular tube: four power terminals sat on the board's
-# bottom edge with NO WAY OUT. The housing could not be wired.
-#
-# One chase, not a hole per connector, and it faces DOWN. CIRCUIT.md counts an
-# opening as a water path ("a connector is a water-ingress path on an outdoor
-# machine") and the tank sits directly above at z=208, so nothing opens upward —
-# the level sensor's lead leaves through this chase too and climbs outside.
-#
-# It lands between J3 and J4, the middle of the bottom connector group, which is
-# the shortest internal gather. 134 is forced: the lid pillar at y=125.1 is Ø10
-# through the full depth, so a chase any lower in Y is split in two by it.
-CHASE_Y0, CHASE_Y1 = PCB_Y_C - 22.1, PCB_Y_C + 1.9
-# CIRCUIT.md: "Terminals provide NO strain relief — a tugged cable pulls out of
-# the clamp or snaps at it. The printed shroud needs a cable-tie anchor." The
-# shroud is gone; this is that anchor. A rib on the back plate's OUTBOARD face,
-# set below the bay floor, with the gap between the two taking the tie.
-#
-# It is a rib and not a bar across the chase because of the build direction
-# (-X). A member spanning the chase in Y lands on the bottom wall's cut edges,
-# which makes it a 28.5 mm cantilever of 4 x 3 section loaded across the layers
-# — 10 N at the tip is already 51 MPa in PCTG. Fused flat to the plate instead,
-# the tie load goes in as shear over 32 mm of weld, and the rib starts at build
-# height 3 directly on top of plate that is already there, so it overhangs
-# nothing.
-TIE_T   = BAY_Z0                             # 11 — up to the bay floor
-TIE_D   = 14.0                               # how far it stands off the plate
-TIE_Y0, TIE_Y1 = CHASE_Y0 - 4.0, CHASE_Y1 + 4.0
-# A tie has to pass THROUGH the rib — you cannot loop one around a block that
-# is fused to the plate along its whole length, which is what the rib would be
-# without this. The hole runs in Y, across the build, so it is a DIAMOND and
-# not a rectangle: a rectangular slot across the build has a flat roof, and a
-# 10 mm flat roof is the exact defect this project's overhang gate exists to
-# catch (it has caught four of them already). A diamond's roof is two planes
-# at 31 degrees off the build axis, which self-supports.
-TIE_SLOT_HX = 5.0                            # half-length along the build (X)
-TIE_SLOT_HZ = 3.5
-TIE_SLOT_OFF = TIE_D / 2.0 + 0.5             # centred in the rib, 2.5 mm walls
-TIE_SLOT_Z  = (TIE_T - 1.0) / 2.0 + 1.0
 
 # ── PCB stack, measured outboard from the back plate's inner face ───────────
 FLOOR_X    = BACK_X - BACK_T                 # -193
@@ -238,6 +205,85 @@ SEAL_T     = 1.5
 # that fails if this solid and the routed board diverge -- and it is pointed at
 # THIS solid, the one the assembly actually places.
 _BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
+
+
+# ── Cable exit and strain relief ────────────────────────────────────────────
+# The bay was a closed rectangular tube: four power terminals sat on the board's
+# bottom edge with NO WAY OUT. The housing could not be wired.
+#
+# One chase, not a hole per connector, and it faces DOWN. CIRCUIT.md counts an
+# opening as a water path ("a connector is a water-ingress path on an outdoor
+# machine") and the tank sits directly above at z=208, so nothing opens upward —
+# the level sensor's lead leaves through this chase too and climbs outside.
+#
+# IT SPANS THE WHOLE CONNECTOR GROUP, and it is measured off the routed board
+# to do it. It used to be a 24 mm slot "between J3 and J4", placed for the
+# shortest internal gather and then forced to y=134 by a lid pillar. The four
+# blocks span 62 mm, so a wire landing on J1 had to travel the length of the
+# bay sideways, under the board, to reach a hole it could not see out of. These
+# are screw terminals facing DOWN: the wire has to arrive along its own axis
+# with a screwdriver behind it. A chase that does not reach the block is a
+# chase that does not work, and the pillar that forced it is gone (the lid is
+# held by its skirt and the wood screw now).
+#
+# Derived, not typed: anything on the board's bottom border whose footprint is
+# a TerminalBlock. Add a connector down there and the chase grows to meet it.
+CHASE_MARGIN = 2.0                           # air each side of the group
+
+
+def _edge_connector_span():
+    """(y0, y1) in WORLD that the bottom-edge screw terminals occupy.
+
+    FROM THE ROUTED BOARD (PCB_README: never a typed placement). fab[] is
+    (xmin, xmax, ymin, ymax) in board mm; board +X maps to world -Y, so the
+    extremes swap."""
+    lo, hi = None, None
+    for f in _BOARDS.load("main")["footprints"]:
+        if "TerminalBlock" not in f.get("fpid", ""):
+            continue
+        x0, x1, y0, _y1 = f["fab"]
+        if y0 > -PCB_L / 4.0:                # not on the bottom border
+            continue
+        a, b = PCB_Y_C - x1, PCB_Y_C - x0
+        lo = a if lo is None else min(lo, a)
+        hi = b if hi is None else max(hi, b)
+    if lo is None:
+        raise AssertionError("no bottom-edge terminal blocks on the routed board")
+    return lo, hi
+
+
+_CONN_Y0, _CONN_Y1 = _edge_connector_span()
+CHASE_Y0 = _CONN_Y0 - CHASE_MARGIN
+CHASE_Y1 = _CONN_Y1 + CHASE_MARGIN
+assert Y_PCB0 < CHASE_Y0 and CHASE_Y1 < Y_PCB1, (
+    "the chase (%.1f..%.1f) runs past the bay cavity (%.1f..%.1f)"
+    % (CHASE_Y0, CHASE_Y1, Y_PCB0, Y_PCB1))
+
+# CIRCUIT.md: "Terminals provide NO strain relief — a tugged cable pulls out of
+# the clamp or snaps at it. The printed shroud needs a cable-tie anchor."
+#
+# THE ANCHOR IS CUT, NOT BUILT. It used to be a 14 mm buttress rib standing off
+# the back plate below the chase, with a tie slot bored through it — 3.4 cm3 of
+# added material whose whole job was to give a cable tie something to pass
+# through. A pair of slots through the bay floor does the same job and adds
+# nothing: the tie goes up through one, over the bundle, down the other, and
+# cinches it against the floor's underside, which is the face the bundle runs
+# along anyway. The rib also stood exactly where the lid's -Z skirt now drops.
+#
+# DIAMOND slots, for the same reason the rib's was a diamond: they are cut
+# through a 3 mm floor that is PARALLEL to the build (the housing builds in -X),
+# so a rectangular slot presents a flat 3 x 3 ceiling where the floor closes
+# back over it. A diamond's roof is two planes 17 degrees off the build axis.
+#
+# They sit at the floor's INBOARD end, in the 8.5 mm of it the lid's skirt does
+# not reach (SKIRT_D), so the tie and the bundle it holds are never pinched
+# between the floor and the skirt -- and the skirt's wiring window only has to
+# clear the chase.
+TIE_SLOT_HX = 3.0                            # half-length along the build (X)
+TIE_SLOT_HY = 2.0                            # half-width across it; 34 deg roof
+TIE_SLOT_OFFSET = 5.0                        # chase edge -> slot centre
+TIE_SLOT_YS = (CHASE_Y0 - TIE_SLOT_OFFSET, CHASE_Y1 + TIE_SLOT_OFFSET)
+TIE_SLOT_X  = FLOOR_X - 4.25                 # -197.25, mid-way in that strip
 
 
 def _slab(x0, x1, y0, y1, z0, z1):
@@ -298,25 +344,6 @@ def pcb_screws():
             # 0.6 mm of the back face, which is no barrier at all. 6 mm gives
             # 4.4 mm of bite in a 5 mm insert (>1D) and leaves 1.5 mm of plate.
             length=6.0, insert_at=BOARD_X0 - BOARD_X1, end_at=depth,
-            head_d=7.6, head_h=2.2))
-    return out
-
-
-def _lid_bosses_xy():
-    """Four pillars in the Z border, clear of the board AND of its four M4s."""
-    zs = (BAY_Z0 + WALL + 5.0, BAY_Z1 - WALL - 5.0)
-    ys = (PCB_Y_C - 31.0, PCB_Y_C + 31.0)
-    return [(y, z) for z in zs for y in ys]
-
-
-def lid_screws():
-    out = []
-    for hy, hz in _lid_bosses_xy():
-        out.append(ScrewJoint(
-            spec=M4, entry=(WALL_X - LID_T, hy, hz), direction=(1.0, 0.0, 0.0),
-            length=12.0, insert_at=LID_T,
-            # Through the boss but NOT out the back face: stops SEAL_T short.
-            end_at=BACK_X - (WALL_X - LID_T) - SEAL_T,
             head_d=7.6, head_h=2.2))
     return out
 
@@ -435,6 +462,23 @@ def _check_dock_orientation():
 _check_dock_orientation()
 
 
+def _tie_slots() -> cq.Workplane:
+    """Two diamond slots through the bay floor, one each side of the chase.
+
+    A tie passes up through one, over the bundle and down the other, cinching
+    it against the floor's underside. Diamonds because the floor is parallel to
+    the build (-X) and a rectangular slot would close over a flat ceiling."""
+    cut = None
+    for y_c in TIE_SLOT_YS:
+        d = (cq.Workplane("XY").workplane(offset=BAY_Z0 - BOOL_OVERSHOOT)
+             .center(TIE_SLOT_X, y_c)
+             .polyline([(TIE_SLOT_HX, 0.0), (0.0, TIE_SLOT_HY),
+                        (-TIE_SLOT_HX, 0.0), (0.0, -TIE_SLOT_HY)]).close()
+             .extrude(WALL + 2 * BOOL_OVERSHOOT))
+        cut = d if cut is None else cut.union(d)
+    return cut
+
+
 def housing() -> cq.Workplane:
     # back plate, full height so the screw flanges are part of it
     h = _slab(BACK_X, FLOOR_X, Y_PLATE0, Y_PLATE1, BACK_Z0, BACK_Z1)
@@ -447,27 +491,13 @@ def housing() -> cq.Workplane:
     for hy, hz in _hole_points():
         h = h.union(cq.Workplane("YZ").workplane(offset=BOARD_X0)
                     .center(hy, hz).circle(BOSS_D / 2.0).extrude(STANDOFF))
-    # lid bosses
-    for hy, hz in _lid_bosses_xy():
-        h = h.union(cq.Workplane("YZ").workplane(offset=WALL_X)
-                    .center(hy, hz).circle(BOSS_D / 2.0)
-                    .extrude(abs(WALL_X - FLOOR_X)))
-    # cable-tie rib, a buttress on the plate from the ground to the bay floor.
-    # It goes on BEFORE the chase is cut, so the chase trims it. Unioned after,
-    # it roofed the 0.5 mm the chase's own overshoot takes out of the back plate
-    # — 24 x 0.5 mm of flat ceiling, which the overhang gate caught.
-    h = h.union(_slab(FLOOR_X, FLOOR_X - TIE_D, TIE_Y0, TIE_Y1, 0.0, TIE_T))
-    # cable chase — the terminals faced a closed box before this
+    # cable chase — the terminals faced a closed box before this. It spans the
+    # whole bottom connector group (see _edge_connector_span).
     h = h.cut(_slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,
                     CHASE_Y0, CHASE_Y1,
                     BAY_Z0 - BOOL_OVERSHOOT, BAY_Z0 + WALL + BOOL_OVERSHOOT))
-    # ...with a diamond tie slot bored through it along Y
-    dia = (cq.Workplane("XZ").workplane(offset=-TIE_Y1)
-           .center(FLOOR_X - TIE_SLOT_OFF, TIE_SLOT_Z)
-           .polyline([(TIE_SLOT_HX, 0.0), (0.0, TIE_SLOT_HZ),
-                      (-TIE_SLOT_HX, 0.0), (0.0, -TIE_SLOT_HZ)]).close()
-           .extrude(TIE_Y1 - TIE_Y0))
-    h = h.cut(dia)
+    # ...flanked by two diamond tie slots through the floor: the strain relief
+    h = h.cut(_tie_slots())
     h = h.union(_dock_placed())
     # ...and reopen the connector pocket the back plate just sealed. AFTER the
     # union, necessarily: the plate is what closes it.
@@ -487,89 +517,160 @@ def housing() -> cq.Workplane:
                 cq.Vector(FLOOR_X, sy, sz), cq.Vector(1, 0, 0))
             h = h.cut(cq.Workplane(obj=csk))
     up = (-1.0, 0.0, 0.0)                      # the build direction
-    for sj in pcb_screws() + lid_screws():
+    for sj in pcb_screws():
         h = h.cut(sj.cutter(print_up=up))
     return h
 
 
-# ── WHY THERE IS NO PERIMETER SKIRT ON THE LID ─────────────────────────────
-# Asked for (a shoebox lid lapping the bay rim, to break the straight seam the
-# tank drips onto) and it does not fit. Measured, both ways it could be built:
+# ── THE LID IS A SHOEBOX LID NOW ───────────────────────────────────────────
+# It was a flanged plate butted onto the bay rim and held by four M4s into four
+# Ø10 pillars that ran the bay's full depth. Three things were wrong with that:
+# the seam was a straight butt joint directly under five gallons of water; the
+# pillars ate the Z border the board needs for retention; and the four M4s were
+# four blind holes in a part whose whole job is to come off.
 #
-#   PLUG INWARD, skirt inside the cavity: the board PLUS its parts spans
-#   y 106.5..205.7 against cavity walls at 106.6..205.6 -- a gap of -0.06 mm.
-#   There is not room for a skirt of any thickness on either y edge. The z
-#   edges have 11.00 mm each, but a skirt on two opposite edges is not a lap,
-#   it is a pair of fins, and it seals nothing the butt joint did not.
+# An earlier finding in this file said a skirt did not fit, and it measured
+# honestly: inward there was -0.06 mm of room, outward there was nothing to lap
+# onto because the bay filled the frame's depth to the last 1.4 mm. Both
+# readings were of a housing whose dock was still carrying v1's dovetail ears.
+# With those gone the bay has SKIRT_GAP of air outboard of each Y wall, and the
+# Z walls always had open air above and below them.
 #
-#   LAP OUTWARD, skirt over the housing's outside: there is nothing to lap
-#   onto. The outboard face only exists over the bay footprint -- above z=139
-#   and below z=11 the housing is back plate only (x -193..-190), so a skirt
-#   there would hang in open air. -y is the dock bay, not an outer face.
+# WHAT IT LAPS. The bay is a box standing 28.5 mm proud of the back plate. The
+# skirt drops SKIRT_D over the outside of all four of its walls, which is the
+# labyrinth the butt joint never was. It stops short of the plate on purpose:
+# the lid seats on the bay RIM, not on the skirt's end, so the lap carries no
+# load and its depth is free to choose.
+SKIRT_T   = 3.0
+SKIRT_CLR = 0.4                   # air between skirt and bay wall, per side
+SKIRT_D   = 20.0                  # how far it drops. The dock's +Y face is the
+                                  # limit and it is 6.3 mm clear at this depth.
+BAY_Y0, BAY_Y1 = Y_PCB0 - WALL, Y_OUTER       # the bay's outer faces
+LID_Y0 = BAY_Y0 - SKIRT_CLR - SKIRT_T
+LID_Y1 = BAY_Y1 + SKIRT_CLR + SKIRT_T
+LID_Z0 = BAY_Z0 - SKIRT_CLR - SKIRT_T
+LID_Z1 = BAY_Z1 + SKIRT_CLR + SKIRT_T
+assert LID_Y0 > Y_DOCK1, (
+    "the -Y skirt lands on the dock: skirt at %.1f, dock ends at %.1f"
+    % (LID_Y0, Y_DOCK1))
+assert LID_Y1 <= L.FRAME_D, "the +Y skirt runs past the frame"
+assert SKIRT_D < abs(WALL_X - FLOOR_X), "the skirt is deeper than the bay is tall"
+
+# ── The -Z skirt has to let the wiring out ─────────────────────────────────
+# Every other side laps a closed wall. This one laps the wall the cable chase
+# goes through, so a continuous skirt there would re-close the only opening
+# this bay has. A window, spanning the chase and nothing more: the tie slots
+# are deliberately INBOARD of SKIRT_D (see TIE_SLOT_X) so the strain relief
+# stays under solid skirt and the window does not have to grow to clear it.
+LID_WIN_MARGIN = 1.5
+
+# ── Lid retention ──────────────────────────────────────────────────────────
+# ONE wood screw, plus the skirt. Not four M4s.
 #
-# So the lap needs the bay narrowed or the housing grown, and both move the
-# board arithmetic that section "WHY THE TWO BAYS SIT WHERE THEY DO" above
-# fixes from the frame's 210 mm. That is a bigger decision than a lid detail
-# and it is the user's to make, so the lid stays a flanged plate for now and
-# the retention tab below is what changed.
-
-# ── Lid retention tab: the lid reaches the +y +z wood screw ─────────────────
-# User's call. The lid was a loose plate held only by its four M4s; it now runs
-# up past the bay and inboard to the wood screw at (y=191, z=145), which faces
-# +X into the post, so that one screw clamps the lid as well as the housing.
+# The screw is the housing's own +Y +Z one at (y=191, z=145), which drives +X
+# into the post: the lid reaches 28.5 mm inboard to the back plate and that one
+# screw clamps lid, plate and timber together.
 #
-# The reach is 28.5 mm, because the flange band above the bay is BACK PLATE
-# ONLY -- measured x -193..-190 at z>139, with open air inboard of it. So the
-# tab bears on the back plate's INBOARD face and the screw passes through tab,
-# plate and into the wood.
+# WHY ONLY ONE. The other two screws are at y=19, 76 mm beyond the lid's edge.
+# The +Y -Z one at z=5 is the obvious second and it clears the bay floor fine,
+# but its boss is 16 mm wide on the y=191 screw line and the cable chase ends
+# at y=187.6 -- so the boss would stand back across 4.6 mm of the chase's exit
+# through the skirt window, which is the one opening this bay has. If the
+# connector group ever moves off that corner it is worth revisiting.
 #
-# THE 45 IS NOT DECORATION. The lid prints plate-down (see PRINT_ROT below), so
-# world +X is build UP and the rib rises off the plate as a vertical wall. The
-# tab is taller than the rib -- it has to be, to cover a screw at z=145 with a
-# rib that must stay BELOW z=145 or the bolt would have to bore 18 mm of rib
-# lengthwise instead of 3 mm of tab. That step would be a flat ceiling of
-# 7 x 14 mm at n.z = -1.00, so the rib ramps up to the tab at exactly 45.
-LID_RIB_W  = 14.0                 # y width of rib + tab
-LID_RIB_Z1 = 143.0                # rib top: under the screw at 145
-LID_TAB_Z1 = 150.0                # tab top = the housing's own top
-LID_TAB_T  = 3.0                  # tab thickness in X
-LID_TAB_X1 = FLOOR_X              # -193: the back plate's inboard face
-LID_UP     = (1.0, 0.0, 0.0)      # build direction for the lid (see PRINT_ROT)
+# ONE IS ENOUGH, and the skirt is why. A single screw leaves the lid free to
+# pivot about it, but the pivot has to tilt the skirt inside a SKIRT_CLR gap
+# over a SKIRT_D lap -- 0.4 in 20, about 1.1 degrees. Over the 145 mm to the
+# far corner that is 2.9 mm of outboard travel, against a 20 mm lap. It cannot
+# get out.
+#
+# ── and the screw has to be able to GET there ──────────────────────────────
+# The first version of this tab could not be screwed down. It reached the screw
+# correctly and then filled the space in front of it: the tab sat 7 mm proud of
+# its rib in Z, the step was ramped at 45 degrees to keep it printable, and the
+# ramp put 8 mm of solid lid across the screw's axis at z=145. Nothing could
+# reach the head, and the screw could not even be entered.
+#
+# So the retention is a BOSS with an axial bore, not a tab behind a ramp. The
+# boss runs the lid's full depth; the bore is Ø9.5 -- wide enough to drop a
+# flat-head wood screw down -- and steps to a countersink at the far end, where
+# the head seats against the plate. A long bit reaches it through the same hole.
+#
+# THE RAMP IS GONE ENTIRELY, not relocated. The lid builds +X (see PRINT_ROT),
+# so the boss rises off the lid plate as a vertical wall and needs no ramp
+# where the plate is under it -- and the plate is simply carried up to the
+# boss's top in that one Y band to make sure it is. 509 mm3 of plate, against
+# an access path that did not exist.
+LID_BOSS_W  = 16.0                            # Y width
+LID_BOSS_H  = 16.0                            # Z height
+LID_BORE_D  = 9.5                             # the screw head is Ø9
+LID_BOSS_Y  = SCREW_YS[1]                     # 191
+LID_BOSS_Z  = SCREW_ZS[1]                     # 145
+LID_BOSS_X1 = FLOOR_X                         # -193: the back plate's inboard face
+LID_CSK_T   = 3.0                             # material the countersink lives in
+LID_UP      = (1.0, 0.0, 0.0)                 # build direction (see PRINT_ROT)
+assert LID_BORE_D > WOOD_CSK_D, (
+    "a %.1f mm screw head will not pass a %.1f mm access bore"
+    % (WOOD_CSK_D, LID_BORE_D))
+assert LID_BOSS_H / 2.0 - LID_BORE_D / 2.0 >= 2.0, "under 2 mm of boss over the bore"
+assert LID_BOSS_W / 2.0 - LID_BORE_D / 2.0 >= 2.0, "under 2 mm of boss beside the bore"
+assert LID_CSK_T >= (LID_BORE_D - WOOD_CLR_D) / 2.0, "the countersink is deeper than its seat"
 
 
-def _lid_tab() -> cq.Workplane:
-    y_c = SCREW_YS[1]                          # 191 -- the +y screw line
-    x_out = WALL_X - LID_T                     # -224.5, the lid's outer face
-    ramp = LID_TAB_Z1 - LID_RIB_Z1             # rise == run -> 45 deg
-    pts = [(x_out, BAY_Z1), (x_out, LID_RIB_Z1),
-           (LID_TAB_X1 - LID_TAB_T - ramp, LID_RIB_Z1),
-           (LID_TAB_X1 - LID_TAB_T, LID_TAB_Z1),
-           (LID_TAB_X1, LID_TAB_Z1), (LID_TAB_X1, BAY_Z1)]
-    assert ramp > 0, "tab must stand proud of the rib or there is no step"
-    return (cq.Workplane("XZ").polyline(pts).close()
-            .extrude(-LID_RIB_W)               # XZ extrude(-L) lands at +Y
-            .translate((0.0, y_c - LID_RIB_W / 2.0, 0.0)))
+def _lid_plate() -> cq.Workplane:
+    """The cover, plus the strip of it that carries the boss above the bay."""
+    pl = _slab(WALL_X, WALL_X - LID_T, LID_Y0, LID_Y1, LID_Z0, LID_Z1)
+    boss_z1 = LID_BOSS_Z + LID_BOSS_H / 2.0
+    if boss_z1 > LID_Z1:                       # carry the plate up under the boss
+        pl = pl.union(_slab(WALL_X, WALL_X - LID_T,
+                            LID_BOSS_Y - LID_BOSS_W / 2.0,
+                            LID_BOSS_Y + LID_BOSS_W / 2.0,
+                            LID_Z1, boss_z1))
+    return pl
 
 
-def _lid_tab_screw() -> cq.Workplane:
-    """Clearance + countersink for the wood screw, through the tab only."""
-    y_c, z_c = SCREW_YS[1], SCREW_ZS[1]
-    x0 = LID_TAB_X1 - LID_TAB_T
-    clr = (cq.Workplane("YZ").workplane(offset=x0 - BOOL_OVERSHOOT)
+def _lid_skirt() -> cq.Workplane:
+    outer = _slab(WALL_X, WALL_X + SKIRT_D, LID_Y0, LID_Y1, LID_Z0, LID_Z1)
+    inner = _slab(WALL_X - BOOL_OVERSHOOT, WALL_X + SKIRT_D + BOOL_OVERSHOOT,
+                  BAY_Y0 - SKIRT_CLR, BAY_Y1 + SKIRT_CLR,
+                  BAY_Z0 - SKIRT_CLR, BAY_Z1 + SKIRT_CLR)
+    window = _slab(WALL_X - BOOL_OVERSHOOT, WALL_X + SKIRT_D + BOOL_OVERSHOOT,
+                   CHASE_Y0 - LID_WIN_MARGIN, CHASE_Y1 + LID_WIN_MARGIN,
+                   LID_Z0 - BOOL_OVERSHOOT, BAY_Z0 - SKIRT_CLR + BOOL_OVERSHOOT)
+    return outer.cut(inner).cut(window)
+
+
+def _lid_boss() -> cq.Workplane:
+    """The one retention boss, from the lid plate inboard to the back plate."""
+    return _slab(WALL_X, LID_BOSS_X1,
+                 LID_BOSS_Y - LID_BOSS_W / 2.0, LID_BOSS_Y + LID_BOSS_W / 2.0,
+                 LID_BOSS_Z - LID_BOSS_H / 2.0, LID_BOSS_Z + LID_BOSS_H / 2.0)
+
+
+def _lid_screw_path() -> cq.Workplane:
+    """Access bore -> countersink -> clearance, all on the screw's own axis."""
+    y_c, z_c = LID_BOSS_Y, LID_BOSS_Z
+    x_csk = LID_BOSS_X1 - LID_CSK_T                       # -196, head seat
+    # the access bore, from the lid's outer face to the countersink mouth
+    bore = (cq.Workplane("YZ").workplane(offset=WALL_X - LID_T - BOOL_OVERSHOOT)
+            .center(y_c, z_c).circle(LID_BORE_D / 2.0)
+            .extrude(x_csk - (WALL_X - LID_T) + BOOL_OVERSHOOT))
+    # The cone's mouth is the ACCESS BORE's diameter, not the screw head's. At
+    # Ø9.0 into a Ø9.5 bore the step left a 7.3 mm2 flat annulus facing the bed
+    # -- the overhang gate's whole subject. Starting it at Ø9.5 removes the step
+    # and costs 0.25 mm of head seat on a 45 deg cone.
+    csk = cq.Solid.makeCone(LID_BORE_D / 2.0, WOOD_CLR_D / 2.0,
+                            (LID_BORE_D - WOOD_CLR_D) / 2.0,
+                            cq.Vector(x_csk, y_c, z_c), cq.Vector(1, 0, 0))
+    clr = (cq.Workplane("YZ").workplane(offset=x_csk)
            .center(y_c, z_c).circle(WOOD_CLR_D / 2.0)
-           .extrude(LID_TAB_T + 2 * BOOL_OVERSHOOT))
-    csk = cq.Solid.makeCone(WOOD_CSK_D / 2.0, WOOD_CLR_D / 2.0,
-                            (WOOD_CSK_D - WOOD_CLR_D) / 2.0,
-                            cq.Vector(x0, y_c, z_c), cq.Vector(1, 0, 0))
-    return clr.union(cq.Workplane(obj=csk))
+           .extrude(LID_CSK_T + BOOL_OVERSHOOT))
+    return bore.union(cq.Workplane(obj=csk)).union(clr)
 
 
 def lid() -> cq.Workplane:
-    l = _slab(WALL_X, WALL_X - LID_T, Y_PCB0 - WALL, Y_OUTER, BAY_Z0, BAY_Z1)
-    l = l.union(_lid_tab()).cut(_lid_tab_screw())
-    for sj in lid_screws():
-        l = l.cut(sj.cutter(print_up=LID_UP))
-    return l
+    return (_lid_plate().union(_lid_skirt()).union(_lid_boss())
+            .cut(_lid_screw_path()))
 
 
 PRINT_ROT = {
