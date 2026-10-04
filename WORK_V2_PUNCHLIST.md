@@ -97,3 +97,51 @@ wider on that side than the board is.
 * The overhang gate caught a bug in #3 before the build did: the slot was extruded
   the wrong way down +X and cut a 0.5 mm blind pocket in the back of the plate
   instead of a through hole, which it reported as 104.6 mm² of flat ceiling.
+
+
+## Round 3
+
+| # | item | status |
+|---|---|---|
+| 1 | Make the lid opaque | **done** |
+| 2 | One of the pumps is translucent too | **done** — same cause |
+| 3 | Is there room for the PCB→motor wiring as well? | **done** — there was, barely; widened |
+| 4 | What are the blocks on the PCB underside? | **answered** |
+| 5 | Walls should be bead-width multiples, not 3 mm | **done** |
+| 6 | Why doesn't the screw boss line up with the wall? | **done** — it can't, so the plate closes the gap |
+
+**1 and 2 were one bug.** The viewer's alpha rule was
+`0.35 if battery else 0.85 if "_" in nm else 1.0`, and an underscore in a name is
+not a reason to see through something. It caught `housing_lid` — so the one part
+whose job is to close the bay was drawn translucent, and every screenshot of the
+board was taken *through* it — and `pump_a`, `pump_b`, `pcb_screw_0` and
+`pcb_insert_0` as well. See-through is declared now, and only the battery (and
+the tank, which always was) is.
+
+**3. There was room, with nothing to spare.** Every terminal is on the board's
+bottom edge and the chase is the bay's only exit, so J1's battery pair *and*
+J2/J3's two pump pairs all come down the chase and all cross the plate — six
+conductors, with the pumps 65 mm further +X again. At 14 AWG for the battery and
+16 for the pumps that is 17.8 mm laid side by side, and a 5 mm slot is one layer
+deep, so width is what carries them. The 22 mm slot held exactly six with no
+slack and no room to be wrong about gauge. It is 40 mm now (Y 127..167), still
+inside the measured Y 121.7..172.0 window.
+
+**4. Through-hole lead tails.** Nine footprints have them — J1–J6, the buzzer,
+and the two ICs' thermal vias — drawn 3.4 mm proud of the solder side. They are
+the reason `STANDOFF` is 4.0: the tails end 0.6 mm short of the bay floor, and a
+shorter standoff would stand the board on its own solder joints.
+
+**5. Nothing had pinned a nozzle.** `src/housing.py` is on the bead grid now at
+`NOZZLE_D = 0.8`: walls, lid and skirt 2.4 (3 beads), the back plate 3.2 (4 — the
+extra bead is the countersink's, since a 2.55 mm cone would break clean through a
+2.4 plate). The lid lost 15 cm³. `src/battery_dock.py` stays off-grid as hardware,
+on the user's point that it has to match the pack and the Makita adapter.
+
+**6. Those two walls can never line up.** The boss is placed by the SCREW, which
+is on the post centreline at y=191; the skirt is placed by the BAY it laps, whose
+outer face is at y=204. Nothing can bring them together. What was wrong was the
+carried-up plate strip stopping at the boss's own face, leaving an 8.4 × 13.6 mm
+notch between two walls that look like they should meet. The strip runs to the
+lid's +Y edge now, so the boss ties into the skirt corner instead of cantilevering
+off a tab — which matters, because that boss takes the lid's whole retention load.

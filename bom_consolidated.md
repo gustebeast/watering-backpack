@@ -245,8 +245,8 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 148 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 73 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw (Ø9.3 head, Ø11 access bore) |
+| `v2_housing` | 147 cm³ | battery mount + PCB case, one piece |
+| `v2_housing_lid` | 58 cm³ | shoebox cover: 20 mm skirt on all four bay walls, 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
@@ -274,7 +274,7 @@ real part) is the only thing that answers it. Hold it to a light.
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~304 g** for the set (247 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~285 g** for the set (232 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
