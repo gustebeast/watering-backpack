@@ -1042,10 +1042,41 @@ def fab_capability(ctx):
     # SMD pad to pad, different nets, same face
     gaps = []
     smd = []
+    # A PASTE DAB IS NOT COPPER, AND THIS RULE MEASURES COPPER. KiCad's
+    # thermal-tab footprints subdivide one big land into several solder-paste
+    # openings so the stencil lays a controlled volume instead of one lake that
+    # floats the part: SOIC-8-1EP_..._ThermalVias, DPAK and D2PAK all carry them.
+    # They are SMD pads on F.Paste ONLY -- no F.Cu, no net, no number -- and the
+    # layer pick below used to read "F_Cu if on F_Cu else B_Cu", so every one of
+    # them fell through to B.Cu and was compared as though it were copper.
+    #
+    # On watering-backpack's main board that was 4 hard FAILs: U1's four paste
+    # dabs sit ON the exposed pad they subdivide, so the measured gap is zero,
+    # against a net they can never short to because they are the same land. The
+    # other sixteen (Q1, Q2, D2, D3) escaped only because the 3 mm search window
+    # happened to miss them -- an accident, not a pass.
+    #
+    # The gate is not weaker for this: a pad with no copper has no copper gap to
+    # be under the fab's minimum. Requiring a copper layer is what the rule
+    # always meant, and it is now what it says.
+    #
+    # MADE TO FAIL, so the fix is a correction and not a muzzle. On the same
+    # board, 164 copper pads measured and exactly the 20 F.Paste-only ones
+    # skipped; then the limit was walked up until real copper tripped it --
+    # silent at 0.15 and 0.30, 46 pairs at 0.50, first U1.1/U1.9. Bisecting the
+    # Collide gives the board's true tightest different-net copper gap as
+    # 0.350 mm, at U3.1 VGATE <-> U3.2 GND on the SOT-23-5 gate driver: 2.3x
+    # JLCPCB's 0.15 mm standard floor. The rule still bites; this board is
+    # simply nowhere near the floor.
     for ref, fp in ctx.fps.items():
         for pad in fp.Pads():
             if pad.GetAttribute() in (pcbnew.PAD_ATTRIB_SMD,):
-                layer = pcbnew.F_Cu if pad.IsOnLayer(pcbnew.F_Cu) else pcbnew.B_Cu
+                if pad.IsOnLayer(pcbnew.F_Cu):
+                    layer = pcbnew.F_Cu
+                elif pad.IsOnLayer(pcbnew.B_Cu):
+                    layer = pcbnew.B_Cu
+                else:
+                    continue           # paste- or mask-only: nothing to measure
                 smd.append((_xy(pad), layer, pad, "%s.%s" % (ref, pad.GetNumber())))
     smd.sort(key=lambda e: e[0][0])
     lim_iu = pcbnew.FromMM(fab["pad_gap"] - 0.0005)
