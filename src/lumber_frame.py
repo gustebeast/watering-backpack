@@ -146,8 +146,12 @@ def _build() -> None:
     print("=== cut list (38x38 beam, 137x20 plank) ===")
     for (nm, L), n in cut_list():
         print("   %2d x  %-12s %6.1f mm" % (n, nm, L))
-    print("\nframe %.0f wide x %.0f deep, deck top z=%.0f, rail underside z=%.0f"
-          % (FRAME_W, FRAME_D, DECK_Z, RAIL_Z0))
+    deck_w = N_DECK_PLANKS * PLANK_W
+    print("\nposts/rails %.0f wide x %.0f deep; DECK %.0f wide — three full "
+          "planks, %.0f proud of the rails each side (no ripping; the tank "
+          "needs %.0f)"
+          % (FRAME_W, FRAME_D, deck_w, (deck_w - FRAME_W) / 2.0, F.TANK_W))
+    print("deck top z=%.0f, rail underside z=%.0f" % (DECK_Z, RAIL_Z0))
     print("\n=== clearance ===")
     bad = clearance_report()
     asm = cq.Assembly()
