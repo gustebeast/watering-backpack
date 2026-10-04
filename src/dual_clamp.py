@@ -1,25 +1,36 @@
-"""Dual C-clamp — ties the 4-way valve (+ tubing) to a frame pole.
+"""Dual C-clamp — ties a hose to one of the pack frame's poles.
 
-Two grips fused by a web, holding a 25 mm frame pole and a valve-fitting/hose:
-
-  * dual_clamp_23 (PARALLEL): pole 25 + hose 23, axes PARALLEL, 6 mm gap. Both
-    mouths open the same side and ONE long M4 (+nut) runs straight across both —
-    the gaps compress in series so one screw clamps both. Prints as a constant
-    Z cross-section, no supports.
+Two grips fused by a web, holding the pole and the hose:
 
   * dual_clamp_19 (PERPENDICULAR): pole 25 + hose 19, hose bore turned 90° so the
     hose runs ACROSS the pole. It's an L-bracket: the pole grip stays a vertical
-    C, the hose grip is a horizontal-bore C beside it. They can't share a straight
-    screw, so each grip gets its OWN M4 (+nut).
+    C, the hose grip is a horizontal-bore C beside it, dropped so both lug
+    bottoms sit at z=0 for a flat print base. BOTH are driven by ONE M4 (+nut)
+    on a shared screw line — see `_build_perp`, which is the authority here; an
+    earlier version of this docstring claimed one screw per grip.
 
-In both, each grip is a C whose mouth is INT (=3 mm) narrower than the cylinder so
-it snaps on to HOLD during assembly; the screw(s) do the real clamping.
+19 is the hose: `plumbing.TUBE_OD` is 19.05.
 
-PRINT (no supports): pole grip is a vertical extrusion (clean). For dual_clamp_19
-the hose grip's bore is horizontal with its mouth DOWN — its crown is a short
-overhang; bridge-able in PCTG, or ask for a teardrop top.
+THERE USED TO BE A dual_clamp_23, and a PARALLEL `_build` to make it. It gripped
+a 23 mm **valve** body, and DESIGN_V2 §1 is "Two pumps, no reversing valve" —
+there is no valve, and nothing in v2 is 23 mm across. It was still being exported
+as a print deliverable and billed in the BOM at 17 cm³. Both are gone; `git log`
+has the parallel variant if a second hose ever needs strapping to the first.
 
-Run:  py -3.12 -m src.dual_clamp   -> writes dual_clamp_23.step + dual_clamp_19.step
+Each grip is a C whose mouth is INT (=3 mm) narrower than the cylinder so it
+snaps on to HOLD during assembly; the screw does the real clamping.
+
+PRINT (no supports): pole grip is a vertical extrusion (clean). The hose grip's
+bore is horizontal with its mouth DOWN — its crown is a short overhang;
+bridge-able in PCTG, or ask for a teardrop top.
+
+WHERE IT GOES is not in this model. It clamps to the Stansport pack frame's
+tubing, which `plumbing.pack_frame()` draws as a flat reference panel, not as
+poles. So this part carries no position in the assembly and sits outside the
+interference gate — along with `joystick_mount`, which mounts on the shoulder
+strap. Modelling the pack frame's tubing is what would bring both inside it.
+
+Run:  py -3.12 -m src.dual_clamp   -> writes dual_clamp_19.step
 """
 from __future__ import annotations
 
@@ -28,6 +39,9 @@ import math
 import cadquery as cq
 
 # ── Pole (fixed) + gap ───────────────────────────────────────────────────────
+# ESTIMATE, and labelled as one per cadkit/AGENTS.md: nominal 25 mm for the
+# Stansport frame's tubing, not measured off the frame. A 1" tube would be
+# 25.4; on a 3 mm snap interference that 0.4 is tolerable, but measure it.
 POLE_D,  POLE_R  = 25.0, 12.5         # frame pole
 GAP   = 6.0                           # surface-to-surface gap (valve OD set per build)
 
@@ -90,42 +104,6 @@ def _vgrip(r: float, mouth: float, screw_drop: float):
     return body, screw_y, half + LUG_W
 
 
-def _build(valve_d: float):
-    """PARALLEL clamp: both bores ∥, both mouths −Y, ONE through-screw across both."""
-    valve_r  = valve_d / 2.0
-    valve_ro = valve_r + WALL
-    cc       = POLE_R + GAP + valve_r
-    valve_mouth = valve_d - INT
-    half_p, half_v = POLE_MOUTH / 2.0, valve_mouth / 2.0
-    tip_p = math.sqrt(POLE_R * POLE_R - half_p * half_p)
-    tip_v = math.sqrt(valve_r * valve_r - half_v * half_v)
-    screw_y = -(POLE_R + SCREW_DROP)
-    y_bot   = screw_y - (M4_CLR / 2.0 + LUG_WALL)
-
-    web = (cq.Workplane("XY").center(cc / 2.0, 0)
-           .box(WEB_X, WEB_Y, CLAMP_LEN, centered=(True, True, False)))
-    body = _ring(0.0, POLE_RO).union(_ring(cc, valve_ro)).union(web)
-    for cm, mouth, tip in ((0.0, POLE_MOUTH, tip_p), (cc, valve_mouth, tip_v)):
-        half = mouth / 2.0
-        for sx in (1.0, -1.0):
-            x0 = min(cm + sx * half, cm + sx * (half + LUG_W))
-            body = body.union(cq.Workplane("XY")
-                              .box(LUG_W, (-tip) - y_bot, CLAMP_LEN,
-                                   centered=(False, False, False))
-                              .translate((x0, y_bot, 0)))
-    body = body.cut(_bore(0.0, POLE_R)).cut(_bore(cc, valve_r))
-    body = body.cut(_mouth(0.0, POLE_RO, POLE_MOUTH)).cut(_mouth(cc, valve_ro, valve_mouth))
-    head_x = -(half_p + LUG_W)
-    nut_x  = cc + half_v + LUG_W
-    bore = (cq.Workplane("YZ").workplane(offset=head_x - OV)
-            .center(screw_y, CLAMP_LEN / 2.0).circle(M4_CLR / 2.0)
-            .extrude(nut_x - head_x + 2 * OV))
-    body = body.cut(bore)
-    info = dict(valve_d=valve_d, valve_mouth=valve_mouth,
-                note=f"ONE through-screw + nut, ~{nut_x - head_x:.0f} mm")
-    return body, info
-
-
 def _build_perp(valve_d: float):
     """PERPENDICULAR clamp: hose bore turned 90° (runs across the pole). Pole grip
     vertical, hose grip horizontal beside it, BOTH driven by ONE M4 (+nut) along a
@@ -169,22 +147,20 @@ def _build_perp(valve_d: float):
     return body, info
 
 
-dual_clamp_23, INFO_23 = _build(23.0)
 dual_clamp_19, INFO_19 = _build_perp(19.0)
 dual_clamp = dual_clamp_19            # default instance for the assembly viz
 
 
 def main():
+    # `from step_export import ...` — the bare name, which is not importable, so
+    # the Run: line in this module's own docstring had never worked.
     import os
-    import sys
-    import pathlib
-    from step_export import export_step                            # noqa: E402
+    from cadkit.step_export import export_step
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for stem, solid, info in (("dual_clamp_23", dual_clamp_23, INFO_23),
-                              ("dual_clamp_19", dual_clamp_19, INFO_19)):
+    for stem, solid, info in (("dual_clamp_19", dual_clamp_19, INFO_19),):
         export_step(solid, os.path.join(root, f"{stem}.step"))
         b = solid.val().BoundingBox()
-        print(f"Wrote {stem}.step  (pole D{POLE_D:.0f} / valve D{info['valve_d']:.0f})")
+        print(f"Wrote {stem}.step  (pole D{POLE_D:.0f} / hose D{info['valve_d']:.0f})")
         print(f"  envelope : X {b.xlen:.1f}  Y {b.ylen:.1f}  Z {b.zlen:.1f} mm  "
               f"solids {len(solid.val().Solids())}")
         print(f"  screws   : {info['note']}")
