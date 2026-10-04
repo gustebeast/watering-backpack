@@ -160,6 +160,19 @@ BOSS_D     = 10.0
 BOARD_X0   = FLOOR_X - STANDOFF              # -197 board underside
 BOARD_X1   = BOARD_X0 - BOARD_T              # -198.6 board top (parts face -X)
 LID_T      = 3.0
+# Plate left UNPIERCED behind every insert bore. All eight used to run clean
+# through the back face -- four of them opening into the free air between the
+# posts -- which put eight holes into the one bay this design deliberately gave
+# a single down-facing opening, on a machine carrying five gallons of water
+# directly above it.
+#
+# They ran through because "a blind bore along the build ends in a flat
+# ceiling". That is true, and it is why the OLD frame-mounted plate's bores had
+# to be run out. It does not hold here: the build runs -X and these bores are
+# entered from the BAY side, which is the top of the print, so they run
+# DOWNWARD through it. A blind end is a floor printed on solid plate, not a
+# ceiling printed over air. The overhang gate agrees -- it is still clean.
+SEAL_T     = 1.5
 
 _BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
 
@@ -210,15 +223,18 @@ def _hole_points():
 def pcb_screws():
     """One M4 per corner, board -> boss -> back plate, into a heat-set insert.
 
-    THROUGH the back plate, not blind: a blind bore running along the build
-    ends in a flat ceiling, which is what the overhang gate caught on the old
-    frame-mounted plate."""
+    Stops SEAL_T short of the back face. It used to run through it; see SEAL_T
+    for why that was unnecessary here and what it cost."""
     out = []
-    depth = (BOARD_X0 - BOARD_X1) + STANDOFF + BACK_T   # board + boss + plate
+    depth = (BOARD_X0 - BOARD_X1) + STANDOFF + BACK_T - SEAL_T
     for hy, hz in _hole_points():
         out.append(ScrewJoint(
             spec=M4, entry=(BOARD_X1, hy, hz), direction=(1.0, 0.0, 0.0),
-            length=8.0, insert_at=BOARD_X0 - BOARD_X1, end_at=depth,
+            # M4x6, not x8. The insert ends 6.6 mm in, so the extra 2 mm of
+            # screw bought no engagement -- it only forced the bore to within
+            # 0.6 mm of the back face, which is no barrier at all. 6 mm gives
+            # 4.4 mm of bite in a 5 mm insert (>1D) and leaves 1.5 mm of plate.
+            length=6.0, insert_at=BOARD_X0 - BOARD_X1, end_at=depth,
             head_d=7.6, head_h=2.2))
     return out
 
@@ -236,12 +252,8 @@ def lid_screws():
         out.append(ScrewJoint(
             spec=M4, entry=(WALL_X - LID_T, hy, hz), direction=(1.0, 0.0, 0.0),
             length=12.0, insert_at=LID_T,
-            # THROUGH the boss and out the back face. Ending inside the boss
-            # leaves a flat ceiling at the bottom of the bore — a blind hole
-            # running ALONG the build is the one cadkit's _bore does not
-            # teardrop, and the gate caught it here exactly as it did on the
-            # old frame-mounted plate.
-            end_at=BACK_X - (WALL_X - LID_T),
+            # Through the boss but NOT out the back face: stops SEAL_T short.
+            end_at=BACK_X - (WALL_X - LID_T) - SEAL_T,
             head_d=7.6, head_h=2.2))
     return out
 
