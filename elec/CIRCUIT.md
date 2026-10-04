@@ -105,6 +105,31 @@ pack voltage, which is what the divider below is for.
   auto-reset. **No USB-C**: a connector is a water-ingress path on an outdoor
   device, and OTA covers everything after bring-up.
 
+**Pin map.** These six are the firmware/board interface, and they are typed twice —
+as `*_PIN` constants in `firmware/src/main.cpp` and as `u_mcu["IOnn"]` in
+`elec/main.py`. `tools/check_pin_map.py` reads both sides from their own source and
+fails if they disagree, so the agreement is enforced rather than remembered.
+
+| net | GPIO | module pin | role | why this pin |
+|---|---|---|---|---|
+| `PWM_A` | IO26 | 11 | PWM out | pump A gate, via U3 |
+| `PWM_B` | IO25 | 10 | PWM out | pump B gate, via U4 |
+| `VBAT_SENSE` | IO35 | 7 | analog in | **must be ADC1** — see below |
+| `JOY_FILT` | IO34 | 6 | analog in | **must be ADC1** — see below |
+| `LEVEL` | IO14 | 13 | digital in | ADC2 is fine, it is read digitally |
+| `BUZZ` | IO27 | 12 | digital out | through Q3 |
+
+⚠️ **ADC2 is unusable while WiFi is up** — the radio owns that peripheral, and this
+design has telemetry and OTA. That is the whole reason the two analog signals sit on
+IO34/IO35 rather than somewhere more convenient, and it is the easiest rule to break
+by tidying the pinout. The gate derives each pin's role from how the firmware
+actually calls it (`analogRead`, `ledcAttach`, `digitalRead`, ...) rather than from a
+declaration, so moving a signal to a new peripheral without moving it to a legal GPIO
+is caught. It also checks GPIO 34-39 are never driven as outputs, that no pump gate
+or the buzzer lands on a strapping pin, and that the module's physical-pin names
+match the WROOM-32E pinout — a transposition there is a dead board that every other
+check in this repo would pass.
+
 ## 4. Sensing
 
 - **Battery voltage divider → ADC1.** Two jobs: hold effective pump voltage
@@ -252,17 +277,33 @@ pump legs carry 7.5 A.
 
 ## Status and what blocks what
 
-`cadkit`'s new PCB tooling (`board_geom`, `board_check`, `kicad_geom`,
-`kicad_silk`) **consumes a routed board** — it keeps KiCad and the CAD agreeing on
-one board. It does not design one. So this circuit still has to become a KiCad
-project: schematic → footprints → placement → routing → `geom.json`.
+**The board exists.** It is generated programmatically — that answered the
+generate-vs-hand-route question — and the flow is three commands:
 
-**That reorders the mechanical work.** PCB_README is explicit: *"Model from the
-routed board, never from the placement table"* — a hand-typed placement can only
-be checked against itself, and it always agrees. So the PCB pocket in
-`src/pump_frame.py` cannot be drawn to a guessed outline; it waits on the routed
-board's real geometry.
+```
+py -3.12 elec/main.py                                   # netlist + board.json
+<KiCad python> cadkit/pcbflow/finish.py elec/out/main    # route -> geom.json
+<KiCad python> elec/fab.py main                          # -> elec/out/fab/main.zip
+```
 
-Open question before layout: whether the board is **generated programmatically**
-(as public-steel-guitar does) or **hand-routed in the KiCad GUI**. KiCad 10.0 with
-`python.exe` and `kicad-cli` is installed here, so either works.
+Current result: 95 x 100 mm, 1.6 mm, 43 footprints, 4 mounting holes, **0
+unconnected and 0 violations**. Two DRC *warnings* remain (a 0.27 mm dangling TXD0
+stub and C2's reference overlapping C1's silk); `finish.py` prints warnings but
+deliberately does not fail a board on them, so these are accepted, not overlooked.
+
+`elec/out/` is generated and gitignored — only `elec/geom/main.geom.json` is
+committed, because that is what the CAD consumes.
+
+**The mechanical work is unblocked and done.** PCB_README's rule — *"Model from the
+routed board, never from the placement table"* — is honoured: `src/housing.py`
+sources the pocket from `Boards("elec/geom")`, never a typed placement, and
+`src/build.py` runs a routed-board agreement gate that fails if the CAD and the
+routed board drift apart (it checks the outline, the cutouts, and all 43 parts,
+and it catches a mirrored solid). The PCB pocket is **not** in `src/pump_frame.py`
+any more; the dead block there was removed when the housing absorbed it.
+
+**What actually blocks what now.** Bare boards are orderable today. *Assembly* is
+blocked on the twelve `OPEN_VALUES` in `elec/fab.py` — most urgently a >=60 V,
+<=10 mOhm-at-4.5 V DPAK FET and a >=60 V / >=15 A D2PAK Schottky; `fab.py` fails
+the build rather than shipping a part number it cannot stand behind. Nothing
+mechanical and nothing in the firmware waits on the board.
