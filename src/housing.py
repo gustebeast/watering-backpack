@@ -442,10 +442,62 @@ def housing() -> cq.Workplane:
     return h
 
 
+# ── Lid retention tab: the lid reaches the +y +z wood screw ─────────────────
+# User's call. The lid was a loose plate held only by its four M4s; it now runs
+# up past the bay and inboard to the wood screw at (y=191, z=145), which faces
+# +X into the post, so that one screw clamps the lid as well as the housing.
+#
+# The reach is 28.5 mm, because the flange band above the bay is BACK PLATE
+# ONLY -- measured x -193..-190 at z>139, with open air inboard of it. So the
+# tab bears on the back plate's INBOARD face and the screw passes through tab,
+# plate and into the wood.
+#
+# THE 45 IS NOT DECORATION. The lid prints plate-down (see PRINT_ROT below), so
+# world +X is build UP and the rib rises off the plate as a vertical wall. The
+# tab is taller than the rib -- it has to be, to cover a screw at z=145 with a
+# rib that must stay BELOW z=145 or the bolt would have to bore 18 mm of rib
+# lengthwise instead of 3 mm of tab. That step would be a flat ceiling of
+# 7 x 14 mm at n.z = -1.00, so the rib ramps up to the tab at exactly 45.
+LID_RIB_W  = 14.0                 # y width of rib + tab
+LID_RIB_Z1 = 143.0                # rib top: under the screw at 145
+LID_TAB_Z1 = 150.0                # tab top = the housing's own top
+LID_TAB_T  = 3.0                  # tab thickness in X
+LID_TAB_X1 = FLOOR_X              # -193: the back plate's inboard face
+LID_UP     = (1.0, 0.0, 0.0)      # build direction for the lid (see PRINT_ROT)
+
+
+def _lid_tab() -> cq.Workplane:
+    y_c = SCREW_YS[1]                          # 191 -- the +y screw line
+    x_out = WALL_X - LID_T                     # -224.5, the lid's outer face
+    ramp = LID_TAB_Z1 - LID_RIB_Z1             # rise == run -> 45 deg
+    pts = [(x_out, BAY_Z1), (x_out, LID_RIB_Z1),
+           (LID_TAB_X1 - LID_TAB_T - ramp, LID_RIB_Z1),
+           (LID_TAB_X1 - LID_TAB_T, LID_TAB_Z1),
+           (LID_TAB_X1, LID_TAB_Z1), (LID_TAB_X1, BAY_Z1)]
+    assert ramp > 0, "tab must stand proud of the rib or there is no step"
+    return (cq.Workplane("XZ").polyline(pts).close()
+            .extrude(-LID_RIB_W)               # XZ extrude(-L) lands at +Y
+            .translate((0.0, y_c - LID_RIB_W / 2.0, 0.0)))
+
+
+def _lid_tab_screw() -> cq.Workplane:
+    """Clearance + countersink for the wood screw, through the tab only."""
+    y_c, z_c = SCREW_YS[1], SCREW_ZS[1]
+    x0 = LID_TAB_X1 - LID_TAB_T
+    clr = (cq.Workplane("YZ").workplane(offset=x0 - BOOL_OVERSHOOT)
+           .center(y_c, z_c).circle(WOOD_CLR_D / 2.0)
+           .extrude(LID_TAB_T + 2 * BOOL_OVERSHOOT))
+    csk = cq.Solid.makeCone(WOOD_CSK_D / 2.0, WOOD_CLR_D / 2.0,
+                            (WOOD_CSK_D - WOOD_CLR_D) / 2.0,
+                            cq.Vector(x0, y_c, z_c), cq.Vector(1, 0, 0))
+    return clr.union(cq.Workplane(obj=csk))
+
+
 def lid() -> cq.Workplane:
     l = _slab(WALL_X, WALL_X - LID_T, Y_PCB0 - WALL, Y_OUTER, BAY_Z0, BAY_Z1)
+    l = l.union(_lid_tab()).cut(_lid_tab_screw())
     for sj in lid_screws():
-        l = l.cut(sj.cutter(print_up=(-1.0, 0.0, 0.0)))
+        l = l.cut(sj.cutter(print_up=LID_UP))
     return l
 
 
@@ -456,7 +508,11 @@ PRINT_ROT = {
     # on the plate and the whole part prints upside down, cantilevered on its
     # bay walls.
     "v2_housing": ((0, 1, 0), 90),
-    "v2_housing_lid": ((0, 1, 0), 90),
+    # The LID goes the other way: -90 maps world +X to build UP, so the plate
+    # lands face-down on the bed and the retention rib rises off it as a
+    # vertical wall. At +90 (what it inherited while it was a plain plate) the
+    # rib prints first and the whole 105 x 128 plate cantilevers off its top.
+    "v2_housing_lid": ((0, 1, 0), -90),
 }
 
 
