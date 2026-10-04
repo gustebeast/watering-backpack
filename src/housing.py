@@ -442,6 +442,27 @@ def housing() -> cq.Workplane:
     return h
 
 
+# ── WHY THERE IS NO PERIMETER SKIRT ON THE LID ─────────────────────────────
+# Asked for (a shoebox lid lapping the bay rim, to break the straight seam the
+# tank drips onto) and it does not fit. Measured, both ways it could be built:
+#
+#   PLUG INWARD, skirt inside the cavity: the board PLUS its parts spans
+#   y 106.5..205.7 against cavity walls at 106.6..205.6 -- a gap of -0.06 mm.
+#   There is not room for a skirt of any thickness on either y edge. The z
+#   edges have 11.00 mm each, but a skirt on two opposite edges is not a lap,
+#   it is a pair of fins, and it seals nothing the butt joint did not.
+#
+#   LAP OUTWARD, skirt over the housing's outside: there is nothing to lap
+#   onto. The outboard face only exists over the bay footprint -- above z=139
+#   and below z=11 the housing is back plate only (x -193..-190), so a skirt
+#   there would hang in open air. -y is the dock bay, not an outer face.
+#
+# So the lap needs the bay narrowed or the housing grown, and both move the
+# board arithmetic that section "WHY THE TWO BAYS SIT WHERE THEY DO" above
+# fixes from the frame's 210 mm. That is a bigger decision than a lid detail
+# and it is the user's to make, so the lid stays a flanged plate for now and
+# the retention tab below is what changed.
+
 # ── Lid retention tab: the lid reaches the +y +z wood screw ─────────────────
 # User's call. The lid was a loose plate held only by its four M4s; it now runs
 # up past the bay and inboard to the wood screw at (y=191, z=145), which faces
