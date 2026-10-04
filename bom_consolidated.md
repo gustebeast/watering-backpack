@@ -246,7 +246,7 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 | part | volume | note |
 |---|---|---|
 | `v2_housing` | 148 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 74 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw |
+| `v2_housing_lid` | 73 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
@@ -274,7 +274,7 @@ real part) is the only thing that answers it. Hold it to a light.
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~305 g** for the set (248 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~304 g** for the set (247 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
@@ -300,18 +300,26 @@ through the back wall — four into the open air between the posts — which is 
 water paths into the electronics on a machine carrying five gallons above them.
 There is one bore now.*
 
-- [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. Two diamond slots through
-      the bay floor, 6 × 4 mm, flank the cable chase: the tie goes up through one,
-      over the bundle and down the other. Anything up to ~3.5 mm wide threads.
-      These are the only strain relief the screw terminals have.
-- [ ] 🎒 **#8 flat-head wood screws × 3**, ≥ 25 mm — housing → posts. Ø4.5 clearance
-  with a Ø9 countersink, so the heads sit flush inside the housing.
+- [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. The two diamond floor slots
+      they used to thread are gone, so there is no printed anchor at the moment.
+      The **battery pair** does not need one: it threads a 22 × 5 mm slot through
+      the 3 mm back plate and turns 90° against it, and a bend through a close
+      hole is real relief on the one pair carrying 7.5 A. The leads that come
+      *down* the chase from the tank side — level sensor, joystick — still land
+      straight on a terminal clamp with nothing holding them.
+- [ ] 🎒 **#8 flat-head wood screws × 3**, ≥ 25 mm — housing → posts. **Ø9.3 head**,
+  Ø4.0 shaft, 4 mm cone — the same screw the retractable-cable-spool project
+  validated (`src/params.py`, WOOD_SCREW_*). Ø4.5 clearance with a **Ø9.6**
+  countersink, 0.3 mm of clearance on a printed cone, so the heads sit flush
+  inside the housing. *(It was Ø9.0 — three tenths SMALLER than the head, which
+  would have landed on the pocket rim instead of seating in it.)*
 - [ ] 🎒 **#8 flat-head wood screw × 1**, ≥ 32 mm — the **+y +z** one, which now also
   holds the LID. It passes through the lid's retention boss (3 mm at the far end),
   the housing's back plate (3 mm) and then into the post, so it needs ~3 mm more
   than the other three; 32 mm leaves 25 mm in the wood. Its head lands in the BOSS's
-  countersink, not the housing's, and it is driven down a Ø9.5 access bore through
-  the lid — you need a bit at least 30 mm long past the chuck.
+  countersink, not the housing's, and it is driven down a **Ø11** access bore through
+  the lid — 1.7 mm clear of the Ø9.3 head, because this is a hole you post a screw
+  down, not one you fit it in. You need a bit at least 30 mm long past the chuck.
   **Back this screw out to take the lid off** — that, and the skirt, is what retains it.
   The housing keeps its own countersink at that position so it can still be mounted
   on its own, lid off, during assembly.
