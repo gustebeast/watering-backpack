@@ -261,7 +261,7 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
 
 ## What checks this design, and what each one is for
 
-Fourteen gates. Every one of them exists because something it now catches had already
+Fifteen gates. Every one of them exists because something it now catches had already
 got through, so the list below says what each was *written for* rather than what
 it nominally covers. All exit non-zero on failure, so any of them works in CI.
 
@@ -287,6 +287,7 @@ Standalone:
 | `tools/check_pump_dirs.py` | "never both pumps at once" has to hold, not usually hold. Transcribes the firmware and fails if the C++ it claims to transcribe changed |
 | `tools/check_plumbing.py` | a route that cannot be bent, or one that passes through something. Every hose-to-fitting contact now carries a MEASURED ceiling: the bare pair list it replaced was hiding a hose drawn curving through 45 mm of rigid elbow, sixty times its neighbours' reading |
 | `tools/check_level_alarm.py` | the tank is carried on someone's back, so the sensor is crossed constantly. The debounce *is* the feature and a still bucket cannot test it |
+| `tools/check_bead_grid.py` | every wall, plate, lid and skirt in the housing was 3.0 mm, which at a 0.8 nozzle is 3.75 beads — so Arachne, not the drawing, chose the section of every load-bearing wall in the part. Nothing had pinned a nozzle diameter at all. Off-grid lengths are allowed where AGENTS.md allows them, but each must name its kind (hardware / clearance / standards) and its reason, and the gate fails on an exemption that has gone stale as readily as on an off-grid wall |
 | `tools/check_ic_pinouts.py` | a gate driver whose pinout was wrong on four of five pins, putting a GPIO on its supply and a 4 A output onto the 3.3 V rail — and every stage downstream agreed, because every stage downstream was derived from it. Checks pin maps against datasheet tables cited by document and page, each supply pin against its part's operating window, each rail against the voltage it is meant to BE (3.12 V is inside every part's window and still wrong), and every numbered pad on the routed board for a net — which is how two floating anode leads and the ESP32's whole thermal ground were found |
 
 Two habits go with them, and they matter more than the list:

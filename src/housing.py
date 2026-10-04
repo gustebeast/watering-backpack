@@ -108,8 +108,29 @@ _BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
 
 # ── Where it mounts ─────────────────────────────────────────────────────────
 BACK_X  = -(L.POST_X + L.BEAM / 2.0)      # -190: the posts' outer face
-WALL    = 3.0
-BACK_T  = 3.0
+# ── EVERY PRINTED LENGTH ON THE BEAD GRID ──────────────────────────────────
+# cadkit/AGENTS.md, "The bead GRID": *every printed length is either N x BEAD,
+# or another feature +- N x BEAD*, because the projects slice with Arachne and a
+# wall that is not a whole number of beads is a wall the SLICER chooses the
+# section of. 3.0 mm at a 0.8 nozzle is 3.75 beads: Arachne either stretches
+# three to 1.0 each or starves a fourth, and on a load-bearing ledge that
+# improvised bead is where the part delaminates.
+#
+# This file had 3.0 everywhere -- walls, plate, lid, skirt -- and none of it was
+# chosen, it was just a round number.
+#
+# NOT EVERYTHING IS ON THE GRID, and the exceptions are the ones AGENTS.md
+# names. src/battery_dock.py is HARDWARE: its sections match the Makita pack and
+# its adapter, and rounding them to a bead would make the model lie about what
+# has to fit. Clearances (LID_GAP, SKIRT_CLR, RET_CLR, the slot and bore sizes)
+# are gaps -- no bead is laid across one -- and BOARD_T is the laminate.
+NOZZLE_D = 0.8
+BEAD = NOZZLE_D
+WALL    = 3 * BEAD            # 2.4
+# The plate is FOUR beads where the walls are three, and the extra bead is the
+# countersink's: WOOD_CSK_DEPTH is 2.55, so a 2.4 plate would have the cone
+# break clean through and leave the screw head no seat at all.
+BACK_T  = 4 * BEAD            # 3.2
 
 # ── Y layout (see the docstring's budget) ───────────────────────────────────
 # MEASURED off the dock, not typed. It was 100.6 -- the ear-to-ear width of
@@ -132,7 +153,7 @@ Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0                     # 89.3
 # of the bay's +Y wall and has only the frame's back edge to live in. Laying it
 # out from the dock instead would park the whole bay 1.4 mm short of the edge
 # again and put the slack where nothing needs it.
-SKIRT_T   = 3.0                   # the lid's skirt, defined here because the
+SKIRT_T   = 3 * BEAD    # 2.4                   # the lid's skirt, defined here because the
 SKIRT_CLR = 0.4                   # bay's Y layout has to leave room for it
 SKIRT_GAP = 6.0                                       # air outboard of the +Y wall
 Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL                # 201
@@ -227,10 +248,10 @@ FLOOR_X    = BACK_X - BACK_T                 # -193
 STANDOFF   = 4.0
 BOARD_T    = 1.6
 LID_GAP    = 2.5
-BOSS_D     = 10.0
+BOSS_D     = 13 * BEAD                       # 10.4
 BOARD_X0   = FLOOR_X - STANDOFF              # -197 board underside
 BOARD_X1   = BOARD_X0 - BOARD_T              # -198.6 board top (parts face -X)
-LID_T      = 3.0
+LID_T      = 3 * BEAD                        # 2.4
 # Plate left UNPIERCED behind every insert bore. All eight used to run clean
 # through the back face -- four of them opening into the free air between the
 # posts -- which put eight holes into the one bay this design deliberately gave
@@ -322,9 +343,20 @@ assert Y_PCB0 < CHASE_Y0 and CHASE_Y1 < Y_PCB1, (
 # It needs no overhang relief: the housing builds -X (PRINT_ROT), so a hole
 # bored through the plate along X is a VERTICAL hole with no ceiling anywhere
 # in it.
-WIRE_SLOT_Y_C = 150.0
+WIRE_SLOT_Y_C = 147.0
 WIRE_SLOT_Z_C = 8.0
-WIRE_SLOT_W   = 22.0        # along Y, tip to tip
+WIRE_SLOT_W   = 50 * BEAD   # 40.0 along Y, tip to tip. It is not just the
+                            # battery: the PUMP leads cross here too. Every
+                            # terminal is on the board's bottom edge and the
+                            # chase is the bay's only exit, so J1's battery pair
+                            # and J2/J3's two pump pairs all come down the chase
+                            # and all have to cross the plate -- six conductors,
+                            # and the pumps are 65 mm further +X again. At 14
+                            # AWG for the battery and 16 for the pumps that is
+                            # 17.8 mm laid side by side, and a 5 mm slot is one
+                            # layer deep, so the width is what has to carry them.
+                            # 22 mm held exactly six with no slack and no room
+                            # to be wrong about gauge.
 WIRE_SLOT_H   = 5.0         # along Z, and the end radius
 WIRE_WOOD_Z   = 4.0         # measured: the floor plank's top at this Y
 WIRE_POST_Y   = 172.0       # measured: the +Y post's inboard face
@@ -623,8 +655,8 @@ _check_dock_orientation()
 # the last stretch. The board floats RET_CLR + RET_OVER, not 2.3.
 RET_CLR      = 0.3      # air over the laminate at the lip's root
 RET_ROOT_GAP = 0.5      # lip root to the board's +Y edge
-RET_OVER     = 1.0      # how far the lip reaches over the board
-RET_LEN      = 14.0     # each lip's length along Z
+RET_OVER     = 2 * BEAD # 1.6 -- how far the lip reaches over the board
+RET_LEN      = 18 * BEAD # 14.4 -- each lip's length along Z
 # ⚠ THE RAMP USED TO END IN A KNIFE EDGE. The hook's far corner was the meeting
 # of the 45 degree underside and the vertical back face: a 45 degree wedge
 # tapering to nothing, which a nozzle cannot resolve -- it prints as a ragged
@@ -632,9 +664,9 @@ RET_LEN      = 14.0     # each lip's length along Z
 # RET_TIP_T of square section goes on the END of the ramp, so the extreme face
 # is a flat land instead of a line. The ramp keeps its 45 degrees and its reach
 # over the board is unchanged; the lip simply stands RET_TIP_T taller.
-RET_TIP_T    = 1.6      # the blunt land at the hook's tip
+RET_TIP_T    = 2 * BEAD # 1.6 -- the blunt land at the hook's tip
 RET_LIP_ZS   = (35.0, 70.0, 105.0)       # three of them, spread up the edge
-RET_STOP_T   = 2.0      # Z stop thickness
+RET_STOP_T   = 3 * BEAD # 2.4 -- Z stop thickness
 RET_STOP_CLR = 0.3      # air between a Z stop and the laminate
 # ⚠ A STOP THE HEIGHT OF THE BOARD IS NOT A STOP. These used to rise to exactly
 # BOARD_X1, the laminate's top face, so a board lifted by its own thickness --
@@ -642,7 +674,7 @@ RET_STOP_CLR = 0.3      # air between a Z stop and the laminate
 # cleared them and could walk along Z. They stand RET_STOP_OVER proud of the top
 # face now, so the board has to come most of the way out of the bay before Z is
 # free. There is room: the lid's inner face is 19.5 mm above the board top.
-RET_STOP_OVER = 2.4     # how far a Z stop reaches past the laminate's top face
+RET_STOP_OVER = 3 * BEAD  # 2.4 -- how far a Z stop reaches past the laminate
 
 BOARD_Y1 = PCB_Y_C + BOARD_Y_MINUS                  # 199.0 — laminate's +Y edge
 BOARD_Y0 = PCB_Y_C - BOARD_Y_MINUS                  # 104.0 — laminate's -Y edge
@@ -759,7 +791,7 @@ def housing() -> cq.Workplane:
 # labyrinth the butt joint never was. It stops short of the plate on purpose:
 # the lid seats on the bay RIM, not on the skirt's end, so the lap carries no
 # load and its depth is free to choose.
-SKIRT_D   = 20.0                  # how far it drops. The dock's +Y face is the
+SKIRT_D   = 25 * BEAD             # 20.0 -- how far it drops. The dock's +Y face
                                   # limit and it is 6.3 mm clear at this depth.
 BAY_Y0, BAY_Y1 = Y_PCB0 - WALL, Y_OUTER       # the bay's outer faces
 LID_Y0 = BAY_Y0 - SKIRT_CLR - SKIRT_T
@@ -829,10 +861,11 @@ LID_BORE_D  = WOOD_HEAD_D + 1.7               # 11.0 -- the head is Ø9.3 and
 LID_BOSS_Y  = SCREW_YS[1]                     # 191
 LID_BOSS_Z  = SCREW_ZS[1]                     # 145
 LID_BOSS_X1 = FLOOR_X                         # -193: the back plate's inboard face
-LID_CSK_T   = 3.5                             # material the countersink lives in.
-                                              # Set BY the bore: a 45 deg cone
-                                              # from Ø11.0 to Ø4.5 is 3.25 deep,
-                                              # and 3.0 of seat could not hold
+LID_CSK_T   = 5 * BEAD                        # 4.0 -- material the countersink
+                                              # lives in. Set BY the bore: a 45
+                                              # deg cone from Ø11.0 to Ø4.5 is
+                                              # 3.25 deep, so this is the first
+                                              # whole number of beads that holds
                                               # it.
 LID_UP      = (1.0, 0.0, 0.0)                 # build direction (see PRINT_ROT)
 assert LID_BORE_D >= WOOD_HEAD_D + 1.0, (
@@ -848,9 +881,19 @@ def _lid_plate() -> cq.Workplane:
     pl = _slab(WALL_X, WALL_X - LID_T, LID_Y0, LID_Y1, LID_Z0, LID_Z1)
     boss_z1 = LID_BOSS_Z + LID_BOSS_H / 2.0
     if boss_z1 > LID_Z1:                       # carry the plate up under the boss
+        # ⚠ THE STRIP RUNS TO THE LID'S +Y EDGE, NOT THE BOSS'S. It used to stop
+        # at the boss's own +Y face, which left the boss standing on a tab with
+        # an 8.4 x 13.6 mm notch between it and the +Y skirt corner -- two walls
+        # that look like they should meet, not meeting. They never did line up
+        # and they never will: the boss is placed by the SCREW, which is on the
+        # post centreline at y=191, and the skirt is placed by the BAY it laps,
+        # whose outer face is at y=204. Nothing can bring those together.
+        #
+        # So the strip closes the gap instead of the boss moving. The boss ties
+        # into the skirt corner, the notch goes, and the one feature that takes
+        # the whole lid's retention load stops cantilevering off a tab.
         pl = pl.union(_slab(WALL_X, WALL_X - LID_T,
-                            LID_BOSS_Y - LID_BOSS_W / 2.0,
-                            LID_BOSS_Y + LID_BOSS_W / 2.0,
+                            LID_BOSS_Y - LID_BOSS_W / 2.0, LID_Y1,
                             LID_Z1, boss_z1))
     return pl
 

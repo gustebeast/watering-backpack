@@ -211,12 +211,26 @@ def main() -> int:
              "pcb_screw_0": "#c0c6cc", "pcb_insert_0": "#b08d57",
              "battery": "#d08a3e", "pump_a": "slategray", "pump_b": "#5a6b7a",
              "fittings": "#c8a24a"}
+    # ⚠ SEE-THROUGH IS DECLARED, NOT INFERRED FROM THE NAME. The rule here used
+    # to be `0.35 if battery else 0.85 if "_" in nm else 1.0`, and an underscore
+    # in a name is not a reason to be able to see through something. It caught
+    # housing_lid -- so the one part whose whole job is to CLOSE the bay was
+    # drawn translucent, and every screenshot of the board was a screenshot
+    # taken through it -- along with the pumps, the PCB screw and its insert,
+    # none of which anyone had asked to be transparent either.
+    #
+    # Two things are see-through on purpose, and both are so you can check a
+    # fit that is otherwise hidden: the battery against its dock, and the tank
+    # against the frame below it. Everything else is solid.
+    SEE_THROUGH = {
+        "battery": 0.35,        # the dock, the contact block and the lift path
+                                # are all behind it
+    }
     for nm, solid in comps:
         if nm == "wood":
             continue
         c = tints.get(nm, "#b03030" if nm.startswith("tank") else "#30a050")
-        alpha = 0.35 if nm == "battery" else 0.85 if "_" in nm else 1.0
-        asm.add(solid, name=nm, color=color(c, alpha=alpha))
+        asm.add(solid, name=nm, color=color(c, alpha=SEE_THROUGH.get(nm, 1.0)))
     asm.add(L.tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
     try:
         counter = (cq.Workplane("XZ").center(0, L.DECK_Z + 520)
