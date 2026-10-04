@@ -38,6 +38,8 @@ import math
 
 import cadquery as cq
 
+from cadkit.supports import printable_bore
+
 # ── Pole (fixed) + gap ───────────────────────────────────────────────────────
 # ESTIMATE, and labelled as one per cadkit/AGENTS.md: nominal 25 mm for the
 # Stansport frame's tubing, not measured off the frame. A 1" tube would be
@@ -139,8 +141,14 @@ def _build_perp(valve_d: float):
 
     head_x = -pole_xout
     nut_x  = cc + hose_xout
-    bore = (cq.Workplane("YZ").workplane(offset=head_x - OV)
-            .center(Ys, Zs).circle(M4_CLR / 2.0).extrude(nut_x - head_x + 2 * OV))
+    # TEARDROPPED: this bore runs sideways in the print, so a plain cylinder
+    # leaves a circular ceiling. The gate measured it at 34.8 + 24.3 + 24.3 =
+    # 83.4 mm2 at n.z = -1.00 across the three lug segments it passes through.
+    # The peak reaches 2.25*sqrt(2) = 3.18 above z=Zs, well inside the lugs.
+    bore = printable_bore(M4_CLR, nut_x - head_x + 2 * OV,
+                          axis_point=(head_x - OV, Ys, Zs),
+                          axis_dir=(1.0, 0.0, 0.0), print_up=(0.0, 0.0, 1.0),
+                          nozzle=0.4)
     body = body.cut(bore)
     info = dict(valve_d=valve_d, valve_mouth=valve_mouth,
                 note=f"ONE screw + nut, ~{nut_x - head_x:.0f} mm (perpendicular)")
