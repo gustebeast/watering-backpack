@@ -187,6 +187,11 @@ frame was contorted around.
 - [ ] 🎒 **137 × 20 mm plank — 3 × 210 mm** (630 mm of stock). Laid front-to-back on
   the cross rails. Three full planks make a 411 mm deck, 16 mm proud of the rails
   each side — **no ripping needed**; the tank only needs 348.
+  **One notch, in the outboard plank only:** 10 mm deep × 86 mm long in its outer
+  edge, 10–96 mm from the front. The battery seats by sliding down and has to lift
+  93 mm to clear the dock's rails, and this plank's overhang is the roof over that
+  path — without the notch the pack cannot be changed at all. The notch only eats
+  overhang that laps past the rail and bears on nothing, so it costs no strength.
 - [ ] 🎒 **Wood screws to join the frame** — your choice of fixing; the model does not
   prescribe one. #8 × 60 mm into end grain, or pocket screws, or corner brackets.
 
