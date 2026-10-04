@@ -258,6 +258,40 @@ def main() -> int:
                  "clear" if extra <= 1.0 else
                  "*** BLOCKED, %.0f mm3 beyond seated ***" % extra))
 
+    # The pumps are the heaviest moving thing on the pack and they hang off
+    # eight M4s. Until the floor went in they bolted to nothing at all, so the
+    # claim worth re-checking every build is not "a floor exists" but "every
+    # bolt still passes through wood, and the feet still land on it".
+    print("\n=== pump mount gate ===")
+    floor = None
+    for nm, _ln, solid in L.pieces():
+        if nm == "plank_floor":
+            floor = solid if floor is None else floor.union(solid)
+    if floor is None:
+        print("  *** NO FLOOR: the pumps have nothing to bolt to ***")
+        blocked += 1
+    else:
+        ftop = floor.val().BoundingBox().zmax
+        bolts = F.pump_bolt_xy()
+        open_holes = seated = 0
+        for bx, by in bolts:
+            hole = (cq.Workplane("XY").workplane(offset=ftop - L.PLANK_T)
+                    .center(bx, by).circle(1.5).extrude(L.PLANK_T))
+            ring = (cq.Workplane("XY").workplane(offset=ftop - L.PLANK_T)
+                    .center(bx + 4.0, by).circle(1.0).extrude(L.PLANK_T))
+            if floor.intersect(hole).val().Volume() < 0.01:
+                open_holes += 1
+            if floor.intersect(ring).val().Volume() > 1.0:
+                seated += 1
+        gaps = [F._pump_placed(s).val().BoundingBox().zmin - ftop for s in (-1, 1)]
+        ok = (open_holes == len(bolts) and seated == len(bolts)
+              and all(abs(g) < 0.01 for g in gaps))
+        blocked += 0 if ok else 1
+        print("  %d/%d bolt holes open, %d/%d land in wood, feet-to-floor gap "
+              "%s mm   %s" % (open_holes, len(bolts), seated, len(bolts),
+                              "/".join("%.2f" % g for g in gaps),
+                              "" if ok else "*** THE PUMPS ARE NOT MOUNTED ***"))
+
     # Does the CAD draw the board that was actually ROUTED? PCB_README lists
     # cad_geom_check under "your build gate should too", and it was not here --
     # which is how it went unnoticed that the check was aimed at the printed
