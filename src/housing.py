@@ -61,7 +61,7 @@ from cadkit.fasteners import M4, ScrewJoint
 
 from . import lumber_frame as L
 from . import pump_frame as F
-from .battery_dock import battery_dock
+from .battery_dock import battery_dock, terminal_cutter
 from .dimensions import BOOL_OVERSHOOT
 
 # ── Where it mounts ─────────────────────────────────────────────────────────
@@ -284,19 +284,72 @@ def lid_screws():
 _DOCK_AXES = {"+X": (0.0, 1.0, 0.0), "+Y": (0.0, 0.0, -1.0), "+Z": (-1.0, 0.0, 0.0)}
 
 
+def _dock_oriented_raw() -> cq.Workplane:
+    """The dock in its own frame (the transform is applied by _dock_to_world)."""
+    return battery_dock
+
+
 def _dock_oriented() -> cq.Workplane:
     return (battery_dock
             .rotate((0, 0, 0), (0, 1, 0), -90)
             .rotate((0, 0, 0), (1, 0, 0), -90))
 
 
-def _dock_placed() -> cq.Workplane:
-    """v1's Makita dock, oriented and dropped into the left bay."""
-    d = _dock_oriented()
-    bb = d.val().BoundingBox()
-    return d.translate((BACK_X - bb.xmax,
+def _dock_to_world(wp: cq.Workplane) -> cq.Workplane:
+    """Put a solid modelled in the DOCK's own frame into world coordinates.
+
+    Factored out so the dock and any cutter aimed at it share ONE transform.
+    The translation is measured off the oriented DOCK's bounding box, never the
+    passed solid's -- a cutter has a different bbox, and resolving the placement
+    against it would land the cut somewhere else entirely while still looking
+    like it tracked the part.
+    """
+    w = (wp.rotate((0, 0, 0), (0, 1, 0), -90)
+           .rotate((0, 0, 0), (1, 0, 0), -90))
+    bb = _dock_oriented().val().BoundingBox()
+    return w.translate((BACK_X - bb.xmax,
                         Y_DOCK0 - bb.ymin,
                         PCB_Z_C - (bb.zmin + bb.zlen / 2.0)))
+
+
+def _dock_placed() -> cq.Workplane:
+    """v1's Makita dock, oriented and dropped into the left bay."""
+    return _dock_to_world(_dock_oriented_raw())
+
+
+def _terminal_window() -> cq.Workplane:
+    """The 643852-2 opening, re-cut through the housing's BACK PLATE.
+
+    v1's dock already carries this pocket -- the lowercase-'t' plan of the
+    connector, with its flange lips -- and the v2 housing unions that whole dock
+    in. But the housing's own 3 mm back plate lands on the dock's mounting face
+    and seals the pocket shut, so in v2 the terminal had nowhere to go in from.
+    The connector is inserted from the REAR, against the wood, and its spade
+    tabs and soldered leads have to come out on that side.
+
+    Cut with battery_dock's OWN cutter through the shared dock transform, so it
+    cannot drift from the pocket it is reopening. Everything that locates the
+    connector -- the flange lips, the 0.2 mm install clearance, the mitred
+    45 degree seats -- stays exactly as v1 measured it.
+    """
+    return _dock_to_world(terminal_cutter())
+
+
+def terminal_placed():
+    """The 643852-2 contact block, seated in the pocket _terminal_window()
+    reopens. Same seat v1 validated (TERMINAL_PLACE/ROT in the dock frame, via
+    the shared place_terminal helper), carried over by the shared dock
+    transform. Returns None if the reference STEP is absent.
+
+    It is here to be CHECKED, not drawn: a pocket that nothing is ever test-fit
+    into is a pocket that agrees with itself.
+    """
+    from .dimensions import MAKITA_TERMINAL_STEP, TERMINAL_PLACE, TERMINAL_ROT_DEG
+    from .helpers import import_step, place_terminal
+    raw = import_step(MAKITA_TERMINAL_STEP)
+    if raw is None:
+        return None
+    return _dock_to_world(place_terminal(raw, TERMINAL_ROT_DEG, TERMINAL_PLACE))
 
 
 def _check_dock_orientation():
@@ -366,6 +419,9 @@ def housing() -> cq.Workplane:
            .extrude(TIE_Y1 - TIE_Y0))
     h = h.cut(dia)
     h = h.union(_dock_placed())
+    # ...and reopen the connector pocket the back plate just sealed. AFTER the
+    # union, necessarily: the plate is what closes it.
+    h = h.cut(_terminal_window())
     # wood screws, in the flange bands clear of both bays
     for sy in SCREW_YS:
         for sz in SCREW_ZS:
