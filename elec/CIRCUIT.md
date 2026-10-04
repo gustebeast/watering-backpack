@@ -164,30 +164,41 @@ a water path and the tank sits directly above it. The level sensor's lead leaves
 through it too and climbs the outside of the housing — longer than going straight
 up through the roof, which is the point.
 
-**J1–J4 are rotated 180 degrees from where they want to be.** MEASURED, not
-inferred: Phoenix's own STEP model for the PT-1,5 family
-(`TerminalBlock_Phoenix.3dshapes/...PT-1,5-4-3.5-H...step`) has 43 mm3 of material
-in the first 1.5 mm behind its **+Y** face and 184 mm3 behind its −Y face, of 197
-possible. The hollow face is the wire entry, so entry is at footprint **+Y**, with
-the solder pads at y=0.
+**Which face of a terminal block takes the wire.** The entry is the footprint's
+local **+Y** face. Measured from Phoenix's own STEP models, as material in the
+first 1.5 mm behind each long face (the hollow face is the opening):
 
-J1–J4 sit at board y=−41 on the bottom edge at rot 0, so their entries face board
-+Y — inward, which is world +Z, UP. Every power wire (battery and both pumps) plus
-the joystick therefore leaves its connector running up the inside of the bay and
-has to double back ~90 mm to reach the chase at the bottom, in a bay the board
-fills in Y with ~11 mm of clearance under its edge. It also defeats the tie rib: a
-tie there cannot relieve a cable that loops upward before it arrives.
+| part | behind local +Y | behind local −Y | verdict |
+|---|---|---|---|
+| PT-1,5-5-3.5-H (J4) | 54 mm3 | 232 mm3 | entry at **+Y** |
+| PT-1,5-4-3.5-H (J5) | 43 mm3 | 185 mm3 | entry at **+Y** |
+| MKDS-3-2-5.08 (J1–J3) | 140 mm3 | 149 mm3 | **indeterminate** |
 
-They want **rot 180**. The body moves 1.4 mm toward the board edge (footprint y
-−3.1..+4.5 becomes −4.5..+3.1), landing at y −45.5..−37.9 against an edge at −50,
-so it fits — but it moves four courtyards and needs a re-route back to "0
-unconnected, 0 violation(s)" before it can be believed.
+**Local +Y is the board's −Y.** `cadkit/PCB_README.md` §0: BOARD_NOTES is
+millimetres, board-centred, **+Y up**, and `layout.py` flips to KiCad's +Y-down
+frame. So a footprint's local +Y points at the board's −Y. Verified rather than
+assumed — each terminal's local `F.Fab` box, negated, matches its placed box in
+`elec/geom/main.geom.json` to within 0.5 mm, for all five.
 
-**J5 is correct as placed.** At board y=+41 on the top edge, rot 0 already points
-its entry at the edge. An earlier note in this repo's history claimed the opposite
-— that J5 was the wrong one and J1–J4 were fine. That was inferred from the
-footprint's fab outline, which does not mark the entry face. It is wrong; the
-measurement above supersedes it.
+**So rot 0 points every entry at world −Z, straight down**, which is the
+direction of the bay's only opening. J1–J4 sit 20 mm above the chase and drop
+into it; J5's lead runs down the board's face to the same place. Facing J5 "out"
+at the top edge, which is the usual rule for an edge connector, would aim it at
+a ceiling 20 mm away with nothing to pass through. **The placements are correct
+as they stand — do not rotate them.**
+
+A previous note in this file said J1–J4 wanted rot 180 and J5 was fine. It was
+wrong in both halves: it had the entry face right but dropped the board/KiCad Y
+flip above. It is withdrawn, and so is the note before it that claimed the
+opposite.
+
+**MKDS (J1–J3) is NOT measured.** Its STEP model is a simplified block — no
+Y-axis bores, and material symmetric within 6% at every depth — so the openings
+simply are not in it. What it has going for it is convention: all three
+footprints put Reference on −Y and Value plus the pin-1 marker on +Y, and for
+the two parts that ARE measured the entry is that same +Y side. That is a
+generator convention, not a measurement. Check it against a part in hand before
+trusting it; if it holds, J1–J3 are correct too.
 
 **They are through-hole**, so either a THT assembly surcharge at JLCPCB or hand
 soldering. Terminal blocks are large forgiving parts, so hand soldering is trivial
