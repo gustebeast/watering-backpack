@@ -36,6 +36,7 @@ from cadkit.freecad import show
 from cadkit.step_export import export_step, print_pose
 
 from . import housing as H
+from . import line_filter as LF
 from . import lumber_frame as L
 from . import plumbing as P
 from . import pump_frame as F
@@ -91,7 +92,12 @@ def printed_parts():
             ("joystick_mount", joystick_mount, None),
             # dual_clamp_23 retired: it gripped a 23 mm VALVE body and
             # DESIGN_V2 section 1 has no reversing valve. See src/dual_clamp.py.
-            ("dual_clamp_19", dual_clamp_19, None))
+            ("dual_clamp_19", dual_clamp_19, None),
+            # filter screen element, DESIGN_V2 section 4. Exported and
+            # bed-checked but NOT in components(): section 4 gives it no
+            # position, and an invented one that passes the overlap gate
+            # is worse than none. See src/line_filter.py.
+            ("line_filter_screen", LF.screen(), LF.PRINT_ROT))
 
 
 def components():
