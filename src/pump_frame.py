@@ -91,6 +91,7 @@ import cadquery as cq
 
 from cadkit.board_geom import Boards
 from cadkit.cq_colors import color
+from cadkit.fasteners import M4, ScrewJoint
 from cadkit.freecad import show
 from cadkit.joinery import PrintSpec, joint
 from cadkit.step_export import export_step, print_pose
@@ -188,6 +189,17 @@ _PCB_HEIGHT = {
 _BOARDS = Boards(str(OUT / "elec" / "geom"), height=_PCB_HEIGHT)
 PCB_FACE_X = FRAME_W / 2.0 + PCB_PANEL_T          # 186 — panel outer face
 
+# The board is centred BETWEEN THE POSTS, not on the frame's depth. The frame's
+# +X face is not a surface — it is two posts with 119 mm of air between them —
+# so where the board sits decides whether its mounting holes have anything
+# behind them. Centred on FRAME_D/2 (105) they did not: the plate overlapped one
+# post by 30 mm and the other by 4, and every screw but one would have pulled on
+# a cantilever. Centred on the posts' own midline, ALL FOUR of the routed
+# board's holes land inside a post, in both Y and Z — asserted below, because it
+# is a coincidence of three independent numbers (the hole pitch, the rib inset
+# that sets the posts, and the deck height) and any of them can move.
+PCB_Y_C = sum(BEAM_YS) / 2.0                      # 86.5
+
 
 def _pose_board(solid):
     """Lay a board (modelled in XY, +Z normal) flat on the frame's +X face.
@@ -201,7 +213,7 @@ def _pose_board(solid):
                .rotate((0, 0, 0), (1, 0, 0), 90))
     bb = r.val().BoundingBox()
     return r.translate((PCB_FACE_X + PCB_STANDOFF - bb.xmin,
-                        FRAME_D / 2.0 - (bb.ymin + bb.ylen / 2.0),
+                        PCB_Y_C - (bb.ymin + bb.ylen / 2.0),
                         DECK_Z / 2.0 - (bb.zmin + bb.zlen / 2.0)))
 
 
@@ -232,12 +244,51 @@ def pcb_plate() -> cq.Workplane:
              .rect(b.ylen + 2 * pad, b.zlen + 2 * pad)
              .extrude(PCB_PANEL_T))
     for hy, hz in PCB_HOLE_XY:                     # board coords -> world Y, Z
-        cy = FRAME_D / 2.0 + hy
+        cy = PCB_Y_C + hy
         cz = DECK_Z / 2.0 + hz
         panel = panel.union(cq.Workplane("YZ").workplane(offset=PCB_FACE_X)
                             .center(cy, cz).circle(PCB_BOSS_D / 2.0)
                             .extrude(PCB_STANDOFF))
     return panel
+
+
+# ── The four screws that hold the whole PCB stack together ──────────────────
+# One M4 per mounting hole, each clamping board -> boss -> plate -> post in a
+# single stack, threading into a heat-set insert in the post. ScrewJoint draws
+# the hole ONCE and hands each part its own section, so the head recess, the
+# clearance, the insert pocket and the screw length cannot drift between the
+# plate and the frame.
+#
+# This is what attaches the plate at all. A drop-in dovetail was the obvious
+# alternative and it cannot be built: frame_right prints standing on its +X
+# face and the plate on its frame-side face, so the two faces that have to meet
+# are BOTH bed faces, and neither can carry a protruding rail without printing
+# on its own tip. (See the battery dock, which hits the identical wall.) The
+# screws need only holes, and a hole is a void in a bed face — which prints.
+PCB_SCREW_L = 14.0
+_BOARD_TOP_X = PCB_FACE_X + PCB_STANDOFF + 1.6    # 190.6 — laminate top face
+
+
+def pcb_screws():
+    """One ScrewJoint per routed mounting hole."""
+    out = []
+    for hy, hz in PCB_HOLE_XY:
+        out.append(ScrewJoint(
+            spec=M4,
+            entry=(_BOARD_TOP_X, PCB_Y_C + hy, DECK_Z / 2.0 + hz),
+            direction=(-1.0, 0.0, 0.0),
+            length=PCB_SCREW_L,
+            insert_at=_BOARD_TOP_X - FRAME_W / 2.0,   # the post's +X face
+            # THROUGH the post, not blind. A blind bore running ALONG the build
+            # ends in a flat ceiling — cadkit's _bore only teardrops holes that
+            # run ACROSS it — and the overhang gate caught exactly that: four
+            # 15.2 mm2 faces at n.z=-1.00, one per screw. Running the Ø4.4 out
+            # the post's far side removes the ceiling instead of papering over
+            # it, costs nothing structurally in a 30 mm post, and gives the
+            # pocket a drain.
+            end_at=_BOARD_TOP_X - (POST_X - SECT / 2.0),
+            head_d=7.6, head_h=2.2))
+    return out
 
 
 def _pump(flip: bool) -> cq.Workplane:
@@ -394,6 +445,12 @@ def _frame_half(side: int) -> cq.Workplane:
 frame_left, frame_right = _frame_half(-1), _frame_half(+1)
 pcb_plate_part  = pcb_plate()
 pcb_shroud_part = pcb_shroud()
+
+# Each part cuts only its own section of the shared hole, shaped for its own
+# build direction: the plate builds +X, frame_right builds -X.
+for _sj in pcb_screws():
+    pcb_plate_part = pcb_plate_part.cut(_sj.cutter(print_up=(1, 0, 0)))
+    frame_right = frame_right.cut(_sj.cutter(print_up=(-1, 0, 0)))
 
 # Each half stands on its OUTER face so the posts land in the first layers.
 # Rotating about +Y by -90 maps x -> z (so x=-POST_X goes DOWN); by +90 maps
