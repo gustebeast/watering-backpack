@@ -59,8 +59,8 @@ RULES = {}          # id -> function(ctx) -> [(subject, ok, text)]
 # What to DO about a failing rule, printed once under its findings.
 HINT = {
     "A1": "declare quality.power_paths; widen with net_widths / declared tracks / a pour",
-    "A2": "move or add a bypass capacitor beside the pin; tune quality.decoupling only with "
-          "a reason",
+    "A2": "move or add a bypass capacitor beside the pin. PCB_QUALITY.md A2, 'Deciding a "
+          "failure', lists the only cases where a pin may be exempted instead",
     "A3": "add a `match` group, or quality.unmatched_ok with the bit-time arithmetic",
     "A5": "fix the label, or list a deliberate one in quality.single_pin_ok",
     "A6": "one 5.1 k 1% from EACH CC pin to ground on a device port",
