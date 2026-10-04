@@ -353,7 +353,38 @@ heat source. As netted it would have dissipated nothing, which is the tell.
 
 SNVSAA5B §6.3.8: *"The RT/SYNC pin can't be left floating or shorted to ground."*
 It sets the switching frequency. **R8 = 49k9**, the datasheet's own table value
-for 500 kHz, which with the 15 µH inductor gives 0.37 A of ripple at 20 V in.
+for 500 kHz, which with the 10 µH inductor gives 0.55 A of ripple at 20 V in.
+
+### 4b. The inductor saturated below the regulator's own current limit
+
+Same section of the same datasheet, §7.2.2.3: *"The inductor current rating must
+be higher than current limit"*, because *"during an instantaneous short or over
+current operation event, the RMS and peak inductor current can be high"*. The
+LMR14020's high-side current limit is 2.5 / 3.2 / **3.8 A** min/typ/max (§5.5).
+
+The part fitted was a Bourns **SRN6045TA-150M**, 15 µH, Isat **3.80 A typ** — not
+above the limit but equal to it, and equal to the *typical*, so half the reel
+saturates below a fault the regulator is entitled to hold indefinitely. TI's own
+worked example in that section pairs the same limit with "3 A RMS current and 4 A
+saturation current", so this is not a strict reading of the sentence.
+
+The fix runs **downward**, which is the counter-intuitive part: in this series
+Isat falls as inductance rises, so 22 µH (3.30 A) and 33 µH (2.50 A) are both
+worse. **L1 is now SRN6045TA-100M** — 10 µH ±20 %, DCR 52 mΩ, Irms 3.20 A,
+Isat **4.60 A** — same series, same 6045 land, same price.
+
+10 µH is also what the datasheet's inductance equation asks for. K_IND is "the
+amount of inductor ripple current relative to the maximum output current" and
+"must be 20 %–40 %"; against this part's rated 2 A that window is 6.9–13.8 µH,
+and 10 sits in the middle of it (K_IND = 0.28). Sizing K_IND against *this
+board's* 0.6 A load would ask for 23–46 µH instead, and every one of those
+saturates below the current limit — which is how a 2 A regulator run at 0.6 A
+talks you into an inductor its own fault current destroys.
+
+Read Bourns' definitions before comparing these to another maker's: this series
+quotes Isat where "inductance drops 30 %" — looser than the common 20 % — and
+Irms at a 40 °C rise, not 20. `elec/main.py` carries all of it as asserts, so a
+substitution has to satisfy them rather than inherit a number nobody re-read.
 
 ### 5. Pin 6 is SS, not COMP — and it had nothing on it
 

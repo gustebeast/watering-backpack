@@ -56,6 +56,72 @@ assert abs(FB_VOUT - 3.3) < 0.03, (
 BUCK_FSW_KHZ = 500.0
 BUCK_RT      = "49k9"
 
+
+def _house(v, unit):
+    """4.6, 'A' -> '4A6'. The letter is the decimal point, as in 29k4 and 4u7."""
+    whole = int(v)
+    tenth = int(round((v - whole) * 10))
+    return "%d%s%d" % (whole, unit, tenth) if tenth else "%d%s" % (whole, unit)
+
+
+# ── The buck inductor, DERIVED from the regulator's CURRENT LIMIT ───────────
+# ⚠ THIS WAS A 15 uH PART AND THE DATASHEET FORBIDS IT, in those words.
+# SNVSAA5B 7.2.2.3, Output Inductor Selection: "The inductor current rating
+# must be higher than current limit", because "during an instantaneous short or
+# over current operation event, the RMS and peak inductor current can be high".
+# The high-side current limit is 2.5 / 3.2 / 3.8 A min/typ/max (5.5 Electrical
+# Characteristics), so the number the inductor must beat is 3.8 A.
+#
+# The part fitted was a Bourns SRN6045TA-150M: Isat 3.80 A TYP. Not above the
+# limit -- equal to it, and equal to the *typical* at that, so half the reel
+# saturates below a fault the regulator is entitled to sustain indefinitely.
+# TI's own design example in the same section sizes "3 A RMS current and 4 A
+# saturation current" against the same limit, so this is not a strict reading.
+#
+# Going UP in inductance makes it worse, which is the part that is not obvious:
+# in this series Isat falls as L rises (22 uH is 3.30 A, 33 uH is 2.50 A). The
+# fix is DOWN. SRN6045TA-100M, same series, same 6045 land, same price:
+#
+#   SRN6045TA-100M   10 uH +-20%   DCR 52 mOhm   Irms 3.20 A   Isat 4.60 A
+#   SRN6045TA-150M   15 uH +-20%   DCR 71 mOhm   Irms 2.80 A   Isat 3.80 A
+#
+# (Bourns SRN6045TA datasheet, Electrical Specifications @ 25 C. Read its own
+# definitions before comparing these to another maker's: this series quotes
+# Isat where "inductance drops 30 %" -- a LOOSER definition than the common
+# 20 % -- and Irms at a 40 C rise, not 20.)
+#
+# 10 uH is also what the datasheet's inductance equation asks for. K_IND is
+# "the amount of inductor ripple current relative to the MAXIMUM OUTPUT
+# CURRENT" and "must be 20%-40%": against this part's rated 2 A that window is
+# 6.9..13.8 uH, and 10 sits in the middle of it. Sizing K_IND against this
+# board's 0.6 A load instead would ask for 23..46 uH, and every one of those
+# saturates below the current limit -- which is how a 2 A regulator used at
+# 0.6 A talks you into an inductor its own fault current destroys.
+BUCK_ILIM_MAX   = 3.8        # A, SNVSAA5B 5.5, high-side current limit, max
+BUCK_L_UH       = 10.0
+BUCK_L_ISAT     = 4.6        # A, SRN6045TA-100M, Isat typ (30 % L drop)
+BUCK_L_IRMS     = 3.2        # A, same row, Irms typ (40 C rise)
+BUCK_IOUT_RATED = 2.0        # A, what the LMR14020 is
+BUCK_IOUT       = 0.6        # A, what this board asks of it (= the +3V3 path)
+# peak-to-peak ripple, worst case at the HIGHEST input (smallest duty)
+BUCK_RIPPLE_A = (3.3 * (1.0 - 3.3 / VBAT_MAX)
+                 / (BUCK_L_UH * 1e-6 * BUCK_FSW_KHZ * 1e3))
+BUCK_IPK      = BUCK_IOUT + BUCK_RIPPLE_A / 2.0
+BUCK_K_IND    = BUCK_RIPPLE_A / BUCK_IOUT_RATED
+assert BUCK_L_ISAT > BUCK_ILIM_MAX, (
+    "the inductor saturates at %.1f A and the buck's current limit reaches "
+    "%.1f A: SNVSAA5B 7.2.2.3 says the inductor must be the larger"
+    % (BUCK_L_ISAT, BUCK_ILIM_MAX))
+assert BUCK_IPK < BUCK_L_ISAT / 2.0, (
+    "the inductor peaks at %.2f A in normal running against %.1f A of Isat: "
+    "less than 2x is not margin on a typ-only number" % (BUCK_IPK, BUCK_L_ISAT))
+assert 0.20 <= BUCK_K_IND <= 0.40, (
+    "K_IND is %.2f of the part's rated %.1f A; SNVSAA5B 7.2.2.3 wants 0.20..0.40"
+    % (BUCK_K_IND, BUCK_IOUT_RATED))
+# The value carries the rating the asserts above check, so a substitution has to
+# satisfy them rather than silently inherit a number nobody re-read.
+BUCK_L_VALUE = "%.0fuH/%ssat" % (BUCK_L_UH, _house(BUCK_L_ISAT, "A"))
+
 # ── VGATE, the gate-driver rail ─────────────────────────────────────────────
 GATE_DRV_VDD_MIN = 4.5       # UCC27517 datasheet, "4.5 to 18-V Single-Supply Range"
 GATE_DRV_VDD_MAX = 18.0
@@ -174,7 +240,9 @@ def circuit():
     u_bk = gen.part("U1", "LMR14020SDDA", "wbp:SOIC-8-1EP-FABDRILL",
                     {1: "BOOT", 2: "VIN", 3: "EN", 4: "RT", 5: "FB", 6: "SS",
                      7: "GND", 9: "EP", 8: "SW"}, "18 V -> 3.3 V, 40 V in, 2 A")
-    l1   = gen.part("L1", "15uH/3A", "Inductor_SMD:L_Bourns_SRN6045TA", 2, "buck inductor")
+    l1   = gen.part("L1", BUCK_L_VALUE, "Inductor_SMD:L_Bourns_SRN6045TA", 2,
+                    "buck inductor -- Isat %.1f A clears the %.1f A current limit"
+                    % (BUCK_L_ISAT, BUCK_ILIM_MAX))
     # ⚠ THE INPUT CAPACITOR THAT WAS NOT THERE. SNVSAA5B asks for a ceramic at
     # VIN "as close as possible to the VIN and GND pins"; this board had only
     # C1/C2, two 100 uF electrolytics THIRTY-EIGHT MILLIMETRES away. At 500 kHz
@@ -197,7 +265,8 @@ def circuit():
     # "The RT/SYNC pin can't be left floating or shorted to ground" -- datasheet
     # SNVSAA5B section 6.3.8, in those words. It was floating. 49.9k is the
     # datasheet's own table value for 500 kHz, which with the 15 uH inductor
-    # gives 0.37 A of ripple at a 20 V input.
+    # gives 0.55 A of ripple at a 20 V input with the 10 uH part
+    # (BUCK_RIPPLE_A above derives it; 15 uH gave 0.37 and saturated).
     r_rt = gen.part("R8", BUCK_RT, "Resistor_SMD:R_0603_1608Metric", 2,
                     "switching frequency: %.0f kHz" % BUCK_FSW_KHZ)
     # SS, the pin this file used to call COMP. Floating it leaves the ramp to
