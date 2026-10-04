@@ -103,6 +103,28 @@ BOARD_NOTES["quality"] = {
                "by decision; a reversed plug only leaves the LED dark (5 V = its max reverse)",
         "M11": "elec/cad_geom_check.py passes; J1 plugs from +Z with the board installed",
         "M12": "example board: not ordered",
+        # M13 onward are each about one kind of circuit: sign the ones that do not apply
+        # with the reason, in a line
+        **{m: "no switching or linear regulator, inductor or ferrite on this board"
+           for m in ("M13", "M14", "M15", "M17")},
+        "M16": "5 V bench supply into 100 nF: 2 x 5 V = 10 V, under C1's 50 V and the "
+               "LED's path is current-limited by R1",
+        **{m: "no ICs, transistors, buses, converters, op-amps, USB or crystal"
+           for m in ("M18", "M19", "M20", "M21", "M22", "M23", "M24", "M25", "M26",
+                     "M27")},
+        "M28": "no part with a variant pin order: two-pad parts and a 2-way header",
+        "M29": "board rules are pcbflow's defaults = the fab's standard 2-layer limits; "
+               "no via in a pad; R1/D1/C1 pads are track-fed, none in a pour",
+        "M30": "example board: not ordered",
+        "M31": "name + revision in silk (kicad_silk); D1's cathode mark is outside its body",
+        "M32": "footprint pitch 2.50 = XH; 5 mA against XH's 3 A contacts",
+        "M33": "one rail, one load: 5 mA from the bench supply",
+        "M34": "no logic signals; D1 anode to R1, cathode to ground",
+        "M35": "no parts with errata",
+        "M36": "no power leaves the board",
+        "M37": "example board: not ordered",
+        "M38": "C1 is 12 mm from the nearest edge and 13 mm from the screw; J1 plugs from "
+               "+Z with nothing above it",
     },
 }
 
