@@ -131,6 +131,13 @@ def components():
     term = H.terminal_placed()
     if term is not None:
         comps.append(("terminal", term))
+    # The screw and its heat-set insert, drawn by the same ScrewJoint that cuts
+    # the hole -- cadkit.fasteners.ScrewJoint.dummies(). They were never drawn,
+    # so nothing ever checked that the insert fits its pocket or that the screw
+    # reaches the insert through the board's own clearance hole. Both are now
+    # weighed with everything else.
+    for i, sj in enumerate(H.pcb_screws()):
+        comps += sj.dummies("pcb_screw_%d" % i, "pcb_insert_%d" % i)
     for name, pts in P.routes():
         comps.append((name, P.run(pts)))
     return comps
@@ -201,6 +208,7 @@ def main() -> int:
         tint = "#8B5A2B" if nm.startswith("plank") else "#A0724A"
         asm.add(solid, name="%s_%d" % (nm, i), color=color(tint))
     tints = {"housing": "#6a8fb5", "housing_lid": "#8fb56a", "pcb": "#2f7d4f",
+             "pcb_screw_0": "#c0c6cc", "pcb_insert_0": "#b08d57",
              "battery": "#d08a3e", "pump_a": "slategray", "pump_b": "#5a6b7a",
              "fittings": "#c8a24a"}
     for nm, solid in comps:
@@ -340,6 +348,35 @@ def main() -> int:
           % (len(H._hole_points()) - blocked_holes, len(H._hole_points()),
              len(H._hole_points()) - missed, len(H._hole_points()),
              "" if ok else "*** THE BOARD IS NOT WHERE ITS HOLES ARE ***"))
+
+    # Retention has to be checked BOTH WAYS or it is not checked. A board that
+    # cannot be lifted straight off is retained; a board that cannot be got out
+    # at all is a board you cut up to reflash. The lip reaches RET_OVER over the
+    # +Y edge and the antenna's clearance gives BOARD_SLIDE_Y of travel the
+    # other way, and the whole design rests on the first being less than the
+    # second.
+    print("")
+    print("=== board retention gate ===")
+    seated = housing_solid.intersect(board)
+    seated_v = seated.val().Volume() if seated.val() is not None else 0.0
+    straight = _swept(board, (-1.0, 0.0, 0.0), 30.0)
+    i = straight.intersect(housing_solid)
+    held = (i.val().Volume() if i.val() is not None else 0.0) - seated_v
+    slid = board.translate((0.0, -H.BOARD_SLIDE_Y, 0.0))
+    s_seat = housing_solid.intersect(slid)
+    s_seat_v = s_seat.val().Volume() if s_seat.val() is not None else 0.0
+    out = _swept(slid, (-1.0, 0.0, 0.0), 30.0)
+    i = out.intersect(housing_solid)
+    free = (i.val().Volume() if i.val() is not None else 0.0) - s_seat_v
+    ok = held > 1.0 and free <= 1.0
+    blocked += 0 if ok else 1
+    print("  straight off  %s" % ("HELD, %.0f mm3 of lip in the way" % held
+                                  if held > 1.0 else
+                                  "*** COMES STRAIGHT OFF: NOTHING RETAINS IT ***"))
+    print("  slid %.1f mm toward -Y, then off  %s"
+          % (H.BOARD_SLIDE_Y,
+             "clear" if free <= 1.0 else
+             "*** STILL TRAPPED, %.0f mm3 ***" % free))
 
     # Does the CAD draw the board that was actually ROUTED? PCB_README lists
     # cad_geom_check under "your build gate should too", and it was not here --
