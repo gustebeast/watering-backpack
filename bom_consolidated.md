@@ -141,7 +141,20 @@ Exact part numbers to be fixed at layout; this is the functional list.
 - 2× **N-channel MOSFET**, 40 V, low R<sub>DS(on)</sub>, DPAK/TO-263 on a copper pour —
   one per pump. **No H-bridge**: each pump runs one direction only (direction is chosen
   by *which pump* is energised), so a single switched leg replaces the BTS7960.
-- 2× **gate driver** — 7.5 A at 20 kHz is not a job for a bare 3.3 V GPIO
+- 2× **gate driver** — 7.5 A at 20 kHz is not a job for a bare 3.3 V GPIO.
+  UCC27517, non-inverting, and it is a **4.5–18 V part**, so it cannot run on 3V3.
+- 1× **10 V, ≥0.5 W Zener (SOD-123) + 1k5 0805 + 10 µF 0805** — the **VGATE** rail
+  the drivers above actually run on, shunt-regulated off VBAT. Two passives instead
+  of a second regulator because the load is ~1.5 mA; it idles 3.3–6.7 mA, which this
+  machine can afford. See `elec/CIRCUIT.md` finding 2.
+- **Buck support passives that the datasheet requires, not optional:** a **49k9**
+  RT/SYNC resistor (the pin may not float — sets 500 kHz) and a **10 nF** soft-start
+  cap on pin 6, which is SS and not COMP. The feedback divider is **100k / 29k4**, not
+  100k / 31k6; the latter sets 3.12 V on the rail that is also the ADC reference.
+- **10× 1.5 mm bare-copper test pads**, net-labelled on the silkscreen — GND, VBAT,
+  +3V3, VGATE, SW, GATE_A, GATE_B, VBAT_SENSE, JOY_FILT, LEVEL. No cost, no part, no
+  placement; they are copper. They are how a defective board gets diagnosed instead
+  of replaced.
 - 2× **Schottky freewheel diode**. Plain, not synchronous: it conducts only during
   off-time and usage is mostly full-on.
 - 1× **synchronous buck, 18 V → 3.3 V, ~1 A**, rated **≥36 V in** — a fresh Makita pack

@@ -194,7 +194,8 @@ def _resite_post_pads(board, refs, notes):
                                              ((px - x1) * dx + (py - y1) * dy) / l2))
         return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
-    def _ok(px, py, r, net):
+    def _ok(px, py, r, net, r_keep=None, need_own=True):
+        r_keep = r if r_keep is None else r_keep
         own = 1e9
         for x1, y1, x2, y2, hw, n in segs:
             d = _seg_d(px, py, x1, y1, x2, y2) - hw
@@ -208,16 +209,16 @@ def _resite_post_pads(board, refs, notes):
                 own = min(own, d)
             elif d < r + POST_PAD_CLR_MM:
                 return None
-        if own > r:
+        if need_own and own > r:
             return None            # not on its own copper: the pad would need a track
-        keep = r + POST_PAD_CLR_MM
+        keep = r_keep              # courtyard against courtyard, DRC's own test
         for cx0, cx1, cy0, cy1 in courts:
             if cx0 - keep <= px <= cx1 + keep and cy0 - keep <= py <= cy1 + keep:
                 return None
         return own
 
-    moved = []
-    for fp in board.GetFootprints():
+    moved, stubbed, dropped = [], [], []
+    for fp in list(board.GetFootprints()):
         ref = fp.GetReference()
         if ref not in refs or not ref.startswith("TP"):
             continue
@@ -226,31 +227,71 @@ def _resite_post_pads(board, refs, notes):
             continue               # a multi-pad post-route part is not a bare probe pad
         pad = pads[0]
         net = pad.GetNetname()
+        # ⚠ THE RADIUS IS THE COURTYARD'S, NOT THE PAD'S, because the courtyard is
+        # what DRC compares. Searching on the pad radius accepted sites whose
+        # COURTYARD overlapped a neighbour's: a D1.5 mm test pad is a 1.5 mm pad
+        # inside a ~2.6 mm courtyard, so the search was working to a circle 0.55 mm
+        # too small in every direction. Measured on the watering-backpack board:
+        # nine pads re-sited, five of them straight into a courtyards_overlap
+        # violation, and the run reported 5 violations it had just created.
+        #
+        # The own-copper test still uses the PAD radius -- that question is "does
+        # this pad land on its own net", and the courtyard carries no copper.
         r = pcbnew.ToMM(max(pad.GetSize().x, pad.GetSize().y)) / 2.0
+        try:
+            _cbb = fp.GetCourtyard(pcbnew.F_CrtYd).BBox()
+            if _cbb.GetWidth() > 0:
+                r_keep = pcbnew.ToMM(max(_cbb.GetWidth(), _cbb.GetHeight())) / 2.0
+            else:
+                r_keep = r
+        except Exception:
+            r_keep = r
         px = pcbnew.ToMM(pad.GetPosition().x)
         py = pcbnew.ToMM(pad.GetPosition().y)
-        if _ok(px, py, r, net) is not None:
+        if _ok(px, py, r, net, r_keep) is not None:
             continue               # the recorded site still clears: nothing to do
         # Ring search outwards, so a pad that has to move moves as little as possible --
         # these coordinates were chosen next to the thing they help bring up, and that
         # intent is worth keeping even when the copper no longer allows the exact point.
-        best = None
-        k = 1
-        while k * POST_PAD_STEP_MM <= POST_PAD_REACH_MM and best is None:
-            rad = k * POST_PAD_STEP_MM
-            n_th = max(8, int(2.0 * math.pi * rad / POST_PAD_STEP_MM))
-            for i in range(n_th):
-                th = 2.0 * math.pi * i / n_th
-                qx, qy = px + rad * math.cos(th), py + rad * math.sin(th)
-                if _ok(qx, qy, r, net) is not None:
-                    best = (qx, qy, rad)
-                    break
-            k += 1
+        def _ring(need_own):
+            k = 1
+            while k * POST_PAD_STEP_MM <= POST_PAD_REACH_MM:
+                rad = k * POST_PAD_STEP_MM
+                n_th = max(8, int(2.0 * math.pi * rad / POST_PAD_STEP_MM))
+                for i in range(n_th):
+                    th = 2.0 * math.pi * i / n_th
+                    qx, qy = px + rad * math.cos(th), py + rad * math.sin(th)
+                    if _ok(qx, qy, r, net, r_keep, need_own) is not None:
+                        return (qx, qy, rad)
+                k += 1
+            return None
+
+        best = _ring(True)
         if best is None:
-            print("      ⚠ %s (%s) has no clear site within %.1f mm of its recorded "
-                  "place ON THIS ROUTE -- left where it is, so DRC will report it"
-                  % (ref, net, POST_PAD_REACH_MM))
-            continue
+            # ⚠ NEVER LEAVE THE PAD WHERE IT IS. This used to do exactly that,
+            # and "where it is" is a coordinate chosen against an OLDER route:
+            # on the watering-backpack board it put TP10 (LEVEL) on top of a
+            # VBAT track, and DRC reported a 27.8 mm SHORT from the battery to
+            # the level-sensor input, plus a mask bridge to D2's pad. A bring-up
+            # pad is a convenience. It is never worth a short, so the fallbacks
+            # go in order of what is actually at stake:
+            #
+            #   1. a site that is merely SAFE -- clear of foreign copper and of
+            #      every courtyard, but not on its own net. The pad arrives
+            #      unconnected and close_last.py maze-routes a stub to it, which
+            #      is how SW, GATE_A and GATE_B get probed at all; their nets are
+            #      short runs boxed in between the FETs, drivers and gate
+            #      resistors with no exposed front copper anywhere.
+            #   2. no pad. If the board has nowhere safe within reach, the
+            #      footprint comes off entirely and the run says so. A board that
+            #      is missing one test point can still be brought up; a board
+            #      with VBAT shorted to a GPIO cannot be powered.
+            best = _ring(False)
+            if best is None:
+                board.Remove(fp)
+                dropped.append((ref, net))
+                continue
+            stubbed.append((ref, net, best[2]))
         qx, qy, rad = best
         pos = fp.GetPosition()
         fp.SetPosition(pcbnew.VECTOR2I(
@@ -259,6 +300,18 @@ def _resite_post_pads(board, refs, notes):
     if moved:
         print("      re-sited %d bring-up pad(s) against THIS route's copper: %s"
               % (len(moved), ", ".join("%s (%s) moved %.2f mm" % m for m in moved)))
+    if stubbed:
+        print("      %d bring-up pad(s) have no exposed copper of their own on "
+              "this route -- parked clear and left for close_last to stub: %s"
+              % (len(stubbed), ", ".join("%s (%s) at %.2f mm" % t for t in stubbed)))
+    if dropped:
+        # Loud, because the board now has fewer test points than the schematic
+        # asked for and nothing else will mention it.
+        print("      ⚠ REMOVED %d bring-up pad(s) ENTIRELY -- no site within "
+              "%.1f mm was even safe, and a pad that shorts is worse than no "
+              "pad: %s" % (len(dropped), POST_PAD_REACH_MM,
+                           ", ".join("%s (%s)" % d for d in dropped)))
+        board.BuildConnectivity()
     return moved
 
 

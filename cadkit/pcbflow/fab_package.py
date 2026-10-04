@@ -259,7 +259,7 @@ def fab(board):
     os.remove(raw)
 
     # ---- BOM, grouped by (value, footprint) the way JLCPCB reads it ----
-    groups, open_real, open_generic = {}, set(), set()
+    groups, open_real, open_generic, n_lines = {}, set(), set(), 0
     for ref, val, fp in _parts(stem):
         groups.setdefault((val, fp), []).append(ref)
     bom = os.path.join(d, "%s-bom.csv" % board)
@@ -275,9 +275,30 @@ def fab(board):
             # attribute never reaches it.
             if COPPER_ONLY.search(fp.split(":", 1)[0]):
                 continue
+            # Counted here and not as len(groups), which includes the copper-only
+            # group just skipped: the ten test pads made the run report 30 BOM
+            # lines for a 29-line BOM.
+            n_lines += 1
             code = LCSC.get(val, "")
             if not code:
                 generic = bool(GENERIC.search(fp.split(":", 1)[1]) or GENERIC.search(fp))
+                # ⚠ A DECLARATION BEATS THE FOOTPRINT GUESS. "Generic" is inferred from
+                # the footprint, and a footprint cannot know whether the VALUE in front
+                # of it is orderable: GENERIC matches Diode_SMD:D_SOD, which is right
+                # for "1N4148W" and wrong for a Zener nobody has sourced yet. The
+                # watering-backpack board declared ZENER-10V-0W5 in OPEN_VALUES, and
+                # because D_SOD-123 looked generic it was counted as SOURCED and left
+                # out of the "cannot be ordered assembled" list -- while sitting in the
+                # BOM with a blank LCSC field. Thirty BOM lines reported as 17 generic
+                # + 12 open, and the thirteenth was the rail that makes the pumps
+                # switch at all.
+                #
+                # So OPEN wins. If the project has said a value is undecided, no regex
+                # over the footprint gets to say otherwise; the placeholder rule below
+                # is skipped for the same reason -- it is there to CATCH undeclared
+                # placeholders, and this one is declared.
+                if val in OPEN_VALUES:
+                    generic = False
                 # ⚠ A GENERIC PASSIVE STILL NEEDS A VALUE, and "generic" was letting
                 # placeholders through. JLCPCB picks an 0402 100nF from the value field;
                 # it cannot pick an 0402 "Rf". The optical board carried FIFTY-THREE
@@ -337,7 +358,7 @@ def fab(board):
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for fn in sorted(os.listdir(d)):
             zf.write(os.path.join(d, fn), fn)
-    return n, len(groups), sorted(open_real), sorted(open_generic), z, opts or {}
+    return n, n_lines, sorted(open_real), sorted(open_generic), z, opts or {}
 
 
 def _check_gerbers(gdir, notes, board, pcb):

@@ -70,6 +70,18 @@ STRAPPING = {0, 2, 5, 12, 15}
 
 # ESP32-WROOM-32E module pinout: physical pin -> the name elec/main.py should
 # use for it. Pin 32 is NC on this module.
+#
+# ⚠ PIN 39 WAS MISSING FROM THIS TABLE, and that made the table itself the
+# authority on a pin it had never heard of: when elec/main.py grounded pin 39
+# this gate called it "NC or unknown on this module". It is GND. Espressif's
+# pin-definition table runs 1-38 plus the optional exposed pad P_GND/39, and
+# KiCad's own RF_Module symbol declares this module's GND pin as number
+# "[1,15,38,39]" -- four pins, of which this file had three.
+#
+# Pin 39 is OPTIONAL. The module meets its thermal spec unsoldered; grounding it
+# just runs cooler, and the "not recommended" note in the older WROOM-32
+# datasheet is a translation error for "not necessary". Pin 15 is not optional,
+# and it was floating too.
 WROOM32E = {
     1: "GND", 2: "3V3", 3: "EN", 4: "IO36", 5: "IO39", 6: "IO34", 7: "IO35",
     8: "IO32", 9: "IO33", 10: "IO25", 11: "IO26", 12: "IO27", 13: "IO14",
@@ -77,6 +89,7 @@ WROOM32E = {
     20: "IO6", 21: "IO7", 22: "IO8", 23: "IO15", 24: "IO2", 25: "IO0",
     26: "IO4", 27: "IO16", 28: "IO17", 29: "IO5", 30: "IO18", 31: "IO19",
     33: "IO21", 34: "IO3", 35: "IO1", 36: "IO22", 37: "IO23", 38: "GND",
+    39: "GND",
 }
 # Pins 34/35 carry the UART0 console, which elec/main.py names by function.
 ALIAS = {"RXD0": "IO3", "TXD0": "IO1"}

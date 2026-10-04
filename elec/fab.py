@@ -48,6 +48,10 @@ OPEN_VALUES = frozenset({
                          # (UCC27516) would run the pumps whenever the MCU was held
                          # in reset, so the suffix matters
     "MMBT3904",          # buzzer driver
+    "ZENER-10V-0W5",     # VGATE shunt. The gate drivers are 4.5-18 V parts and
+                         # 3V3 is the only other rail on the board, so this is
+                         # what makes the pumps switch at all. Any 10 V +-5%,
+                         # >= 0.5 W SOD-123 Zener does it.
     "100u/50V",          # bulk electrolytic, CP_Elec_10x10.5 -- not a generic 0603
     "3V-ACTIVE",         # active buzzer, 3 V rated (CIRCUIT.md section 5)
     "PROG",              # 1x06 2.54 header

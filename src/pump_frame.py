@@ -184,6 +184,10 @@ _PCB_HEIGHT = {
     "ESP32-WROOM-32E-FABDRILL": 3.1, "L_Bourns_SRN6045TA": 4.5,
     "TO-252-3_TabPin2": 2.3, "TO-263-2": 4.6,
     "PinHeader_1x06_P2.54mm_Vertical": 8.5, "C_0603_1608Metric": 0.9,
+    # the buck's real package: HSOIC-8 with PowerPAD. Same 1.75 mm body as the
+    # plain SOIC-8 cadkit already lists -- what changed is the land under it.
+    "SOIC-8-1EP-FABDRILL": 1.75,
+    "R_0805_2012Metric": 0.6,          # VGATE dropper: 0805 for its 0.1 W
     "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 17.0,
     "TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal": 15.0,
     "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,
