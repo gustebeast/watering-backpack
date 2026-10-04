@@ -6,7 +6,8 @@ side along Y.
 
 WHY THE TWO BAYS SIT WHERE THEY DO
 ----------------------------------
-The frame is 210 deep and that is the whole budget:
+The frame is 210 deep and that is the whole budget. It used to be spent to the
+last 1.4 mm:
 
     3  outer wall
   100.6  battery dock (its across-slide dimension)
@@ -16,9 +17,33 @@ The frame is 210 deep and that is the whole budget:
   ----
   208.6     with 1.4 to spare
 
-That is where the board's 95 mm came from — it is the leftover, not a choice.
-elec/main.py asserts the same arithmetic from the other end so the two cannot
-drift.
+That is where the board's 95 mm came from — it is the leftover, not a choice,
+and elec/main.py asserts the same arithmetic from the other end so the two
+cannot drift.
+
+28.6 of that 100.6 was never the dock. It was the pair of side EARS that hosted
+v1's dovetail mortises, and v2 unions the dock into this part instead of
+sliding it on, so the joint they served does not exist (src/battery_dock.py,
+`dock(joinery=...)`). With them gone the dock is 72 across. The dock did not
+MOVE — it is anchored on its centreline at y=53.3, the seat the battery, the
+contact block and the deck notch were all validated against — so the 28.6 came
+out as air on both sides of it, and the bay could then be laid out from the
+frame's back edge instead of from the dock:
+
+   17.3  back plate only (the -Y wood screws land at y=19)
+   72    battery dock, centred on y=53.3
+    9.7  air
+    3    divider        <- the lid's -Y skirt drops past this wall
+   99    PCB cavity (unchanged: the board is routed at 95)
+    3    divider        <- and past this one
+    6    air            <- the lid's +Y skirt
+  -----
+  210     exactly the frame
+
+The board does NOT grow into the slack. It is routed at 95 x 100 and JLCPCB's
+cheapest tier stops at 100 x 100, so the price tier is the binding constraint
+now, not the frame. What the slack buys is the lid: a shoebox skirt needs air
+outboard of the bay walls on all four sides, and at 1.4 mm there was none.
 
 HOW THE CABLES GET OUT
 ----------------------
@@ -70,17 +95,42 @@ WALL    = 3.0
 BACK_T  = 3.0
 
 # ── Y layout (see the docstring's budget) ───────────────────────────────────
-DOCK_W  = 100.6
+# MEASURED off the dock, not typed. It was 100.6 -- the ear-to-ear width of
+# v1's dovetail joinery -- and when the ears came off (they hosted a joint v2
+# does not have) a typed copy would have gone on reserving 28.6 mm of the
+# frame's 210 for material that is no longer there.
+DOCK_W  = battery_dock.val().BoundingBox().xlen        # 72.0
 PCB_W   = 95.0
 PCB_CLR = 2.0
-Y_WALL0 = 0.0
-Y_DOCK0 = Y_WALL0 + WALL                              # 3
-Y_DOCK1 = Y_DOCK0 + DOCK_W                            # 103.6
-Y_PCB0  = Y_DOCK1 + WALL                              # 106.6
-Y_PCB1  = Y_PCB0 + PCB_W + 2 * PCB_CLR                # 205.6
-Y_OUTER = Y_PCB1 + WALL                               # 208.6
-assert Y_OUTER <= L.FRAME_D, (
-    "housing is %.1f deep; the frame is %.1f" % (Y_OUTER, L.FRAME_D))
+# The dock is anchored by its CENTRELINE, not by its -Y edge. Its edge moved
+# 14.3 mm when the ears came off; its battery, its contact block and the deck
+# notch the pack lifts out through did not, and anchoring on the edge dragged
+# all three with it -- far enough to put the connector's back inside a post
+# (the overlap gate caught it at 3 mm3).
+DOCK_Y_C = 53.3                                       # validated seat, v1 and v2
+Y_DOCK0 = DOCK_Y_C - DOCK_W / 2.0                     # 17.3
+Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0                     # 89.3
+# The PCB bay is now laid out from the +Y END, not from the dock. It has to be:
+# the thing with no slack on that side is the lid's skirt, which hangs outboard
+# of the bay's +Y wall and has only the frame's back edge to live in. Laying it
+# out from the dock instead would park the whole bay 1.4 mm short of the edge
+# again and put the slack where nothing needs it.
+SKIRT_GAP = 6.0                                       # air outboard of each bay wall
+Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL                # 201
+Y_PCB0  = Y_PCB1 - (PCB_W + 2 * PCB_CLR)              # 102
+Y_OUTER = Y_PCB1 + WALL                               # 204 — the bay's +Y face
+assert Y_OUTER + SKIRT_GAP <= L.FRAME_D, (
+    "the +Y skirt runs %.1f past the frame's %.1f"
+    % (Y_OUTER + SKIRT_GAP, L.FRAME_D))
+assert Y_PCB0 - WALL - SKIRT_GAP >= Y_DOCK1, (
+    "the -Y skirt lands on the dock: bay wall at %.1f, dock ends at %.1f"
+    % (Y_PCB0 - WALL, Y_DOCK1))
+
+# The back plate is the full frame depth, NOT the bays' extent. It carries the
+# four wood screws and L.POST_YS puts one pair at y=191 -- 11 mm outboard of the
+# bay. While the plate ended where the bay ended it only just reached them, and
+# once the bay moved it would not have.
+Y_PLATE0, Y_PLATE1 = 0.0, L.FRAME_D
 
 PCB_Y_C = (Y_PCB0 + Y_PCB1) / 2.0
 PCB_Z_C = 75.0
@@ -123,7 +173,7 @@ WOOD_CLR_D, WOOD_CSK_D = 4.5, 9.0
 # It lands between J3 and J4, the middle of the bottom connector group, which is
 # the shortest internal gather. 134 is forced: the lid pillar at y=125.1 is Ø10
 # through the full depth, so a chase any lower in Y is split in two by it.
-CHASE_Y0, CHASE_Y1 = 134.0, 158.0
+CHASE_Y0, CHASE_Y1 = PCB_Y_C - 22.1, PCB_Y_C + 1.9
 # CIRCUIT.md: "Terminals provide NO strain relief — a tugged cable pulls out of
 # the clamp or snaps at it. The printed shroud needs a cable-tie anchor." The
 # shroud is gone; this is that anchor. A rib on the back plate's OUTBOARD face,
@@ -308,7 +358,7 @@ def _dock_to_world(wp: cq.Workplane) -> cq.Workplane:
            .rotate((0, 0, 0), (1, 0, 0), -90))
     bb = _dock_oriented().val().BoundingBox()
     return w.translate((BACK_X - bb.xmax,
-                        Y_DOCK0 - bb.ymin,
+                        DOCK_Y_C - (bb.ymin + bb.ylen / 2.0),
                         PCB_Z_C - (bb.zmin + bb.zlen / 2.0)))
 
 
@@ -387,7 +437,7 @@ _check_dock_orientation()
 
 def housing() -> cq.Workplane:
     # back plate, full height so the screw flanges are part of it
-    h = _slab(BACK_X, FLOOR_X, Y_WALL0, Y_OUTER, BACK_Z0, BACK_Z1)
+    h = _slab(BACK_X, FLOOR_X, Y_PLATE0, Y_PLATE1, BACK_Z0, BACK_Z1)
     # PCB bay: a rectangular tube of wall, open outboard
     outer = _slab(FLOOR_X, WALL_X, Y_PCB0 - WALL, Y_OUTER, BAY_Z0, BAY_Z1)
     inner = _slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,

@@ -171,10 +171,12 @@ def notch_note():
     """The one cut that is not a length. Without it the battery cannot come
     out, and a cut list of four lengths gives no hint that it exists."""
     edge = -N_DECK_PLANKS * PLANK_W / 2.0
+    where = ("open at the front edge, running back to %.0f mm" % NOTCH_Y1
+             if NOTCH_Y0 <= 0.0 else
+             "%.0f..%.0f mm from the front" % (NOTCH_Y0, NOTCH_Y1))
     return ("notch the OUTBOARD deck plank: %.0f mm deep x %.0f mm long in its "
-            "outer edge, %.0f..%.0f mm from the front. The battery lifts out "
-            "through it." % (NOTCH_X - edge, NOTCH_Y1 - NOTCH_Y0,
-                             NOTCH_Y0, NOTCH_Y1))
+            "outer edge, %s. The battery lifts out through it."
+            % (NOTCH_X - edge, NOTCH_Y1 - NOTCH_Y0, where))
 
 
 def frame() -> cq.Workplane:

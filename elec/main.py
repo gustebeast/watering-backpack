@@ -312,11 +312,14 @@ for _xy in HOLES:
 _ANT = BOARD_W / 2.0 - BOARD_NOTES["placements"]["U2"][0]
 assert _ANT <= 50.0, "ESP32 is %.1f mm from the +X edge; the antenna wants to be at it" % _ANT
 
-# The HOUSING's y budget, which is what actually caps the board now: the frame
-# is 210 deep, the Makita dock is 100.6 across its slide, and the printed walls
-# and board clearance take ~13. BOARD_W is the leftover, and it is the binding
-# constraint -- not the old printed frame's face.
-_DOCK_W, _WALLS = 100.6, 13.0
+# The HOUSING's y budget: the frame is 210 deep, the Makita dock is 72 across
+# its slide, and the printed walls and board clearance take ~13. This was the
+# BINDING constraint while the dock was 100.6 -- that figure included v1's
+# dovetail ears, 14.3 mm a side hosting a joint v2 does not have, and removing
+# them freed 28.6. The binding constraint is now the <=100x100 price tier
+# asserted below. Kept, and kept exact, because the frame is still a wall: a
+# board that grew past it would fit nothing.
+_DOCK_W, _WALLS = 72.0, 13.0
 assert BOARD_W <= 210.0 - _DOCK_W - _WALLS, (
     "board is %.1f wide; only %.1f fits beside the battery in a 210 deep frame"
     % (BOARD_W, 210.0 - _DOCK_W - _WALLS))
