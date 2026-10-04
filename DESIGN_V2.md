@@ -91,6 +91,15 @@ Note the limit: with the pumps fed from the tank only in dispense, retract still
 from pots at knee height (~1.5–2 ft). Flipping solves dispense priming structurally
 and makes retract priming merely easier.
 
+**Deck height is set by a hose, not by the pumps.** The beams sit at z=148, not
+the 124 that merely clears the 119 mm pumps. Pump B's inner port has its swivel
+nut reaching into pump A's half, so that line cannot run forward at port height
+without passing through pump A — measured at 8190 mm3 by `tools/check_plumbing.py`.
+Its only way out is OVER the pumps, and a 19 mm line needs 9.5 mm either side of
+its centreline. The alternative was a ~21 mm gap *between* the pumps, which buys
+the same clearance out of WIDTH; width is the scarce axis (the posts already
+overhang the 340 mm shelf) and height is not, so it came out of height.
+
 ### 3. Tank outlet — Uniseal
 
 The Scepter's 44 mm opening is too small to get a hand inside, so a conventional
