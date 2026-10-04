@@ -166,7 +166,20 @@ _LEG_END  = F.ELBOW_LEG_L                           # 45 of +Y leg
 
 A_IN  = (+_LEGX_IN,  _YA + _LEG_END, _ZP)           # A inlet  -> TANK
 A_OUT = (-_LEGX_OUT, _YA + _LEG_END, _ZP)           # A outlet -> GREEN
-B_IN  = (-_LEGX_IN,  _YB + _LEG_END, _ZP)           # B inlet  -> GREEN
+# B's inlet is the odd one. Its elbow is clocked UP (pump_frame.PORT_CLOCK),
+# so the route starts at the PORT rather than the leg end: the 45 mm leg IS
+# the first straight, and the bend at the top needs all 50 mm of it.
+B_IN  = (-_LEGX_IN,  _YB,             _ZP)          # B inlet  -> GREEN, upward
+
+# Centreline of the run that crosses OVER the pumps. Pumps top out at 119 and
+# the beam underside is at POST_Z1, so this has to clear both by the hose
+# radius. Asserted below rather than trusted.
+OVERHEAD_Z = 134.0
+_CLR_PUMP = OVERHEAD_Z - TUBE_OD / 2.0 - 119.0
+_CLR_BEAM = F.POST_Z1 - (OVERHEAD_Z + TUBE_OD / 2.0)
+assert _CLR_PUMP > 0 and _CLR_BEAM > 0, (
+    "the overhead run does not fit: %.1f mm over the pumps, %.1f mm under the "
+    "beams" % (_CLR_PUMP, _CLR_BEAM))
 B_OUT = (+_LEGX_OUT, _YB + _LEG_END, _ZP)           # B outlet -> TANK
 
 TANK_TEE   = (+73.0, PLENUM_Y, _ZP)   # A_IN from -X, B_OUT from +X, tank from +Z
@@ -191,7 +204,13 @@ def routes():
         ("tank_to_B",    [B_OUT, (B_OUT[0], PLENUM_Y, _ZP), TANK_TEE]),
         # GREEN side (-X): both green ports -> tee -> straight down to the wand
         ("green_from_A", [A_OUT, (A_OUT[0], PLENUM_Y, _ZP), GREEN_TEE]),
-        ("green_from_B", [B_IN,  (B_IN[0],  PLENUM_Y, _ZP), GREEN_TEE]),
+        # B's inlet cannot go forward -- pump A is in the way -- so it goes UP,
+        # over the pumps, and down again in the plenum.
+        ("green_from_B", [B_IN,
+                          (B_IN[0], _YB, OVERHEAD_Z),
+                          (B_IN[0], PLENUM_Y, OVERHEAD_Z),
+                          (B_IN[0], PLENUM_Y, _ZP),
+                          GREEN_TEE]),
         ("green_out",    [GREEN_TEE, GREEN_EXIT]),
     ]
 

@@ -119,7 +119,16 @@ SECT    = 30.0           # post side AND beam width — one number, flush faces
 BEAM_H  = 40.0           # beam depth in Z (the bending dimension)
 FLOOR_T = 4.0            # pump deck; carries no tank load, so it stays thin
 POST_Z0 = FLOOR_T
-POST_Z1 = 124.0          # beam underside; clears PUMP_H + FLOOR_T = 119
+# Beam underside. NOT just "clears the pumps" — it also has to clear the HOSE
+# that crosses over them. Pump B's inner port sits at x=0 with its nut reaching
+# into pump A's half, so that line cannot run forward at port height without
+# going through pump A (measured: 8190 mm3). Its only way out is OVER the pumps,
+# and a 19 mm line needs its centre at z=134 with 9.5 mm either side. 124 left
+# 5 mm of headroom over the 119 mm pumps and blocked the line; 148 leaves 29.
+# The alternative was a ~21 mm gap BETWEEN the pumps, which buys the same
+# clearance out of WIDTH — and width is the scarce axis here (the posts already
+# overhang the 340 mm shelf). Height is not: this costs 24 mm against 820.
+POST_Z1 = 148.0
 DECK_Z  = POST_Z1 + BEAM_H       # 164 — the tank sits here
 
 # ── Fitting envelope — SEAFLO SFFN1-1220-01 ─────────────────────────────────────
@@ -247,8 +256,18 @@ def _pump_placed(side: int) -> cq.Workplane:
                         FLOOR_T - bb.zmin))
 
 
-def _elbow(x_tip, y, z, x_dir, y_dir):
-    """Clearance envelope for one fitting.
+# Which way each elbow's leg is aimed. The fitting SWIVELS, so the clock angle
+# is chosen rather than inherited from the thread taper — but it may only be
+# chosen in the plane PERPENDICULAR TO THE PORT AXIS, i.e. the Y-Z plane. A leg
+# can point +Y, -Y, +Z or -Z; it can never point along X. src/plumbing.py routes
+# from whatever these pick, so the two files must agree: change a clock here and
+# the hose model follows it.
+ELBOW_CLOCK = {"+y": ((1, 0, 0), -90), "-y": ((1, 0, 0), +90),
+               "+z": None,             "-z": ((1, 0, 0), 180)}
+
+
+def _elbow(x_tip, y, z, x_dir, clock):
+    """Clearance envelope for one fitting, with its leg aimed `clock`.
 
     Built on XY and rotated, not on an XZ workplane: XZ's normal is -Y, so
     workplane(offset=y) there lands the solid at -y — which silently put every
@@ -257,19 +276,26 @@ def _elbow(x_tip, y, z, x_dir, y_dir):
     nut = (cq.Workplane("YZ").workplane(offset=x_tip)
            .circle(ELBOW_NUT_D / 2.0).extrude(x_dir * ELBOW_NUT_L)
            .translate((0, y, z)))
-    leg = (cq.Workplane("XY").circle(ELBOW_LEG_D / 2.0).extrude(ELBOW_LEG_L)
-           .rotate((0, 0, 0), (1, 0, 0), -90 * y_dir)
-           .translate((x_tip + x_dir * ELBOW_NUT_L / 2.0, y, z)))
+    leg = cq.Workplane("XY").circle(ELBOW_LEG_D / 2.0).extrude(ELBOW_LEG_L)
+    rot = ELBOW_CLOCK[clock]
+    if rot is not None:
+        leg = leg.rotate((0, 0, 0), rot[0], rot[1])
+    leg = leg.translate((x_tip + x_dir * ELBOW_NUT_L / 2.0, y, z))
     return nut.union(leg)
+
+
+# port -> (x_tip, y, x_dir, clock). B's INNER leg is the odd one: aimed UP,
+# because forward is pump A. Everything else goes out the front.
+PORT_CLOCK = {"A_out": "+y", "A_in": "+y", "B_out": "+y", "B_in": "+z"}
 
 
 def _elbows() -> cq.Workplane:
     zc = FLOOR_T + PUMP_PORT_Z
     ya, yb = _PORT_YS
-    return (_elbow(-PUMP_X_OUT, ya, zc, -1, +1)
-            .union(_elbow(0.0, ya, zc, +1, +1))
-            .union(_elbow(+PUMP_X_OUT, yb, zc, +1, +1))
-            .union(_elbow(0.0, yb, zc, -1, +1)))
+    return (_elbow(-PUMP_X_OUT, ya, zc, -1, PORT_CLOCK["A_out"])
+            .union(_elbow(0.0, ya, zc, +1, PORT_CLOCK["A_in"]))
+            .union(_elbow(+PUMP_X_OUT, yb, zc, +1, PORT_CLOCK["B_out"]))
+            .union(_elbow(0.0, yb, zc, -1, PORT_CLOCK["B_in"])))
 
 
 def _frame_whole() -> cq.Workplane:
