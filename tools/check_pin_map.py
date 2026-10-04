@@ -45,6 +45,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FW = ROOT / "firmware" / "src" / "main.cpp"
 BOARD = ROOT / "elec" / "main.py"
+CIRCUIT = ROOT / "elec" / "CIRCUIT.md"
 
 # ---------------------------------------------------------------------------
 # THE CORRESPONDENCE. The one place the firmware and the schematic are tied
@@ -159,6 +160,22 @@ def board_mcu(text):
     return nets, pinmap, names
 
 
+def doc_table(text):
+    """{net_name: (gpio, module_pin)} from CIRCUIT.md section 3's pin table.
+
+    The table is generated fact written out by hand, which is the same shape of
+    liability as the BOM's volume and cut-list tables -- both of those had gone
+    stale within a day of the edits that moved them. This one was written in the
+    same session as the gate below and nothing checked it either, so it is a
+    third source here rather than documentation nobody re-reads.
+    """
+    out = {}
+    for m in re.finditer(r"^\|\s*`([A-Z0-9_]+)`\s*\|\s*(IO\d+)\s*\|\s*(\d+)\s*\|",
+                         text, re.M):
+        out[m.group(1)] = (m.group(2), int(m.group(3)))
+    return out
+
+
 def gpio(name):
     """'IO26' -> 26. Anything that is not a plain GPIO returns None."""
     m = re.fullmatch(r"IO(\d+)", name)
@@ -237,6 +254,35 @@ def main():
               % (const, g, ",".join(sorted(rs)),
                  "ok" if not problems else "*** " + "; ".join(problems) + " ***"))
         bad += len(problems)
+
+    print("\n=== CIRCUIT.md section 3 pin table vs both sources ===")
+    doc = doc_table(CIRCUIT.read_text(encoding="utf-8"))
+    if not doc:
+        print("  could not read the pin table out of CIRCUIT.md")
+        bad += 1
+    else:
+        # module pin number -> the name elec/main.py gives it, inverted
+        num_of = {v: k for k, v in pinmap.items()}
+        for const, netvar in PAIRS:
+            nm = names.get(netvar, netvar)
+            if nm not in doc:
+                print("  %-12s *** %s is not in the CIRCUIT.md table ***"
+                      % (const, nm))
+                bad += 1
+                continue
+            d_io, d_pin = doc[nm]
+            want_io = "IO%d" % pins[const]
+            want_pin = num_of.get(want_io)
+            ok = d_io == want_io and d_pin == want_pin
+            print("  %-12s doc says %-5s pin %-3s   sources say %-5s pin %-3s  %s"
+                  % (nm, d_io, d_pin, want_io, want_pin,
+                     "ok" if ok else "*** FAIL ***"))
+            bad += not ok
+        extra_doc = sorted(set(doc) - {names.get(nv, nv) for _, nv in PAIRS})
+        if extra_doc:
+            print("  *** table lists nets that are not in the pin map: %s ***"
+                  % ", ".join(extra_doc))
+            bad += len(extra_doc)
 
     print("\n=== module footprint pin names vs WROOM-32E pinout ===")
     wrong = []
