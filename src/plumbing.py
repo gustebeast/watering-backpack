@@ -50,6 +50,7 @@ import pathlib
 
 import cadquery as cq
 
+from . import lumber_frame as L
 from . import pump_frame as F
 
 OUT = pathlib.Path(__file__).resolve().parent.parent
@@ -73,7 +74,11 @@ ARC_SEGS         = 8              # chords per bend; error = R(1-cos(th/2N))
 # can sit, so the route is checked against SOMETHING concrete rather than left
 # undrawn. Moving it changes only these three numbers.
 UNISEAL_X = 73.0                  # in line with the tank tee, so the drop is straight
-UNISEAL_Z = F.DECK_Z + 26.0       # 190 — seal needs wall either side of the bore
+# Keyed off the LUMBER deck, not the old printed one. When the frame became
+# wood the deck rose from 188 to 208, and the tank line kept its old height and
+# ploughed 1343 mm3 through the deck planks — caught by the clearance report,
+# which is why the height is derived here rather than written down twice.
+UNISEAL_Z = L.DECK_Z + 26.0       # seal needs wall either side of the bore
 UNISEAL_Y = F.TANK_D              # 173 — the tank's +Y face
 
 # The X-runs sit 50 mm clear of the frame front because that is exactly what a
@@ -176,10 +181,10 @@ B_IN  = (-_LEGX_IN,  _YB,             _ZP)          # B inlet  -> GREEN, upward
 # radius. Asserted below rather than trusted.
 OVERHEAD_Z = 134.0
 _CLR_PUMP = OVERHEAD_Z - TUBE_OD / 2.0 - 119.0
-_CLR_BEAM = F.POST_Z1 - (OVERHEAD_Z + TUBE_OD / 2.0)
+_CLR_BEAM = L.RAIL_Z0 - (OVERHEAD_Z + TUBE_OD / 2.0)
 assert _CLR_PUMP > 0 and _CLR_BEAM > 0, (
     "the overhead run does not fit: %.1f mm over the pumps, %.1f mm under the "
-    "beams" % (_CLR_PUMP, _CLR_BEAM))
+    "rails" % (_CLR_PUMP, _CLR_BEAM))
 B_OUT = (+_LEGX_OUT, _YB + _LEG_END, _ZP)           # B outlet -> TANK
 
 TANK_TEE   = (+73.0, PLENUM_Y, _ZP)   # A_IN from -X, B_OUT from +X, tank from +Z
