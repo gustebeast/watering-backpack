@@ -42,18 +42,6 @@ OPEN = {
            "unsourced; elec/fab.py refuses to call the package orderable and "
            "lists them.",
 
-    "M13": "MEASURED AND FAILING, which is why it is open rather than decided. "
-           "The buck cluster is the one part of this board that was never "
-           "re-laid, and it is not what SNVSAA5B 7.4 draws: the switch node "
-           "runs 11.61 mm from U1.8 to L1.1, the feedback divider sits "
-           "10.93 mm from the FB pin it is supposed to be AT, the bootstrap "
-           "capacitor is 14.01 mm from BOOT, and RT and SS are 17.67 and "
-           "17.08 mm from their pins. Only the hot loop is close, and only "
-           "because C15 was added for it (4.43 mm to VIN, 5.44 mm to the GND "
-           "pin). On a rail that is also the ADC reference for both sensors "
-           "this is worth fixing rather than accepting, so it is placement "
-           "work, not a waiver.",
-
     "M15": "blocked on sourcing, specifically. The rule wants the output "
            "capacitor's ESR inside the datasheet's stability range and its "
            "EFFECTIVE capacitance read off the maker's DC-bias curve at the "
@@ -210,6 +198,39 @@ OPEN = {
 
 MANUAL = {
     # ══ must hold ═══════════════════════════════════════════════════════════
+    "M13": (
+        "re-laid against SNVSAA5B 7.4.1 and measured against it afterwards, "
+        "which is the comparison this rule asks for. It also found the thing "
+        "the comparison existed to find: the LMR14020 integrates ONE switch, "
+        "a 90 mOhm HIGH-SIDE MOSFET, and this board had no catch diode at all "
+        "-- guidelines 4 and 5 both refer to 'the diode D', 6.3 says 'the "
+        "high-side MOSFET is off and the external low side diode conducts', "
+        "and 7.2.2.5 is a whole section on selecting it. D6 is now fitted "
+        "(SCHOTTKY-60V-3A, SMA). Every distance in the cluster, before -> "
+        "after, in millimetres pad to pad: CIN to VIN 4.43 -> 3.80 and CIN to "
+        "the GND pin 5.44 -> 3.80, which are now EQUAL because VIN (pin 2) and "
+        "GND (pin 7) sit directly opposite at dy +0.635, 4.95 mm apart across "
+        "the body, so a bridging ceramic has a floor and centring it above the "
+        "package is what reaches that floor; bootstrap cap 14.01 -> 4.90; "
+        "switch node 11.61 -> 7.05; FB pin to the divider's tap 6.07 -> 1.77 "
+        "and to R1's tap 10.93 -> 2.73, with the whole FB node now 3.85 mm of "
+        "track; inductor output to COUT 10.36 -> 2.85; RT 17.67 -> 2.30; SS "
+        "17.08 -> 4.33. The new commutation loop is 7.39 mm of track outside "
+        "the parts, with the diode's two legs balanced at 3.60 and 3.80 mm. "
+        "Guideline 1's second half, the sense path kept off the noise, is "
+        "measured too: the nearest FB track comes 3.56 mm to a SW track and "
+        "the nearest +3V3 track 3.53 mm, neither of them adjacent. The switch "
+        "node is no bigger than it must be and is not a heatsink -- it is a "
+        "track, not a pour. Two deliberate deviations, both named: D6 takes "
+        "the place beside pins 7 and 8 and L1 the next one out, which costs "
+        "the switch node about 3.5 mm, because the diode is the part that "
+        "COMMUTATES and guideline 3's own reason for keeping the inductor "
+        "close is radiated noise rather than loop area; and RT and SS are in "
+        "none of the six guidelines, both carrying microamps into a timing "
+        "pin, so C14 at 4.33 mm gives up nothing the datasheet asked for. "
+        "Smallest courtyard gap in the cluster is 0.230 mm and every gap is "
+        "positive."
+    ),
     "M1": (
         "six connectors, each pin order declared ONCE in elec/main.py's "
         "gen.part call and nowhere else. Five are wire-entry terminals, so "

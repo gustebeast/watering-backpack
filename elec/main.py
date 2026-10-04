@@ -98,6 +98,45 @@ def _house(v, unit):
 # board's 0.6 A load instead would ask for 23..46 uH, and every one of those
 # saturates below the current limit -- which is how a 2 A regulator used at
 # 0.6 A talks you into an inductor its own fault current destroys.
+# ⚠ THE BUCK HAD NO CATCH DIODE, AND IT IS NOT A SYNCHRONOUS PART.
+# The LMR14020 integrates ONE switch: "90mOhm high-side MOSFET" (features), "It
+# integrates a 90 mOhm (typical) high-side MOSFET" (6.1). There is no low-side
+# device in it, so the inductor current has nowhere to go when that switch opens
+# unless an external rectifier gives it a path. The datasheet is not subtle
+# about this -- 6.3 describes the current freewheeling "through freewheel diode
+# with a slope of -VOUT / L", 6.3 again says "the high-side MOSFET is off and the
+# EXTERNAL LOW SIDE DIODE conducts", Figure 7-1's application circuit carries a
+# component D, 7.2.2.5 is a whole section called Schottky Diode Selection, and
+# the layout example on the facing page labels it "Rectifier Diode".
+#
+# This board had L1, C15, C3, C4, C5, R1, R2, R8 and C14 -- every external part
+# in that figure EXCEPT D. With the switch open the SW node is driven negative
+# by the inductor until something conducts, and SW's absolute minimum is -3 V
+# (5.1). The 3V3 rail would not have come up, which means no MCU, no joystick
+# reading and no logic for the gate drivers: the whole board, not just the buck.
+#
+# THE PART, from 7.2.2.5's own rules:
+#   "The breakdown voltage rating of the diode is preferred to be 25% higher
+#   than the maximum input voltage" -- 1.25 x 20 V = 25 V, which is the floor.
+#   60 V is used instead, for the reason the module docstring gives: everything
+#   on this node is rated past a fresh pack AND past the TVS's 38.9 V clamp,
+#   and SW's own absolute maximum is 44 V. It also makes this the same
+#   requirement as the pump freewheels, one fewer number to get wrong.
+#   "The current rating for the diode must be equal to the maximum output
+#   current ... A 2.5 A to 3 A rated diode is a good starting point" -- 3 A.
+#   The average is far below that: (1 - D) x IOUT = 0.835 x 0.6 = 0.50 A.
+BUCK_CATCH_VR_MIN = 60.0     # V, see above; the datasheet's own floor is 25
+BUCK_CATCH_IF_MIN = 3.0      # A, SNVSAA5B 7.2.2.5's own starting point
+BUCK_CATCH_VALUE  = "SCHOTTKY-%.0fV-%.0fA" % (BUCK_CATCH_VR_MIN, BUCK_CATCH_IF_MIN)
+BUCK_CATCH_I_AVG  = (1.0 - 3.3 / VBAT_MAX) * 0.6
+assert BUCK_CATCH_VR_MIN >= 1.25 * VBAT_MAX, (
+    "SNVSAA5B 7.2.2.5 wants the catch diode 25%% above the maximum input: "
+    "%.0f V against a %.0f V pack needs %.1f" % (BUCK_CATCH_VR_MIN, VBAT_MAX,
+                                                 1.25 * VBAT_MAX))
+assert BUCK_CATCH_IF_MIN > BUCK_CATCH_I_AVG * 2.0, (
+    "the catch diode carries %.2f A average and is rated %.1f"
+    % (BUCK_CATCH_I_AVG, BUCK_CATCH_IF_MIN))
+
 BUCK_ILIM_MAX   = 3.8        # A, SNVSAA5B 5.5, high-side current limit, max
 BUCK_L_UH       = 10.0
 BUCK_L_ISAT     = 4.6        # A, SRN6045TA-100M, Isat typ (30 % L drop)
@@ -223,6 +262,12 @@ assert TVS_CLAMP < BUCK_VIN_ABSMAX, (
 # the FET's +-20 V is if D5 is the wrong Zener or is not fitted -- in which case
 # R9 pulls the gate rail to the pack and 20 V arrives at a gate rated 20 V. This
 # is why there is a Zener and not just a dropper, written as a check.
+# The buck's catch diode sits on SW, and SW follows VIN whenever the high-side
+# switch is on -- so a clamp event arrives there too, at the same 38.9 V.
+assert BUCK_CATCH_VR_MIN > TVS_CLAMP, (
+    "the catch diode is rated %.0f V and the TVS clamps at %.1f: SW follows "
+    "VIN, so the clamp arrives at the rectifier as well"
+    % (BUCK_CATCH_VR_MIN, TVS_CLAMP))
 assert VGATE_V < PUMP_FET_VGS_MAX * 0.75, (
     "VGATE is %.1f V against a %.0f V gate rating: a shunt rail wants real "
     "headroom, because the failure mode of the shunt is the full pack"
@@ -331,6 +376,13 @@ def circuit():
     c_bki = gen.part("C15", "4u7/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
                      "buck input -- the hot loop. Keep it AT pins 2 and 7")
     c_bt = gen.part("C3", CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2, "boot")
+    # The rectifier the LMR14020 cannot work without -- see the block above.
+    # Cathode on SW, anode on GND: during the off-time the inductor pulls SW
+    # DOWN, so this is the part that holds the node one diode drop below ground
+    # instead of letting it run to the -3 V where the pin's rating ends.
+    d_cat = gen.part("D6", BUCK_CATCH_VALUE, "Diode_SMD:D_SMA", ["K", "A"],
+                     "buck catch diode -- %.2f A average, %.0f V node"
+                     % (BUCK_CATCH_I_AVG, VBAT_MAX))
     c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2, "3V3 out")
     c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "3V3 out")
     r_f1 = gen.part("R1", FB_TOP, "Resistor_SMD:R_0603_1608Metric", 2, "FB top")
@@ -350,13 +402,13 @@ def circuit():
                     "buck soft-start, ~2.5 ms")
 
     vbat += u_bk["VIN"], u_bk["EN"], c_bki[1]
-    n_sw += u_bk["SW"], l1[1], c_bt[2]
+    n_sw += u_bk["SW"], l1[1], c_bt[2], d_cat["K"]
     v3v3 += l1[2], c_o1[1], c_o2[1], r_f1[1], j_joy["3V3"], j_prg["3V3"]
     n_fb += r_f1[2], r_f2[1], u_bk["FB"]
     n_rt += u_bk["RT"], r_rt[1]
     n_ss += u_bk["SS"], c_ss[1]
     gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], r_f2[2], r_rt[2],
-             c_ss[2], c_bki[2])
+             c_ss[2], c_bki[2], d_cat["A"])
     c_bt[1] += u_bk["BOOT"]
 
     # ── MCU ─────────────────────────────────────────────────────────────────
@@ -691,16 +743,77 @@ BOARD_NOTES = {
         # must not do is sit in a power corridor.
         "R9": (-21.0, -12.5, 0.0), "D5": (-17.0, -8.0, 0.0),
         "C13": (-17.0, -4.0, 0.0),
-        # -- buck, top left: UNCHANGED ---------------------------------------
-        "U1": (-36.0, 26.0, 0.0), "L1": (-20.0, 26.0, 0.0),
-        "C3": (-36.0, 14.0, 0.0), "C4": (-8.0, 20.0, 0.0),
-        "C5": (-8.0, 26.0, 0.0),  "R1": (-27.0, 16.0, 0.0),
-        "R2": (-27.0, 22.0, 0.0), "R8": (-27.0, 10.0, 0.0),
-        "C14": (-20.0, 14.0, 0.0),
-        # The buck's input ceramic, AT the part: U1's VIN pad is at (-38.5,
-        # 26.6) and its GND pad at (-33.5, 26.6), so this sits just above both
-        # and the hot loop closes in millimetres instead of in 38.
-        "C15": (-38.5, 30.8, 0.0),
+        # -- buck: RE-LAID AGAINST SNVSAA5B 7.4, which it did not obey ------
+        # The old cluster was never re-laid and it showed, measured on the
+        # routed board: 11.61 mm of switch node, the feedback divider 10.93 mm
+        # from the pin it is supposed to be AT, the bootstrap capacitor
+        # 14.01 mm from BOOT, RT 17.67 and SS 17.08. And it was missing the
+        # rectifier entirely -- see the BUCK_CATCH block above, which is the
+        # reason this region was opened at all.
+        #
+        # ⚠ EVERY DELTA BELOW IS MEASURED, and two of the guesses were wrong.
+        # U1 is a dual-row HSOIC, so its pin PAIRS sit directly opposite:
+        #   pad 1 BOOT d(-2.475,+1.905)   pad 8 SW  d(+2.475,+1.905)
+        #   pad 2 VIN  d(-2.475,+0.635)   pad 7 GND d(+2.475,+0.635)
+        #   pad 3 EN   d(-2.475,-0.635)   pad 6 SS  d(+2.475,-0.635)
+        #   pad 4 RT   d(-2.475,-1.905)   pad 5 FB  d(+2.475,-1.905)
+        #   courtyard d(+-3.745, +-2.745)
+        #   D_SMA rot 270  pads d(0,+2.000) K and d(0,-2.000) A
+        #                  courtyard d(+-1.795, +-3.545)
+        # VIN and GND being opposite is the fact that shapes this whole region:
+        # they are 4.95 mm apart across the body, so CIN cannot sit beside both
+        # and the hot loop has a floor. Centring C15 ABOVE the package makes
+        # the two legs EQUAL at 3.80 mm rather than the old 4.43 and 5.44.
+        #
+        # SNVSAA5B 7.4.1's six guidelines, and where each one landed:
+        #   1. "The feedback network ... must be kept close to the FB pin"
+        #        -> R2 directly BELOW pin 5, its FB pad 1.77 mm from it, with
+        #           R1 beside it so both tap pads share one small node
+        #   2. "CIN ... as close as possible to the VIN pin and ground" -> C15
+        #   3. "The inductor L must be placed close to the SW pin"      -> L1
+        #   4. "COUT must be placed close to the junction of L and the diode"
+        #        -> C4 at L1's output pad, 2.85 mm
+        #   5. "The ground connection for the diode, CIN, and COUT must be as
+        #      small as possible"
+        #   6. (a pointer to AN-1149)
+        # Note what is NOT in that list: RT and SS. Both carry microamps into a
+        # timing pin, so they get what is left over rather than a short run, and
+        # C14 at 4.33 mm is not a compromise of anything the datasheet asked.
+        #
+        # ⚠ THE ORDER RIGHT OF THE PACKAGE IS D6, THEN L1, AND NOT THE OTHER
+        # WAY ROUND -- it costs the switch node 3.5 mm and is still right.
+        # Guideline 3 wants the inductor at SW and guideline 5 wants the diode's
+        # ground short, and they compete for the same 3 mm. The diode wins
+        # because it is the part that COMMUTATES: every cycle the inductor
+        # current steps out of the high-side switch and into D6, so the loop
+        # SW-D6-GND is where di/dt lives, and its area sets the ringing on a
+        # node whose rating stops at -3 V. The inductor's own current does not
+        # step at all, and guideline 3's stated reason for keeping it close is
+        # "to reduce magnetic and electrostatic noise" -- a radiation argument,
+        # not a loop-area one. So D6 sits between pins 7 and 8, which are
+        # adjacent, with both its legs balanced at 3.60 and 3.79 mm, and L1
+        # takes the next place out: 7.05 mm of switch node instead of 11.61.
+        "U1": (-36.0, 26.0, 0.0),
+        "C15": (-36.0, 30.3, 0.0),      # CIN: the hot loop, 3.80 mm each leg
+        "C3": (-36.0, 32.5, 0.0),       # BOOT, above CIN -- also a left-to-
+                                        # right bridge (BOOT pin 1, SW pin 8)
+        "D6": (-30.1, 27.0, 270.0),     # catch: K up to SW, A down to GND
+        "L1": (-24.4, 27.905, 0.0),     # SW pad on pin 8's own y
+        "C4": (-18.0, 27.905, 0.0),     # COUT, at L1's output pad
+        # ⚠ C5 IS NOT AT THE BUCK, AND IT NEVER REALLY WAS. It sat at (-8, 26)
+        # with a comment calling it "3V3 out", and what it was actually doing
+        # there was being J6's bypass: A2 gives a connector 25 mm to its
+        # nearest charge, and C5's pad was the only +3V3 ceramic inside that of
+        # J6.1 -- 20.9 mm, where C4 was 25.88 and failed. Moving it to the
+        # inductor broke A2 on J6 and that is how this was found. So it is
+        # placed for the job it has: the local charge for the 3V3 that LEAVES
+        # the board down the programmer's cable, exactly as C16 is for J4.
+        # C4 is the output capacitor and does the high-frequency work alone.
+        "C5": (-6.0, 30.0, 0.0),        # +3V3 at J6: pad to pad 16.7 mm
+        "R2": (-33.525, 21.5, 270.0),   # FB -> GND, 1.77 mm below pin 5
+        "R1": (-35.6, 21.5, 90.0),      # +3V3 -> FB, its tap pad beside R2's
+        "C14": (-30.3, 21.8, 0.0),      # SS, under D6
+        "R8": (-41.6, 24.095, 180.0),   # RT, left of the package at pin 4's y
         # -- MCU cluster, UNCHANGED ------------------------------------------
         # 270, not 90: at rot 90 the antenna fan points -X, straight back over
         # the board. At 270 it leaves the laminate at x=47.5 and the only thing
@@ -728,7 +841,7 @@ BOARD_NOTES = {
         # TP5 on the switch node between U1.8 and L1.
         "TP1": (10.0, -16.0, 0.0),  "TP2": (-18.0, -12.0, 0.0),
         "TP3": (0.0, 31.0, 0.0),    "TP4": (-14.0, -8.0, 0.0),
-        "TP5": (-28.0, 26.0, 0.0),  "TP6": (-26.2, -8.0, 0.0),
+        "TP5": (-30.1, 32.2, 0.0),  "TP6": (-26.2, -8.0, 0.0),
         "TP7": (-0.2, -8.0, 0.0),   "TP8": (27.0, 3.0, 0.0),
         "TP9": (24.0, -20.0, 0.0),  "TP10": (24.0, -32.0, 0.0),
     },
