@@ -53,6 +53,13 @@ Two layers of reusable capability back a cadkit project:
     mechanical model), run it, then run `cadkit/pcbflow/finish.py elec/out/<board>`
     under KiCad's Python: placed, autorouted, DRC-checked, labelled, exported. PCB_README
     §0 is the walkthrough.
+    **Every board is held to `cadkit/PCB_QUALITY.md`** — the standard validation pass:
+    automated rules (`cadkit/pcbflow/quality.py`, run by `finish.py`) and a manual
+    checklist you perform against the datasheets and sign, with evidence, in the
+    board's `BOARD_NOTES["quality"]`. Do not order, or call a board done, above
+    `0 FAIL, 0 OPEN`. When a board comes back wrong, or a review finds what no rule
+    caught, add the rule THERE (in the canonical cadkit repo) — that file's "Adding a
+    learning" section is the procedure.
     The same README carries the PCB design guidance (mounting, connector choice,
     layout, pre-order checklist). `cadkit.pcb` is the plastic side: `pcb_cradle` and
     drawing-accurate JST headers.

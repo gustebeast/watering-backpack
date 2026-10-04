@@ -38,6 +38,10 @@ cadkit/
                      placements) -> placed, autorouted, DRC-clean, labelled board,
                      its geom file and its fab package. gen.py (generator helpers),
                      layout/route/finish/verify/close_last, fab_package.py, example/
+  PCB_QUALITY.md     THE standard PCB validation pass and the one place PCB lessons
+                     go: automated rules (pcbflow/quality.py -- supply choke points
+                     and drop, bypass capacitors, matched pairs, pinout citations)
+                     plus a manual checklist each board signs with evidence
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP

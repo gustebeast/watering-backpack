@@ -22,10 +22,14 @@ Then one command, under KiCad's own Python, does the rest:
     close_last.py     maze-closes what the router left, kept only if DRC is strictly better
     silk.py           board name + revision, test-pad nets, connector pinouts
     verify.py         length-matched groups inside budget and on one layer set
+    quality.py        THE STANDARD VALIDATION PASS, cadkit/PCB_QUALITY.md: supply choke
+                      points and drop, bypass capacitors, pairs, pinout citations, and
+                      the manual checklist the board's notes must sign
     export_geom.py    -> elec/geom/<board>.geom.json, which the CAD builds the board from
     cad_geom_check.py is the CAD's board the routed one? (your project supplies this)
 
-The result is clean only at `0 unconnected, 0 violation(s)` with no verify FAIL.
+The result is clean only at `0 unconnected, 0 violation(s)` with no verify FAIL, and
+may be ORDERED only at `quality: 0 FAIL, 0 OPEN`.
 
     gen.py            helpers for the generator side (your CAD Python): begin / part / emit
     netcheck.py       netlist checks nothing else can see (return nets that never meet,
