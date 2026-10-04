@@ -41,6 +41,36 @@ RDIV_TOP, RDIV_BOT = "100k", "18k"
 # at the source. 1k + 100n = 1.6 kHz — far above a hand, far below switching.
 RC_R, RC_C = "1k", "100n"
 
+# ── Pump power semiconductors: REQUIREMENTS, not part numbers ───────────────
+# CIRCUIT.md §1 fixes both, and the value strings below are DERIVED from these
+# numbers so a value can no longer assert a rating the design did not ask for.
+# That is not hypothetical. This board previously carried:
+#
+#   Q1/Q2  "AOD4184A-60V"   -- AOD4184A is a 40 V part. §1 requires >= 60 V and
+#                              rejects 40 V by name: "40 V leaves ~20 V of
+#                              margin over a fresh pack; 60 V leaves 40. The
+#                              part costs the same."
+#   D2/D3  "SS16H-60V-15A"  -- SS16H is a 1 A 60 V SMA diode. §1 requires
+#                              >= 15 A in D2PAK, and this one sits in a
+#                              TO-263-2 land carrying ~3.75 A average and 7.5 A
+#                              peak. It would not have survived.
+#
+# The 40 V FET also broke the protection coordination: the SMBJ24A was chosen
+# because its ~39 V clamp sits under the FET rating, and 39 of 40 V is no margin
+# at all. The assert below is that coupling, written down.
+PUMP_FET_VDS_MIN   = 60.0        # V, CIRCUIT.md §1
+PUMP_FET_RDSON_MAX = 10.0        # mOhm at 4.5 V Vgs
+FREEWHEEL_VR_MIN   = 60.0        # V
+FREEWHEEL_IF_MIN   = 15.0        # A
+TVS_CLAMP          = 39.0        # SMBJ24A, approx
+assert TVS_CLAMP < PUMP_FET_VDS_MIN, (
+    "the TVS clamps at %.0f V; a pump FET rated %.0f V has no margin behind it"
+    % (TVS_CLAMP, PUMP_FET_VDS_MIN))
+# Neither part is sourced. The value carries the REQUIREMENT so that whoever
+# sources it has to satisfy it, and elec/fab.py counts both as open.
+PUMP_FET_VALUE  = "NFET-%.0fV-%.0fmR" % (PUMP_FET_VDS_MIN, PUMP_FET_RDSON_MAX)
+FREEWHEEL_VALUE = "SCHOTTKY-%.0fV-%.0fA" % (FREEWHEEL_VR_MIN, FREEWHEEL_IF_MIN)
+
 
 def circuit():
     gnd  = Net("GND")
@@ -135,12 +165,12 @@ def circuit():
     # margin; ~5 mOhm gives ~0.28 W at 7.5 A, against ~0.9 W for a BTS7960 half.
     for n, (gate, lo, pwm, jp) in enumerate(
             ((n_gA, n_pA, n_pwmA, j_pa), (n_gB, n_pB, n_pwmB, j_pb)), start=1):
-        q = gen.part("Q%d" % n, "AOD4184A-60V", "Package_TO_SOT_SMD:TO-252-3_TabPin2",
+        q = gen.part("Q%d" % n, PUMP_FET_VALUE, "Package_TO_SOT_SMD:TO-252-3_TabPin2",
                      {1: "G", 2: "D", 3: "S"}, "pump %d low-side switch" % n)
         u = gen.part("U%d" % (2 + n), "UCC27517", "Package_TO_SOT_SMD:SOT-23-5",
                      {1: "IN", 2: "GND", 3: "NC", 4: "OUT", 5: "VDD"},
                      "gate driver — 7.5 A at 20 kHz is not a job for a bare GPIO")
-        d = gen.part("D%d" % (1 + n), "SS16H-60V-15A", "Package_TO_SOT_SMD:TO-263-2",
+        d = gen.part("D%d" % (1 + n), FREEWHEEL_VALUE, "Package_TO_SOT_SMD:TO-263-2",
                      ["A", "K"], "freewheel — the board's largest heat source, ~1.5 W")
         rg = gen.part("R%d" % (3 + n), "10R", "Resistor_SMD:R_0603_1608Metric", 2, "gate")
         rp = gen.part("R%d" % (5 + n), "100k", "Resistor_SMD:R_0603_1608Metric", 2,
