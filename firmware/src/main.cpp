@@ -11,6 +11,26 @@
  * driven HIGH while the pump is commanded and dropped LOW at idle — a true
  * coast/disable.
  *
+ * PUMP VOLTAGE IS REGULATED. The pumps are 12 V and the pack is 15-20 V, so the
+ * duty ceiling tracks the pack through the VBAT divider on IO35 and holds the
+ * average armature voltage at 12 V (see "Pump voltage regulation"). Until this
+ * existed, RUN_DUTY was PWM_MAX and every engage put the whole pack across a
+ * 12 V pump.
+ *
+ * ── THIS FILE STILL DESCRIBES v1 HARDWARE, AND MOSTLY RUNS ON v2 BY LUCK ─────
+ * v2 has no BTS7960. elec/CIRCUIT.md §1 replaced it with a discrete low-side
+ * MOSFET + gate driver PER PUMP, and DESIGN_V2.md §1 replaced the manual X-port
+ * valve with TWO pumps in anti-parallel. What that means here:
+ *
+ *   - IO26/IO25 still land on something real: they are pump A and pump B's gate
+ *     drivers on the v2 board. "Forward" happens to mean pump A. Coincidence.
+ *   - EN_PIN (IO4) is connected to NOTHING on the v2 board. The writes to it are
+ *     harmless and meaningless; the low-side FETs coast whenever PWM is 0.
+ *   - FORWARD-ONLY is now a real functional gap, not a design choice. Direction
+ *     is supposed to come from running pump B instead of pump A, and pump B is
+ *     never driven, so suck is unimplemented.
+ *   - IO14 (tank level) and IO27 (buzzer) are provisioned on the board and unread.
+ *
  * Power: feed the board 5 V (from the TSR) through the 5vF pad (PTC-fused).
  *
  * Pads (QuinLED-ESP32, chosen non-adjacent for direct soldering):
@@ -83,6 +103,7 @@
 
 // ── Pin map ──────────────────────────────────────────────────────────────────
 constexpr int JOY_PIN  = 34;   // ADC1 (input-only is fine for an analog read)
+constexpr int VBAT_PIN = 35;   // ADC1_CH7, input-only — VBAT_SENSE off R20/R21
 constexpr int RPWM_PIN = 26;   // BTS7960 RPWM — forward
 constexpr int LPWM_PIN = 25;   // BTS7960 LPWM — reverse
 constexpr int EN_PIN   = 4;    // BTS7960 R_EN + L_EN (tied together) — enable/coast
@@ -92,6 +113,41 @@ constexpr int PWM_FREQ = 20000;              // 20 kHz — above audible, OK for
 constexpr int PWM_RES  = 8;                  // 8-bit duty (0..255)
 constexpr int PWM_MAX  = (1 << PWM_RES) - 1;
 constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g. 200)
+
+// ── Pump voltage regulation ──────────────────────────────────────────────────
+// The pumps are 12 V. The pack is 15-20 V. elec/CIRCUIT.md §1: "Duty is capped
+// in firmware to synthesise 12 V from an 18-20 V pack. PWM already chops the
+// supply, so the motor does not care -- but the cap must track the pack voltage,
+// which is what the divider below is for."
+//
+// Nothing was tracking it. RUN_DUTY is PWM_MAX, so every engage put the whole
+// pack across a 12 V pump: 1.7x rated on a fresh one. The divider has been on
+// the board the entire time -- R20/R21, 100k/18k into IO35, with C11 across the
+// bottom leg -- and no line of firmware read it.
+//
+// For a PWM'd brushed motor with a freewheel path the average armature voltage
+// is duty x V_pack, which is what makes the cap a one-liner:
+//
+//     pack 20.0 V -> cap 153  (60 %)
+//     pack 18.0 V -> cap 170  (67 %)
+//     pack 15.0 V -> cap 204  (80 %)
+//
+// CIRCUIT.md gives the divider a second job as well -- "expose sag in telemetry.
+// This would have diagnosed v1's mid-run slowdown in thirty seconds" -- so the
+// pack voltage and the live cap are both on the 's' status line.
+constexpr float PUMP_V_NOM  = 12.0f;         // pump nameplate
+constexpr float RDIV_TOP_K  = 100.0f;        // R20, from elec/main.py
+constexpr float RDIV_BOT_K  = 18.0f;         // R21
+constexpr float VBAT_SCALE  = (RDIV_TOP_K + RDIV_BOT_K) / RDIV_BOT_K;   // 6.5556
+// Plausibility window. An open divider reads ~0 and a shorted one reads full
+// scale, and in either case the cap falls back to the value for the HIGHEST
+// expected pack -- the LOWEST duty. A sensor fault must never be able to raise
+// the duty, which is why the fallback is not PWM_MAX.
+constexpr float VBAT_PLAUS_LO = 10.0f;
+constexpr float VBAT_PLAUS_HI = 22.0f;       // the divider saturates at 21.6
+constexpr float VBAT_ASSUMED  = 20.0f;       // fresh pack: the safe assumption
+constexpr int   VBAT_EVERY_N  = 20;          // 5 ms loop -> read every ~100 ms
+constexpr float VBAT_EMA_A    = 1.0f / 16.0f;   // slow; the pack sags slowly
 
 // ── Joystick / control tunables ──────────────────────────────────────────────
 constexpr int ADC_RES   = 12;
@@ -196,6 +252,13 @@ bool armed     = true;                       // false = motor inhibited, telemet
 bool otaActive = false;
 
 int32_t dutyQ8 = 0;                          // current duty, Q8 fixed point
+
+// Pack voltage and the duty ceiling it implies. Both start at the SAFE end: as
+// if the pack were fresh, so the very first engage after boot is capped even if
+// no ADC reading has landed yet.
+float vbatV   = VBAT_ASSUMED;
+bool  vbatOK  = false;                       // a plausible reading has been seen
+int   vbatCap = (int)(PWM_MAX * PUMP_V_NOM / VBAT_ASSUMED);
 
 Preferences prefs;
 WiFiServer  logServer(LOG_PORT);
@@ -311,8 +374,25 @@ void allStop() {
   digitalWrite(EN_PIN, LOW);
 }
 
+// analogReadMilliVolts applies the chip's factory ADC calibration. The raw
+// 12-bit count is markedly nonlinear near both rails, and at 20 V the divider
+// sits at 3.05 V -- right in the compressed region -- so a raw count would bias
+// the cap in the dangerous direction.
+void readVbat() {
+  float v = analogReadMilliVolts(VBAT_PIN) * 0.001f * VBAT_SCALE;
+  if (v >= VBAT_PLAUS_LO && v <= VBAT_PLAUS_HI) {
+    if (!vbatOK) { vbatV = v; vbatOK = true; }   // seed, don't crawl down from 20
+    else         { vbatV += (v - vbatV) * VBAT_EMA_A; }
+  } else {
+    vbatOK = false;                              // fall back to the safe end
+    vbatV  = VBAT_ASSUMED;
+  }
+  int cap = (int)(PWM_MAX * PUMP_V_NOM / vbatV + 0.5f);
+  vbatCap = constrain(cap, 1, PWM_MAX);          // a pack under 12 V gets it all
+}
+
 void driveMotor(int duty) {
-  ledcWrite(RPWM_PIN, constrain(duty, 0, DUTY_CAP));
+  ledcWrite(RPWM_PIN, constrain(duty, 0, min(DUTY_CAP, vbatCap)));
 }
 
 void setArmed(bool on) {
@@ -354,11 +434,13 @@ void handleCommand(char c) {
       break;
     case 's':
       logf("state=%s centre=%d duty=%d | vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
-           "| ramp=%dms startduty=%d | on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
+           "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d "
+           "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
            armed ? "ARMED" : "DISARMED", joyCentre, curDuty,
            VOTE_K_ON, VOTE_N_ON, VOTE_K_OFF, VOTE_N_OFF,
            DEADBAND_ON, DEADBAND_OFF, RUN_DUTY,
-           RAMP_MS, START_DUTY, VOTE_K_ON * 5, VOTE_K_OFF * 5,
+           RAMP_MS, START_DUTY, (double)vbatV, vbatOK ? "" : "?", vbatCap,
+           VOTE_K_ON * 5, VOTE_K_OFF * 5,
            WiFi.RSSI(), WiFi.localIP().toString().c_str(), millis() / 1000UL);
       break;
     case 'R':
@@ -469,7 +551,14 @@ void setup() {
   armed = prefs.getBool("armed", true);
 
   analogReadResolution(ADC_RES);
-  Serial.printf("Pump controller ready. State = %s\n", armed ? "ARMED" : "DISARMED");
+  // 11 dB attenuation = the full ~3.3 V span. The divider puts a fresh pack at
+  // 3.05 V, so a narrower range would clip and read the pack as flatter than it
+  // is — which would RAISE the cap.
+  analogSetPinAttenuation(VBAT_PIN, ADC_11db);
+  readVbat();                          // seed before any engage is possible
+  Serial.printf("Pump controller ready. State = %s | pack %.2f V -> duty cap %d%s\n",
+                armed ? "ARMED" : "DISARMED", vbatV, vbatCap,
+                vbatOK ? "" : " (SENSE IMPLAUSIBLE - assuming a fresh pack)");
   measureCentre();                     // also seeds the median + EMA state
 
   netSetup();
@@ -479,6 +568,11 @@ void loop() {
   // ── Control law: runs first, every pass, regardless of network state ───────
   int raw  = analogRead(JOY_PIN);
   int filt = filterSample(raw);
+
+  // Pack voltage, decimated. It moves on the scale of minutes, and the joystick
+  // owns the fast path on the same ADC block.
+  static uint8_t vbatTick = 0;
+  if (++vbatTick >= VBAT_EVERY_N) { vbatTick = 0; readVbat(); }
 
   int rawOffset  = raw  - joyCentre;   // drives the on/off vote — the control path
   int offset     = filt - joyCentre;   // diagnostic only, reported but never acted on
@@ -499,7 +593,11 @@ void loop() {
   // RUN_DUTY; there is no intermediate level, so the pump can never sit at the slow
   // trickle that started all this. The original failure mode is now structurally
   // impossible rather than merely unlikely.
-  int target = engaged ? RUN_DUTY : 0;
+  // Capped by the pack voltage, not just RUN_DUTY. The ramp has to respect it
+  // too: clamping only inside driveMotor would let dutyQ8 wind up to 255 and
+  // sit there, so the moment a sagging pack raised the cap the output would
+  // jump instead of ramping.
+  int target = engaged ? min(RUN_DUTY, vbatCap) : 0;
 
   if (armed && !otaActive) {
     if (!engaged) {
