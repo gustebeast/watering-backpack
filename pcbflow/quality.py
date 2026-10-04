@@ -68,6 +68,9 @@ HINT = {
     "A8": "connect the pad as the datasheet says and put vias in it",
     "A10": "keep 1-10 uF directly on VBUS; bulk goes behind a load switch or soft-start",
     "A11": "write each value one way throughout the generator",
+    "A12": "move the hole, widen the ring or the track, enlarge the text -- or, if the "
+           "order really uses another fab or a costlier option, state its numbers in "
+           "quality.fab with where they were read",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
@@ -87,6 +90,7 @@ HARD = {
     "A6": ("are ONE net", "not 5.1 k", "resistors to ground on one CC"),
     "A10": ("cannot read the value",),
     "A11": ("",),
+    "A12": ("ring", "hole", "track width", "pad gap"),
 }
 
 
@@ -810,6 +814,248 @@ def value_spelling(ctx):
                                         for t, r in sorted(spellings.items())))))
         else:
             out.append((next(iter(spellings)), True, "one spelling"))
+    return out
+
+
+# ── A12: the board, measured against what the fab says it can make ───────────────────
+# The numbers a board is ROUTED to live in its design rules, and those were typed by
+# someone: on the first seven boards this was run on they were looser than the fab's own
+# page in five places (pad-hole spacing, plated-hole to track, silk height and stroke,
+# pad-to-pad). So this does not read the rules. It measures the copper, the holes and the
+# text that will be sent, against the fab's published minimums.
+FAB = {     # JLCPCB, standard (not "advanced") service, 1 oz -- capabilities page read 2026-10-04
+    "name": "JLCPCB standard 1 oz (capabilities page, read 2026-10-04)",
+    "track_2l": 0.10, "track_ml": 0.09,     # minimum track width, 1-2 layer / multilayer
+    "via_drill": 0.15,                      # smallest via hole at all
+    "via_drill_std": 0.30,                  # smaller than this costs more: a note
+    "via_ring": 0.05,                       # via pad at least 0.1 larger than its hole
+    "pth_ring_2l": 0.18, "pth_ring_ml": 0.15,   # component-hole annular ring, absolute min
+    "npth_min": 0.50,                       # smallest non-plated hole
+    "hole_hole_via": 0.20,                  # via hole to via hole, edge to edge
+    "hole_hole_pad": 0.45,                  # a pad hole to any other hole
+    "via_track": 0.20, "pth_track": 0.28, "npth_track": 0.20,   # hole edge to foreign copper
+    "pad_gap": 0.15,                        # SMD pad to pad, different nets
+    "silk_height": 1.0, "silk_stroke": 0.15,
+}
+
+
+def _seg_d(a, b, c, d):
+    """Least distance between segments a-b and c-d (points are (x, y) in mm)."""
+    def pt_seg(p, u, v):
+        ux, uy = v[0] - u[0], v[1] - u[1]
+        L2 = ux * ux + uy * uy
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - u[0]) * ux + (p[1] - u[1]) * uy) / L2))
+        return math.hypot(p[0] - u[0] - t * ux, p[1] - u[1] - t * uy)
+
+    def ccw(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    if a != b and c != d:
+        d1, d2, d3, d4 = ccw(c, d, a), ccw(c, d, b), ccw(a, b, c), ccw(a, b, d)
+        if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
+            return 0.0
+    return min(pt_seg(a, c, d), pt_seg(b, c, d), pt_seg(c, a, b), pt_seg(d, a, b))
+
+
+def _via_dia(v):
+    for args in ((pcbnew.F_Cu,), ()):
+        try:
+            return MM(v.GetWidth(*args))
+        except Exception:               # noqa: BLE001 -- the signature moved between KiCad versions
+            pass
+    return 0.0
+
+
+def _pad_size(p):
+    for args in ((pcbnew.F_Cu,), ()):
+        try:
+            sz = p.GetSize(*args)
+            return MM(sz.x), MM(sz.y)
+        except Exception:               # noqa: BLE001
+            pass
+    return 0.0, 0.0
+
+
+@rule("A12")
+def fab_capability(ctx):
+    b = ctx.board
+    fab = dict(FAB)
+    fab.update(ctx.q.get("fab", {}) or {})
+    multi = b.GetCopperLayerCount() > 2
+    lim_track = fab["track_ml"] if multi else fab["track_2l"]
+    lim_ring = fab["pth_ring_ml"] if multi else fab["pth_ring_2l"]
+    out = [("fab", None, "measured against: %s%s" % (
+        fab["name"], "" if "fab" not in ctx.q else " + quality.fab"))]
+
+    def worst(subject, items, limit, what, unit="mm"):
+        """items: [(value, where)] -- one finding per check, naming the worst and the count."""
+        if not items:
+            return
+        bad = sorted(i for i in items if i[0] < limit - 1e-6)
+        v, where = min(items)
+        if bad:
+            out.append((subject, False, "%s: %.3f %s at %s, the fab's minimum is %.2f (%d place(s))"
+                        % (what, v, unit, where, limit, len(bad))))
+        else:
+            out.append((subject, True, "%s: least %.3f %s (minimum %.2f), %d checked"
+                        % (what, v, unit, limit, len(items))))
+
+    # holes: (kind, a, b, radius, net, name) -- a round hole has a == b, a slot is a-b
+    holes, tracks, small_vias = [], [], 0
+    for t in b.GetTracks():
+        if t.GetClass() == "PCB_VIA":
+            xy = (MM(t.GetPosition().x), MM(t.GetPosition().y))
+            dr, dia = MM(t.GetDrillValue()), _via_dia(t)
+            holes.append(("via", xy, xy, dr / 2.0, t.GetNetname(), "via %s" % _where(ctx, xy), dia))
+            if dr < fab["via_drill_std"] - 1e-6:
+                small_vias += 1
+        else:
+            a = (MM(t.GetStart().x), MM(t.GetStart().y))
+            c = (MM(t.GetEnd().x), MM(t.GetEnd().y))
+            tracks.append((a, c, MM(t.GetWidth()), t.GetNetname(), t.GetLayerName()))
+    rings = []
+    for ref, fp in ctx.fps.items():
+        for pad in fp.Pads():
+            att = pad.GetAttribute()
+            if att not in (pcbnew.PAD_ATTRIB_PTH, pcbnew.PAD_ATTRIB_NPTH):
+                continue
+            ds = pad.GetDrillSize()
+            dx, dy = MM(ds.x), MM(ds.y)
+            if min(dx, dy) <= 0:
+                continue
+            x, y = _xy(pad)
+            r = min(dx, dy) / 2.0
+            half = (max(dx, dy) - min(dx, dy)) / 2.0
+            ang = math.radians(pad.GetOrientation().AsDegrees())
+            ux, uy = (math.cos(ang), -math.sin(ang)) if dx >= dy else (math.sin(ang), math.cos(ang))
+            a, c = (x - ux * half, y - uy * half), (x + ux * half, y + uy * half)
+            name = "%s.%s" % (ref, pad.GetNumber() or "hole")
+            if att == pcbnew.PAD_ATTRIB_PTH:
+                holes.append(("pth", a, c, r, pad.GetNetname(), name, 0.0))
+                sx, sy = _pad_size(pad)
+                if sx and sy:
+                    rings.append((min(sx - dx, sy - dy) / 2.0, name))
+            else:
+                holes.append(("npth", a, c, r, "", name, 0.0))
+
+    worst("track width", [(w, "%s on %s %s" % (n or "no net", L, _where(ctx, a)))
+                          for a, c, w, n, L in tracks], lim_track, "narrowest track width")
+    vias = [h for h in holes if h[0] == "via"]
+    worst("via hole", [(2 * h[3], h[5]) for h in vias], fab["via_drill"], "smallest via hole")
+    worst("via ring", [((h[6] - 2 * h[3]) / 2.0, h[5]) for h in vias if h[6]],
+          fab["via_ring"], "thinnest via ring")
+    if small_vias:
+        out.append(("via cost", None, "%d via(s) are drilled under %.2f mm: the fab charges "
+                    "more for them -- select that option on the order" % (small_vias, fab["via_drill_std"])))
+    worst("pad ring", rings, lim_ring, "thinnest plated-hole annular ring")
+    worst("npth hole", [(2 * h[3], h[5]) for h in holes if h[0] == "npth"], fab["npth_min"],
+          "smallest non-plated hole")
+
+    # hole to hole, edge to edge
+    hh_via, hh_pad = [], []
+    order = sorted(range(len(holes)), key=lambda i: holes[i][1][0])
+    for ii, i in enumerate(order):
+        hi = holes[i]
+        for j in order[ii + 1:]:
+            hj = holes[j]
+            if hj[1][0] - hi[2][0] > 8.0 and hj[1][0] - hi[1][0] > 8.0:
+                break
+            if abs(hj[1][1] - hi[1][1]) > 8.0:
+                continue
+            gap = _seg_d(hi[1], hi[2], hj[1], hj[2]) - hi[3] - hj[3]
+            if gap > 1.0:
+                continue
+            (hh_via if hi[0] == hj[0] == "via" else hh_pad).append((gap, "%s / %s" % (hi[5], hj[5])))
+    worst("via hole spacing", hh_via or [(1.0, "none nearer than 1 mm")], fab["hole_hole_via"],
+          "via hole to via hole")
+    worst("pad hole spacing", hh_pad or [(1.0, "none nearer than 1 mm")], fab["hole_hole_pad"],
+          "pad hole to its nearest hole")
+
+    # hole edge to copper of another net (tracks; pads and pours keep their own clearance
+    # from the PAD, which is the ring further out -- so the ring check covers them)
+    grid = collections.defaultdict(list)
+    cell = 2.0
+    for k, (a, c, w, n, L) in enumerate(tracks):
+        for gx in range(int(math.floor(min(a[0], c[0]) / cell)) - 1, int(math.floor(max(a[0], c[0]) / cell)) + 2):
+            for gy in range(int(math.floor(min(a[1], c[1]) / cell)) - 1, int(math.floor(max(a[1], c[1]) / cell)) + 2):
+                grid[(gx, gy)].append(k)
+    near = {"via": [], "pth": [], "npth": []}
+    for kind, a, c, r, net, name, _d in holes:
+        seen = set()
+        for pt in (a, c):
+            for k in grid.get((int(math.floor(pt[0] / cell)), int(math.floor(pt[1] / cell))), ()):
+                if k in seen:
+                    continue
+                seen.add(k)
+                ta, tc, w, tn, L = tracks[k]
+                if kind != "npth" and tn == net:
+                    continue
+                gap = _seg_d(a, c, ta, tc) - r - w / 2.0
+                if gap < 1.0:
+                    near[kind].append((gap, "%s / %s on %s" % (name, tn or "no net", L)))
+    for kind, key, what in (("via", "via_track", "via hole to another net's track"),
+                            ("pth", "pth_track", "plated pad hole to another net's track"),
+                            ("npth", "npth_track", "non-plated hole to a track")):
+        if any(h[0] == kind for h in holes):
+            worst("%s hole to track" % kind, near[kind] or [(1.0, "none nearer than 1 mm")],
+                  fab[key], what)
+
+    # SMD pad to pad, different nets, same face
+    gaps = []
+    smd = []
+    for ref, fp in ctx.fps.items():
+        for pad in fp.Pads():
+            if pad.GetAttribute() in (pcbnew.PAD_ATTRIB_SMD,):
+                layer = pcbnew.F_Cu if pad.IsOnLayer(pcbnew.F_Cu) else pcbnew.B_Cu
+                smd.append((_xy(pad), layer, pad, "%s.%s" % (ref, pad.GetNumber())))
+    smd.sort(key=lambda e: e[0][0])
+    lim_iu = pcbnew.FromMM(fab["pad_gap"] - 0.0005)
+    try:
+        for i, (xy, layer, pad, name) in enumerate(smd):
+            for xy2, layer2, pad2, name2 in smd[i + 1:]:
+                if xy2[0] - xy[0] > 3.0:
+                    break
+                if layer2 != layer or abs(xy2[1] - xy[1]) > 3.0:
+                    continue
+                if pad.GetNetname() == pad2.GetNetname() and pad.GetNetname():
+                    continue
+                if pad.GetParentFootprint() is not None and pad2.GetParentFootprint() is not None \
+                        and pad.GetParentFootprint().GetReference() == pad2.GetParentFootprint().GetReference() \
+                        and pad.GetNumber() == pad2.GetNumber():
+                    continue
+                if pad.GetEffectiveShape(layer).Collide(pad2.GetEffectiveShape(layer), lim_iu):
+                    gaps.append("%s / %s" % (name, name2))
+        if gaps:
+            out.append(("pad gap", False, "SMD pad gap under the fab's %.2f mm between different "
+                        "nets at %s (%d place(s))" % (fab["pad_gap"], gaps[0], len(gaps))))
+        elif smd:
+            out.append(("pad gap", True, "SMD pad gap: none under %.2f mm, %d pad(s) checked"
+                        % (fab["pad_gap"], len(smd))))
+    except Exception as e:              # noqa: BLE001 -- shape API differs by KiCad version
+        out.append(("pad gap", None, "SMD pad gaps not measured on this KiCad (%s): check the "
+                    "finest-pitch part by hand" % type(e).__name__))
+
+    # silk text that will be printed
+    silk = (pcbnew.F_SilkS, pcbnew.B_SilkS)
+    texts = []
+    for d in b.GetDrawings():
+        if d.GetClass() == "PCB_TEXT" and d.GetLayer() in silk:
+            texts.append((d, (d.GetText() or "").split("\n")[0][:16]))
+    for ref, fp in ctx.fps.items():
+        items = []
+        try:
+            items = list(fp.GetFields())
+        except Exception:               # noqa: BLE001
+            items = [fp.Reference(), fp.Value()]
+        for f in items:
+            if f.GetLayer() in silk and f.IsVisible():
+                texts.append((f, "%s %s" % (ref, (f.GetText() or "")[:12])))
+        for g in fp.GraphicalItems():
+            if g.GetClass() == "PCB_TEXT" and g.GetLayer() in silk:
+                texts.append((g, "%s %s" % (ref, (g.GetText() or "")[:12])))
+    worst("silk text height", [(MM(t.GetTextHeight()), "'%s'" % n) for t, n in texts],
+          fab["silk_height"], "smallest silk text")
+    worst("silk text stroke", [(MM(t.GetTextThickness()), "'%s'" % n) for t, n in texts],
+          fab["silk_stroke"], "thinnest silk stroke")
     return out
 
 

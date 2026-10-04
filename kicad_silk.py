@@ -19,6 +19,8 @@ them that are NOT about placement:
   * WHICH BARE PAD IS WHICH. A bring-up guide says "probe SWCLK"; the board has to say
     which pad that is. A test pad (ref TP*) is labelled with its NET where that fits in
     ten characters, else its ref.
+  * WHAT A JUMPER OR A CONTROL IS FOR. A solder jumper (ref JP*) is labelled with its
+    value; `silk_labels` in the board's notes ({"SW1": "RESET"}) names anything else.
   * WHAT A CONNECTOR PIN CARRIES. Each connector (ref J<n>) of LEGEND_MAX_PINS or fewer
     gets its pinout printed -- on the back for choice, where the through-hole tails are.
 
@@ -54,8 +56,12 @@ PAD_CLR = 0.20             # label box <-> any pad's mask opening
 EDGE_CLR = 0.40            # label box <-> board edge or cutout
 STROKE = 0.15              # a common fab minimum silkscreen line (JLCPCB's)
 SIZES_ID = (1.5, 1.2, 1.0, 0.8)
-SIZE_TP = 0.8
-SIZE_J = 0.8
+SIZE_TP = 1.0             # 1.0 is the fab's stated minimum legible height (quality A12)
+SIZE_J = 1.0
+# 1.0 mm is the height the fab calls legible; 0.8 is what is tried when a label has no site
+# at 1.0 ANYWHERE in reach. A small label beats no label (which of two mirror-image boards
+# is this?), but it is reported, and the quality pass (A12) makes someone sign for it.
+SIZE_SMALL = 0.8
 LEGEND_MAX_PINS = 8        # a 2x20 gets its name only
 OPTICS_CLR = 12.0          # no label this close to a part whose own silk was stripped
 OPTICS_NAME_CLR = 30.0     # ...and the board's name, which can go anywhere, further still
@@ -78,6 +84,7 @@ class Side:
     """Everything a label on one side of the board has to stay off."""
 
     def __init__(self, board, back, dark=()):
+        self.small = []          # labels that only fitted under the legible size
         self.board, self.back = board, back
         self.layer = pcbnew.B_SilkS if back else pcbnew.F_SilkS
         cu = pcbnew.B_Cu if back else pcbnew.F_Cu
@@ -154,6 +161,15 @@ class Side:
         t.SetPosition(pcbnew.VECTOR2I(0, 0))
         return t
 
+    def place_legible(self, s, size, near, reach, **kw):
+        """`place` at `size`, else at SIZE_SMALL. Returns the size used, or 0."""
+        for z in (size, SIZE_SMALL):
+            if z <= size and self.place(s, z, near, reach, **kw):
+                if z < size:
+                    self.small.append(s.split(chr(10))[0])
+                return z
+        return 0
+
     def place(self, s, size, near, reach, angles=(0.0, 90.0), step=0.25, optics=None):
         """Lay `s` at the free site nearest `near` (a VECTOR2I), no further than `reach`
         mm. Returns True if it went down."""
@@ -185,8 +201,14 @@ def _net(pad):
     return n if n and not n.startswith("unconnected") else ""
 
 
-def silk(stem, rev=REV, dark=()):
+def silk(stem, rev=REV, dark=(), labels=None, short=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site."""
+    if os.path.isfile(stem + ".board.json"):
+        import json
+        with open(stem + ".board.json", encoding="utf-8") as fh:
+            _notes = json.load(fh)
+        labels = _notes.get("silk_labels", {}) if labels is None else labels
+        short = _notes.get("silk_name") if short is None else short
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
     name = os.path.basename(stem)
     old = [d for d in board.GetDrawings()
@@ -204,13 +226,36 @@ def silk(stem, rev=REV, dark=()):
         pads = list(fp.Pads())
         net = _net(pads[0]) if pads else ""
         label = net if net and len(net) <= 10 else ref
+        label = (labels or {}).get(ref, label)      # the board's own word for it wins
         s = sides[fp.IsFlipped()]
-        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0):
+        if s.place_legible(label, SIZE_TP, fp.GetPosition(), 5.0):
             done.append("%s=%s" % (ref, label))
-        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0):
+        elif label != ref and s.place_legible(ref, SIZE_TP, fp.GetPosition(), 5.0):
             done.append("%s=%s" % (ref, ref))
         else:
             missed.append(ref)
+
+    # 1b. the things a PERSON operates or closes, by what they are FOR. A solder jumper
+    #     named JP1 tells whoever holds the iron nothing; its value ("TERM", "BOOT0") does.
+    #     `silk_labels` in <stem>.board.json ({"SW1": "RESET", "D3": "PWR"}) names anything
+    #     else -- buttons, LEDs, a switch position -- and wins over the jumper default.
+    wanted = {}
+    for fp in fps:
+        ref = fp.GetReference()
+        if ref.startswith("JP") and ref[2:].isdigit():
+            val = fp.GetValue().strip()
+            if val and len(val) <= 10 and not val.lower().startswith("solderjumper"):
+                wanted[ref] = val
+    wanted.update(labels or {})
+    for fp in fps:
+        ref = fp.GetReference()
+        if ref not in wanted or ref.startswith("TP"):      # test pads were step 1
+            continue
+        s = sides[fp.IsFlipped()]
+        if s.place_legible(wanted[ref], SIZE_TP, fp.GetPosition(), 10.0):
+            done.append("%s=%s" % (ref, wanted[ref]))
+        else:
+            missed.append("%s (%s)" % (ref, wanted[ref]))
 
     # 2. the board's own name, as large as will fit, front for choice. BEFORE the
     #    pinouts: on a 10 x 17 mm board there is room for one or the other, and which
@@ -219,11 +264,19 @@ def silk(stem, rev=REV, dark=()):
                              (sides[False].bbox[1] + sides[False].bbox[3]) // 2)
     reach = max(sides[False].bbox[2] - sides[False].bbox[0],
                 sides[False].bbox[3] - sides[False].bbox[1]) / 1e6
-    words = name.upper().split("_") + [rev]
+    # `silk_name` in the board's notes: a SHORT name for a board too small for its stem
+    # ("POGO FEM BOT" for leg_pogo_female_bottom). The revision is still appended.
+    words = (short.upper().split() if short else name.upper().split("_")) + [rev]
     forms = [" ".join(words)]
     if len(words) > 2:
         h = len(words) // 2
         forms.append(" ".join(words[:h]) + chr(10) + " ".join(words[h:]))
+    if len(words) > 3:
+        # a board a centimetre wide: three lines, then one word a line (the revision
+        # rides on the last word). Squarer blocks find a site where a long line cannot.
+        t = (len(words) + 2) // 3
+        forms.append(chr(10).join(" ".join(words[i:i + t]) for i in range(0, len(words), t)))
+        forms.append(chr(10).join(words[:-2] + [" ".join(words[-2:])]))
     for size, ident, back in [(z, f, b) for z in SIZES_ID for f in forms for b in (False, True)]:
         if sides[back].place(ident, size, centre, reach, step=0.5, optics=OPTICS_NAME_CLR):
             done.append("name %.1f mm (%s)" % (size, "back" if back else "front"))
@@ -239,7 +292,7 @@ def silk(stem, rev=REV, dark=()):
             continue
         s = sides[fp.IsFlipped()]
         shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
-        if not shown and not s.place(ref, SIZE_J, fp.GetPosition(), 12.0):
+        if not shown and not s.place_legible(ref, SIZE_J, fp.GetPosition(), 12.0):
             missed.append(ref)
         pins = {}
         for pad in fp.Pads():
@@ -248,9 +301,11 @@ def silk(stem, rev=REV, dark=()):
         if not pins or len(pins) > LEGEND_MAX_PINS:
             continue
         legend = ref + "\n" + "\n".join("%d %s" % kv for kv in sorted(pins.items()))
-        for back in (True, False):
-            if sides[back].place(legend, SIZE_J, fp.GetPosition(), 14.0, step=0.5):
+        for size, back in [(z, b) for z in (SIZE_J, SIZE_SMALL) for b in (True, False)]:
+            if sides[back].place(legend, size, fp.GetPosition(), 14.0, step=0.5):
                 done.append("%s pinout (%s)" % (ref, "back" if back else "front"))
+                if size < SIZE_J:
+                    sides[back].small.append(ref + " pinout")
                 break
         else:
             missed.append(ref + " pinout")
@@ -261,6 +316,10 @@ def silk(stem, rev=REV, dark=()):
     print("%s: %d label(s) -- %s" % (name, len(done), ", ".join(done)))
     if missed:
         print("  no free site for: %s" % ", ".join(missed))
+    small = sides[False].small + sides[True].small
+    if small:
+        print("  placed at %.1f mm, under the legible %.1f (no site at full size): %s"
+              % (SIZE_SMALL, SIZE_J, ", ".join(small)))
     return missed
 
 
