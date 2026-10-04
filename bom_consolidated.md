@@ -6,7 +6,9 @@ Two projects on one buying run. Tags keep them separate:
 
 **v2 changed the architecture substantially.** The 4-way reversing valve is gone
 (replaced by a second pump), the 12 V rail is gone (pumps run from the battery through
-on-board MOSFETs), and the tubing is up-sized from 3/8" to 1/2". Parts that v1 bought
+on-board MOSFETs), and the tubing is up-sized from 3/8" to 1/2". **The frame is now
+lumber rather than printed** (§7), which leaves exactly one printed assembly: the
+battery mount and PCB case (§7b). Parts that v1 bought
 and v2 no longer uses are listed at the bottom rather than deleted — several were
 bought and are on the shelf, and the reasoning is worth keeping.
 
@@ -35,9 +37,11 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - **Why this part, three reasons:**
     1. **Swivel** — the elbow is aimed *after* tightening. NPT is tapered, so a fixed
        elbow lands wherever it seals; a swivel removes that constraint entirely and
-       lets the pump bay be packaged tight. `src/pump_frame.py` depends on this: it
-       models one clearance envelope per port with the leg aimed along +Y, which is
-       only legitimate because the clock angle is chosen, not inherited from the taper.
+       lets the pump bay be packaged tight. The CAD depends on this: it models one
+       clearance envelope per port with the leg aimed by `PORT_CLOCK`, which is only
+       legitimate because the clock angle is chosen, not inherited from the taper.
+       Three of the four aim out the front; pump B's inner leg aims UP, because
+       forward is pump A.
     2. **Nylon, not brass.** The pump head is moulded plastic; a brass female fitting
        bites and is how you crack a port by over-tightening. This is the answer to
        *"the filter that comes with the pump screws on easily but my fittings are quite
@@ -54,10 +58,10 @@ bought and are on the shelf, and the reasoning is worth keeping.
     question does not arise. The Pentair page was also **not purchasable** — a
     "where to buy" landing page with no listing and no cart.
   - Still unmeasured: the fitting's **dimensions**. `ELBOW_NUT_D/L` and `ELBOW_LEG_D/L`
-    in `src/pump_frame.py` remain conservative estimates, and `POST_X` (hence the whole
-    frame width) is derived from `ELBOW_NUT_L`. Measure one on arrival and re-run the
-    build — the frame should get *narrower*, not wider, since the estimates were set
-    for a brass fitting.
+    in `src/pump_frame.py` remain conservative estimates, and the lumber frame's
+    `POST_X` — hence how far apart the posts get cut — is derived from `ELBOW_NUT_L`.
+    Measure one on arrival and re-run the build: the frame should get *narrower*, not
+    wider, since the estimates were set for a brass fitting.
   - **Fallback if the swivel turns out to be clocked or the barb profile is wrong:**
     SEAFLO **51F03**, 1/2"-14 FNPT × 1/2" barb angled pump fitting, $5.49 (POM/PP),
     sold in 1/2/4/10 packs and listed explicitly for Shurflo/Seaflo/Jabsco pumps —
@@ -161,16 +165,68 @@ Exact part numbers to be fixed at layout; this is the functional list.
   They give no strain relief, so the shroud needs a cable anchor behind them.
 - *Optional:* low-side shunt per pump → ADC.
 
-## 7. Structure  *(🎒)*
+## 7. Structure — LUMBER, not printed  *(🎒)*
+
+The frame was printed in v1 and in the first cut of v2. It is now **hardware-store
+lumber**: it is a rectangular table carrying a static 21 kg, which is what framing
+timber is for, and wood is stiffer per gram than PCTG, immune to the creep that
+drove the material choice, and free of the whole X-build argument the printed
+frame was contorted around.
 
 - [x] 🎒 **Stansport Freighter aluminium pack frame — OWNED.** 820 × 400; shelf 340 wide
   × 250 deep.
 - [x] 🎒 **Scepter 5 gal military water can — OWNED.** Base ≈ 348 × 173 mm, standing on
-  **two wide ribs** (one at the frame edge, one at the far edge) — two line loads, which
-  the frame's two cross-beams land on.
-- Printed in **PCTG**, in shade. Tougher than PETG at the stress risers that matter here
-  (hose openings, corners) and Tg ~85 °C. **Not PLA** — 21 kg of sustained load near
-  PLA's 60 °C Tg creeps.
+  **two wide ribs**, ~12 mm in from each end.
+- [ ] 🎒 **38 × 38 mm beam — 1.63 m of stock** (one 8 ft / 2.4 m length covers it with
+  spare). Cut list, straight out of `src/lumber_frame.py`:
+  | qty | piece | length |
+  |---|---|---|
+  | 4 | post | 150 mm |
+  | 2 | cross rail | 380 mm |
+  | 2 | side rail | 134 mm |
+- [ ] 🎒 **137 × 20 mm plank — 3 × 210 mm** (630 mm of stock). Laid front-to-back on
+  the cross rails. Three full planks make a 411 mm deck, 16 mm proud of the rails
+  each side — **no ripping needed**; the tank only needs 348.
+- [ ] 🎒 **Wood screws to join the frame** — your choice of fixing; the model does not
+  prescribe one. #8 × 60 mm into end grain, or pocket screws, or corner brackets.
+
+**Only three of the frame's numbers are chosen; the rest fall out of the stock.**
+`POST_X` because the elbow swivel nuts reach |x| = 147, so 152 is the first clear
+inner face. `RAIL_Z0 = 150` because of the hose that crosses *over* the pumps —
+its centreline is 134 and it is 19 across, so nothing may intrude below 143.5.
+`FRAME_D = 210` because the pumps are 206 long, which is also why there are no
+lower cross rails: there is no y left to put one in.
+
+**One rib is not over a rail, and that is fine — measured, not assumed.** The
+cross rails sit at y 0..38 and 172..210; the tank's ribs at y 12 and 161. The
+first lands on a rail; the second is bridged by the deck plank over a 134 mm
+clear span. At 40.5 N per plank that is **0.15 MPa of bending against ~10 MPa
+allowable for softwood** (0.45 MPa even with a 3× set-down factor) and 0.0025 mm
+of deflection. The rails cannot move to meet the ribs — they are where they are
+so the frame contains the 206 mm pumps.
+
+## 7b. Printed parts  *(🎒)*
+
+Two parts, plus three carried over from v1. `py -3.12 -m src.build` exports them
+all and prints the sizes against the 255 mm bed.
+
+| part | volume | note |
+|---|---|---|
+| `v2_housing` | 183 cm³ | battery mount + PCB case, one piece |
+| `v2_housing_lid` | 40 cm³ | cover over the board |
+| `joystick_mount` | 7 cm³ | carried over from v1 |
+| `dual_clamp_23` / `_19` | 33 cm³ | carried over from v1 |
+
+- [ ] 🎒 **PCTG filament — ~325 g** for the set (263 cm³ at 1.23 g/cm³), plus waste.
+  In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
+  **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
+  *The battery dock is no longer printed on its own; it is fused into the housing.*
+- [ ] 🎒 **M4 heat-set inserts × 8** (Ø6.0 × 5.0 pocket) — 4 hold the board down, 4 hold
+  the lid on.
+- [ ] 🎒 **M4 × 8 socket screws × 4** — board → boss → back plate (6.4 mm of bite).
+- [ ] 🎒 **M4 × 12 socket screws × 4** — lid → pillars (9.0 mm of bite).
+- [ ] 🎒 **#8 flat-head wood screws × 4**, ≥ 25 mm — housing → posts. Ø4.5 clearance
+  with a Ø9 countersink, so the heads sit flush inside the housing.
 
 ## 8. DigiKey  *(all 🐱 — unchanged)*
 
