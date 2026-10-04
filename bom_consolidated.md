@@ -238,8 +238,17 @@ v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
 - [ ] 🎒 **M4 heat-set inserts × 8** (Ø6.0 × 5.0 pocket) — 4 hold the board down, 4 hold
   the lid on.
-- [ ] 🎒 **M4 × 8 socket screws × 4** — board → boss → back plate (6.4 mm of bite).
+- [ ] 🎒 **M4 × 6 socket screws × 4** — board → boss → back plate (4.4 mm of bite
+      in a 5 mm insert). **Not × 8.** The insert ends 6.6 mm in, so the extra 2 mm of
+      screw bought no engagement — it only forced the bore to within 0.6 mm of the
+      back face. At × 6 the bore stops 1.5 mm short and the bay's back wall stays
+      closed.
 - [ ] 🎒 **M4 × 12 socket screws × 4** — lid → pillars (9.0 mm of bite).
+*The PCB bay is closed except for the down-facing cable chase and the four
+wood screws, which their own heads fill. All eight insert bores used to run clean
+through the back wall — four into the open air between the posts — which is eight
+water paths into the electronics on a machine carrying five gallons above them.*
+
 - [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. The housing's tie rib
       takes a 10 × 7 mm slot, so anything up to ~4 mm wide threads. These are the
       only strain relief the screw terminals have.
