@@ -194,8 +194,26 @@ def _resite_post_pads(board, refs, notes):
                                              ((px - x1) * dx + (py - y1) * dy) / l2))
         return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
+    # ⚠ THE OTHER BRING-UP PADS ARE OBSTACLES TOO, AND THEY WERE NOT. The
+    # courtyard list above skips every ref in `refs`, which is right for the pad
+    # being sited -- a pad cannot block itself -- but it also skipped the NINE
+    # others, including the ones this very loop had just placed. So a pad could
+    # be re-sited directly on top of one already moved: on watering-backpack's
+    # main board TP9 (JOY_FILT) moved 9.25 mm onto TP10 (LEVEL), and DRC
+    # reported courtyards_overlap plus three silk collisions between two parts
+    # this function had put there itself.
+    #
+    # Sites are recorded here as they are decided, in the loop's own order, and
+    # a later pad keeps clear of them. It is deliberately not the courtyard
+    # list: these are circles, because that is what the ring search produces and
+    # what the keepout radius already measures.
+    taken = []
+
     def _ok(px, py, r, net, r_keep=None, need_own=True):
         r_keep = r if r_keep is None else r_keep
+        for tx, ty, tr in taken:
+            if math.hypot(px - tx, py - ty) < r_keep + tr:
+                return None
         own = 1e9
         for x1, y1, x2, y2, hw, n in segs:
             d = _seg_d(px, py, x1, y1, x2, y2) - hw
@@ -249,6 +267,7 @@ def _resite_post_pads(board, refs, notes):
         px = pcbnew.ToMM(pad.GetPosition().x)
         py = pcbnew.ToMM(pad.GetPosition().y)
         if _ok(px, py, r, net, r_keep) is not None:
+            taken.append((px, py, r_keep))
             continue               # the recorded site still clears: nothing to do
         # Ring search outwards, so a pad that has to move moves as little as possible --
         # these coordinates were chosen next to the thing they help bring up, and that
@@ -293,6 +312,7 @@ def _resite_post_pads(board, refs, notes):
                 continue
             stubbed.append((ref, net, best[2]))
         qx, qy, rad = best
+        taken.append((qx, qy, r_keep))
         pos = fp.GetPosition()
         fp.SetPosition(pcbnew.VECTOR2I(
             pos.x + pcbnew.FromMM(qx - px), pos.y + pcbnew.FromMM(qy - py)))

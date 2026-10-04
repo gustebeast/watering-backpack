@@ -431,88 +431,154 @@ BOARD_NOTES = {
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
     "layers": 2,
     "thickness_mm": 1.6,
-    # Zoned so each cluster sits beside the pin it serves (PCB_README §4: a part
-    # with a value but no required position gets stranded, and the router then
-    # carries its net across the board for nothing). Power down the left, buck
-    # top-left, MCU right.
+    # == PLACEMENT IS THE DESIGN, AND HERE IT IS THE CURRENT THAT DESIGNS IT ==
+    # Rebuilt from the bottom edge up, because PCB_QUALITY A1 failed five supply
+    # paths on the old one and every failure said the same thing: the router had
+    # taken VBAT, PUMP_A_LO or PUMP_B_LO through a 0.67 mm via barrel. A 0.3 mm
+    # drilled via carries about 1-1.5 A. These nets carry 7.5.
     #
-    # CONNECTORS ARE ON BOTH EDGES, which the 140-wide board did not need. At 95
-    # the bottom edge has ~72 mm clear of the corner holes and the five terminals
-    # want 72.7, so the joystick (J5) and the programming header (J6) move to the
-    # top edge. The four that carry POWER or leave the pack downward -- battery,
-    # both pumps, the level sensor -- stay on the bottom, which is the edge the
-    # housing opens at.
+    # No width fixes that and no autorouter was going to. What fixes it is that
+    # the three high-current nets never change layer at all: each is a POUR on
+    # F.Cu (see "zones"), and this placement exists so those pours can be laid
+    # without crossing each other or a signal.
+    #
+    # ⚠ A PLACEMENT COORDINATE IS THE PAD CENTROID, NOT THE FOOTPRINT ORIGIN,
+    # and the centroid is taken over EVERY pad including the unnamed thermal and
+    # paste pads a DPAK or D2PAK carries -- which appear in no drawing. So the
+    # offset from a coordinate to a given pad is measured, never derived; three
+    # attempts at deriving it here produced three wrong courtyard gaps in a row.
+    # The deltas each number below is built from, all at the rotation used:
+    #
+    #   MKDS-3 (J1/J2/J3)  crt dx +-5.63   pad1 dx -2.54   pad2 dx +2.54
+    #   PT-1,5-5 (J4)      crt dx +-9.295  pads dx -7, -3.5, 0, +3.5, +7
+    #   DPAK rot270 (Q)    crt dx +-3.545  TAB d(0,-2.363) 6.40x5.80
+    #                                      leads dy +3.938, dx 0 and +-2.28
+    #   D2PAK rot0 (D)     crt dx -9.131..+7.609
+    #                      anodes d(-6.536,+-2.54) 4.60x1.10
+    #                      cathode tab d(+2.614,0) 9.40x10.80
+    #
+    # THE FIVE RULES THE BOTTOM HALF OBEYS, in the order they bind:
+    #
+    #  1. EVERY FIELD CABLE LEAVES THE SAME EDGE. The housing opens at the board
+    #     -Y edge (pose_board maps board +Y to world +Z, so -Y is DOWN), and the
+    #     four cables a person plugs in -- pump A, the pack, pump B, the joystick
+    #     -- are all on it. J5 (level sensor) and J6 (programming) stay on +Y.
+    #
+    #  2. THE THREE VBAT TERMINALS ARE CONTIGUOUS AND THE JOYSTICK IS OUTSIDE
+    #     THEM. J2 | J1 | J3 then a 15 mm gap then J4. VBAT has to reach all
+    #     three, and a pour reaching across the joystick would bury +3V3 and
+    #     JOY_RAW inside a 7.5 A plane and leave the ADC signal no way out but a
+    #     via into the B.Cu ground -- a hole in the return under the one net on
+    #     this board whose job is to be quiet.
+    #
+    #  3. EACH FET TAB SITS ON ITS OWN PUMP PAD'S x. The DPAK tab at rot 270 is
+    #     at dx 0, so Q1 at x=-30.26 puts 6.4 mm of drain copper directly above
+    #     J2's PUMP_A_LO pad and the riser is a straight 9 mm of pour.
+    #
+    #  4. THE DIODE'S ANODE LEADS FACE THE FET'S TAB. Q1's tab ends at x=-27.06
+    #     and D2's anode pads start at -25.84: the freewheel loop closes in
+    #     1.22 mm of copper. That loop carries di/dt when the FET turns off, so
+    #     it is the one millimetre on this board that matters most.
+    #
+    #  5. THE RISERS DO NOT CROSS. Four corridors run up from the bottom edge and
+    #     none meets another: PUMP_A_LO at -30.26, VBAT at -10.34 and +6.0,
+    #     PUMP_B_LO at -5.26. The VBAT riser at -10.34 lands in D2's cathode tab
+    #     directly above it -- which is why pump B's terminal sits next to the
+    #     pack's rather than at the far end -- and the one at +6.0 climbs the
+    #     empty span between J3 and J4 into D3's tab.
+    #
+    # The buck and the MCU clusters are untouched. A2 passes on both, and
+    # PCB_README is explicit that an experiment on a working region costs a
+    # routing you then have nothing to compare against.
     "placements": {
-        # terminals, bottom edge (MKDS-3 is ~12.5 wide; PT-1,5-4 ~17.6)
-        "J1": (-29.0, -41.0, 0.0), "J2": (-15.0, -41.0, 0.0),
-        "J3": (-1.0, -41.0, 0.0),  "J4": (19.0, -41.0, 0.0),
-        # joystick + programming, top edge. J6 is turned 90 so its six pins run
-        # ALONG the edge instead of reaching down into the decoupling cluster.
-        "J5": (-20.0, 41.0, 0.0),  "J6": (12.0, 41.0, 90.0),
-        # MCU. The ESP32 footprint's COURTYARD is not the module -- it is a
-        # T-shaped polygon that includes the antenna fan (local x +-24.25,
-        # y -28..13.54), and the matching keepout bans tracks, vias, pads, pour
-        # AND footprints. So the fan has to hang off a board edge, not lie
-        # across the board.
-        #
-        # 270, not 90: at rot 90 the fan points -X, straight back over the
-        # board, which is what put C7, R21 and all six J6 pads inside it. 270
-        # turns it to +X, where it leaves the laminate at x=47.5 and the only
-        # thing it still covers is the corner mounting hole -- a cutout, which
-        # the keepout does not forbid.
-        "U2": (34.4, 19.5, 270.0),
-        # MCU decoupling. It used to be "left of the module and clear of its
-        # body" at x=8, which is 35.6 mm from the pin it decouples: U2's 3V3 pad
-        # is at (42.8, 27.7), hard against the module's +Y edge. A 500 mA WiFi
-        # burst 35 mm from its charge is a burst the rail does not have. These
-        # sit directly above pads 1 and 2 now.
-        "C6": (36.5, 31.5, 0.0), "C7": (42.8, 31.5, 0.0),
-        "R3": (2.0, 32.0, 0.0), "C8": (2.0, 26.0, 0.0),
-        # Input protection stays in the left column; the BULK moved to the
-        # bottom edge. C1/C2 are "bulk at the switches" by their own comment and
-        # were 38-50 mm from both the switches and the pump terminals they feed
-        # -- far enough that A2 failed J2 and J3 on VBAT. Here they are 11-20 mm
-        # from J1, J2 and J3, and the buck has its own ceramic now (C15).
-        "D1": (-36.0, 2.0, 0.0), "C1": (-36.0, -27.0, 0.0), "C2": (-20.0, -27.0, 0.0),
-        # pump legs: FET / driver / freewheel in a row, gate parts beside the FET
-        "Q1": (-18.0, -10.0, 0.0), "Q2": (-18.0, 4.0, 0.0),
-        "U3": (-8.0, -10.0, 0.0),  "U4": (-8.0, 4.0, 0.0),
-        "D2": (5.0, -10.0, 0.0),   "D3": (5.0, 4.0, 0.0),
-        "R4": (-27.0, -14.0, 0.0), "R5": (-27.0, -8.0, 0.0),
-        "R6": (-27.0, 2.0, 0.0),   "R7": (-27.0, 8.0, 0.0),
-        "C9": (-2.0, -20.0, 0.0),  "C10": (-2.0, 12.0, 0.0),
-        # buck, top left
+        # -- 1 and 2: the four field cables -----------------------------------
+        # Leftmost placement is -32.845: further left and an MKDS-3's SILK (dx
+        # -5.605) comes inside 0.3 mm of the (-41,-44) mounting hole, which DRC
+        # calls silk_edge_clearance and a person calls a screw you cannot reach
+        # because the terminal body is over it.
+        "J2": (-32.8, -41.0, 0.0),  # pump A   VBAT -35.34, PUMP_A_LO -30.26
+        "J1": (-20.3, -41.0, 0.0),  # the pack VBAT -22.84, GND      -17.76
+        "J3": ( -7.8, -41.0, 0.0),  # pump B   VBAT -10.34, PUMP_B_LO -5.26
+        # The joystick sits 15 mm clear to the right, and that gap is not waste:
+        # it is where VBAT climbs to D3's cathode tab without crossing anything.
+        "J4": ( 22.0, -41.0, 0.0),  # +3V3 15.0, GND 18.5, JOY_RAW 22.0, GND, GND
+        "J5": (-20.0,  41.0, 0.0), "J6": (12.0, 41.0, 90.0),
+        # -- 3 and 4: the switch row ------------------------------------------
+        # Q at 270 puts the tab toward -Y, at its terminal, and the three
+        # gull-wing leads (gate, drain, source) toward +Y at dy +3.938 -- clear
+        # of the power corridor, so a pour can own the whole tab without coming
+        # near the gate. D at 0 puts the anode leads at -X, facing that tab.
+        "Q1": (-30.26, -27.5, 270.0), "D2": (-17.0, -27.5, 0.0),
+        "Q2": ( -5.26, -27.5, 270.0), "D3": (  7.5, -27.5, 0.0),
+        # -- bulk and local charge, each ABOVE the terminal it answers for -----
+        # A2 gives a connector 25 mm to its nearest bypass, and the switch row
+        # is 11.4 mm of DPAK and D2PAK between the terminals and the first space
+        # an electrolytic fits in. That leaves about a millimetre of slack, so
+        # these three y values are not round numbers: -16.2 is the lowest a
+        # 13.4 x 11.08 can sit while clearing Q1's courtyard by 0.42.
+        #   C1  -> J2, pad to pad 24.91 mm
+        #   C17 -> J1, 24.0 mm        (a 1206 ceramic, which is why it fits lower)
+        #   C2  -> J3, 24.94 mm
+        "C1": (-33.5, -16.2, 0.0), "C2": (-8.8, -16.2, 0.0),
+        "C17": (-22.0, -17.0, 0.0),
+        "D1": (-37.0, -7.0, 0.0),       # TVS, on the VBAT column beside C1
+        # -- gate drive: driver, series resistor, pulldown, bypass ------------
+        # R4/R6 are pump A's (R4 GATE_A->N$2, R6 N$2->GND); R5/R7 are pump B's.
+        # A naming that READS as a pair and is not one: R5 belongs with Q2, and
+        # placing it by its number would put pump B's gate drive beside pump A.
+        # The driver and its series resistor are 7 mm apart rather than 5, so
+        # that the GATE test pad has somewhere to land ON the net it probes:
+        # route.py sites a bring-up pad against the finished copper, and a net
+        # whose entire run is a 5 mm hop between two courtyards 1.4 mm apart
+        # offers it nowhere. Four pads came back unconnected before this.
+        "U3": (-30.0, -8.0, 0.0), "R4": (-23.0, -8.0, 0.0),
+        "R6": (-23.0, -5.0, 0.0), "C9": (-30.0, -4.0, 0.0),
+        "U4": ( -4.0, -8.0, 0.0), "R5": (  3.0, -8.0, 0.0),
+        "R7": (  3.0, -5.0, 0.0), "C10": (-4.0, -4.0, 0.0),
+        # -- VGATE shunt. 10 mA, so the run is long and does not care; what it
+        # must not do is sit in a power corridor.
+        "R9": (-21.0, -12.5, 0.0), "D5": (-17.0, -8.0, 0.0),
+        "C13": (-17.0, -4.0, 0.0),
+        # -- buck, top left: UNCHANGED ---------------------------------------
         "U1": (-36.0, 26.0, 0.0), "L1": (-20.0, 26.0, 0.0),
-        "C3": (-36.0, 14.0, 0.0), "C4": (-8.0, 20.0, 0.0), "C5": (-8.0, 26.0, 0.0),
-        "R1": (-27.0, 16.0, 0.0), "R2": (-27.0, 22.0, 0.0),
-        # sensing — moved off x=40, which is now inside the antenna keepout
-        "R20": (22.0, 6.0, 0.0), "R21": (22.0, 0.0, 0.0), "C11": (33.0, 0.0, 0.0),
-        "R22": (14.0, -22.0, 0.0), "C12": (14.0, -28.0, 0.0),
-        "R23": (14.0, -18.0, 0.0),
-        # buzzer — below the keepout's y band
-        "BZ1": (33.0, -24.0, 0.0), "Q3": (22.0, -14.0, 0.0),
-        "R24": (28.0, -8.0, 0.0), "D4": (28.0, -2.0, 0.0),
-        # buck frequency-setting resistor, beside the buck
-        "R8": (-27.0, 10.0, 0.0), "C14": (-20.0, 14.0, 0.0),
-        # The buck's input ceramic, AT the part. U1's VIN pad is at (-38.5,
-        # 26.6) and its GND pad at (-33.5, 26.6), so this sits just above the
-        # two of them and the loop closes in millimetres instead of in 38.
+        "C3": (-36.0, 14.0, 0.0), "C4": (-8.0, 20.0, 0.0),
+        "C5": (-8.0, 26.0, 0.0),  "R1": (-27.0, 16.0, 0.0),
+        "R2": (-27.0, 22.0, 0.0), "R8": (-27.0, 10.0, 0.0),
+        "C14": (-20.0, 14.0, 0.0),
+        # The buck's input ceramic, AT the part: U1's VIN pad is at (-38.5,
+        # 26.6) and its GND pad at (-33.5, 26.6), so this sits just above both
+        # and the hot loop closes in millimetres instead of in 38.
         "C15": (-38.5, 30.8, 0.0),
-        # VGATE shunt, in the left column the electrolytics vacated. It feeds
-        # the two drivers' VDD at a milliamp and a half, so the run is long and
-        # does not care; what it must not do is sit where the bulk now goes.
-        "R9": (-44.0, -10.0, 0.0), "D5": (-44.0, -15.0, 0.0),
-        "C13": (-44.0, -20.0, 0.0),
-        # bring-up pads. These are PREFERENCES, not sites: route.py re-searches
-        # each one against the finished copper and nudges it if the board has
-        # moved underneath it.
-        "TP1": (0.0, -31.0, 0.0),   "TP2": (-42.0, -32.0, 0.0),
-        "TP3": (0.0, 31.0, 0.0),    "TP4": (-10.0, -31.0, 0.0),
-        "TP5": (-28.0, 30.0, 0.0),  "TP6": (-22.0, -16.0, 0.0),
-        "TP7": (-12.0, 9.0, 0.0),  "TP8": (27.0, 3.0, 0.0),
-        "TP9": (8.0, -24.0, 0.0),   "TP10": (8.0, -14.0, 0.0),
-        # local charge at the two connectors that feed a cable
-        "C16": (12.0, -34.0, 0.0), "C17": (-25.0, 32.0, 0.0),
+        # -- MCU cluster, UNCHANGED ------------------------------------------
+        # 270, not 90: at rot 90 the antenna fan points -X, straight back over
+        # the board. At 270 it leaves the laminate at x=47.5 and the only thing
+        # it still covers is a corner mounting hole -- a cutout, which the
+        # keepout does not forbid.
+        "U2": (34.4, 19.5, 270.0),
+        "C6": (36.5, 31.5, 0.0), "C7": (42.8, 31.5, 0.0),
+        "R3": (2.0, 32.0, 0.0),  "C8": (2.0, 26.0, 0.0),
+        # -- sensing and the buzzer, right of the switch row ------------------
+        # R20's top leg is on VBAT and a long way from the pour, which is right
+        # rather than sloppy: the divider passes 170 uA. What must be short is
+        # VBAT_SENSE -- the 100k node the ADC reads -- so R21 and C11 sit at the
+        # MCU and the long run is the one carrying nothing.
+        "R20": (22.0, 6.0, 0.0), "R21": (22.0, 0.0, 0.0), "C11": (33.0, 0.0, 0.0),
+        "R22": (20.0, -22.0, 0.0), "C12": (20.0, -26.0, 0.0),
+        "R23": (20.0, -30.0, 0.0),
+        "BZ1": (33.0, -24.0, 0.0), "Q3": (26.0, -14.0, 0.0),
+        "R24": (28.0, -8.0, 0.0),  "D4": (28.0, -3.0, 0.0),
+        "C16": (18.0, -18.0, 0.0),      # +3V3 at J4: pad to pad 23.2 mm
+        # -- bring-up pads. PREFERENCES, not sites: route.py re-searches each
+        # against the finished copper and nudges it, so a pad that starts on a
+        # neighbour's courtyard costs a nudge rather than a board.
+        # Each sits ON the run it probes, in the gap its cluster leaves for it:
+        # TP6 and TP7 between driver and series resistor, TP4 in the VGATE lane,
+        # TP5 on the switch node between U1.8 and L1.
+        "TP1": (10.0, -16.0, 0.0),  "TP2": (-18.0, -12.0, 0.0),
+        "TP3": (0.0, 31.0, 0.0),    "TP4": (-14.0, -8.0, 0.0),
+        "TP5": (-28.0, 26.0, 0.0),  "TP6": (-26.2, -8.0, 0.0),
+        "TP7": (-0.2, -8.0, 0.0),   "TP8": (27.0, 3.0, 0.0),
+        "TP9": (24.0, -20.0, 0.0),  "TP10": (24.0, -32.0, 0.0),
     },
     # Placed AFTER routing, on copper that is already there -- see the
     # bring-up-pad block in circuit().
@@ -543,12 +609,26 @@ BOARD_NOTES = {
         # A1 -- every supply net: where it enters, where it goes, how many amps.
         # VBAT's 7.5 A is ONE pump at full duty; check_pump_dirs.py is the gate
         # that holds "never both at once", so the rail is never asked for 15.
+        # TWO ENTRIES FOR VBAT, BECAUSE VBAT HAS TWO CURRENTS. The old single
+        # entry declared 7.5 A to every load including the buck's VIN pin, and
+        # that is not a conservative simplification, it is a false statement
+        # about the board: U1 draws 3.3 V x 0.6 A out of a 15-20 V pack, which
+        # is ~0.16 A in, and its VIN pad is 1.95 x 0.60 mm -- a pad that cannot
+        # physically accept the 3.18 mm the claim demands. The claim was
+        # unmeetable because it was wrong, and A1 was right to fail it.
         "power_paths": [
             {"net": "VBAT", "from": "J1.1",
              # NOT Q1.2/Q2.2: those are the FET drains, and a drain is on the
              # pump leg, not on VBAT. The motor is the thing between them.
-             "to": ["U1.2", "J2.1", "J3.1", "J5.1", "C1.1", "C2.1"],
+             # D2.2/D3.2 ARE here -- the freewheel cathodes are where the
+             # recirculating current returns to the rail.
+             "to": ["J2.1", "J3.1", "C1.1", "C2.1", "D2.2", "D3.2"],
              "amps": 7.5, "max_drop_mv": 300},
+            {"net": "VBAT", "from": "J1.1", "to": ["U1.2", "J5.1"],
+             # the buck's input (~0.16 A at the flat end of the pack) and the
+             # level sensor's feed (milliamps). 0.3 A is the rounded-up total,
+             # and these two are the only VBAT loads that are not the pumps.
+             "amps": 0.3},
             {"net": "+3V3", "from": "L1.2",
              "to": ["U2.2", "J4.1", "J6.1"], "amps": 0.6},
             {"net": "PUMP_A_LO", "from": "J2.2", "to": ["Q1.2", "D2.1"], "amps": 7.5,
@@ -636,17 +716,30 @@ BOARD_NOTES = {
                      "The same six are why stitch_exceptions lists U1.9.",
         },
     },
-    # ⚠ 1.2 WAS A COMPROMISE AND THE QUALITY PASS CALLED IT. The note that set
-    # it said so in as many words -- "1.2 is not the IPC answer: 7.5 A at a 10 C
-    # rise wants ~4.8 mm" -- and then shipped 1.2 anyway on the grounds that the
-    # pads at each end are wider than that. A1 measures the NARROWEST point
-    # between the pads, which is the track, and at 7.5 A it wants 3.18 mm even
-    # at a 20 C rise. These are 3.2 (4 beads, and the fab's own grid is finer).
+    # == THE WIDTH IS NO LONGER THE CURRENT PATH. THE POUR IS. ==============
+    # This started at 0.25 (the router default: 0.88 A of 1 oz outer copper),
+    # went to 1.2 with a note that said in as many words that 1.2 was not the
+    # IPC answer, then to 3.2 -- which IS the IPC answer for 7.5 A at a 20 C
+    # rise, and still failed A1 five times, because a track is only as wide as
+    # the narrowest thing on it and the router kept putting a 0.67 mm via barrel
+    # in the middle. A 0.3 mm drilled via carries about 1-1.5 A.
     #
-    # The 3V3 rail is 1.0 for a different reason: 0.6 A needs only 0.6 mm of
-    # copper for heat, but the rail is also the ADC reference, and A1's 2% drop
-    # limit is 66 mV. At 0.25 the run to the joystick dropped 210.
-    "net_widths": {"VBAT": 3.2, "PUMP_A_LO": 3.2, "PUMP_B_LO": 3.2,
+    # So VBAT, PUMP_A_LO and PUMP_B_LO are POURS now (see "zones"), and these
+    # widths have one job left: stop the router drawing the DEFAULT between two
+    # big pads, and be narrow enough to land. 1.2 lands on an MKDS-3 2.6 mm
+    # through-pad, a 4.4 mm electrolytic pad, a DPAK gull-wing lead and the
+    # LMR14020 1.95 x 0.60 VIN pad; 3.2 lands on none of the last two, and
+    # a width a pad cannot accept is a neck wherever the pad is.
+    #
+    # Nothing here claims to carry 7.5 A. A1 measures the copper that exists and
+    # reports which element is narrowest, so if a pour ever fails to connect,
+    # the check fails rather than quietly grading the 1.2 mm track that is left.
+    # That is the whole reason to let the gate measure instead of declaring.
+    #
+    # +3V3 is 1.0 for a different reason: 0.6 A needs only 0.6 mm of copper for
+    # heat, but the rail is also the ADC reference, and the A1 2 % drop limit is
+    # 66 mV. At 0.25 the run to the joystick dropped 210.
+    "net_widths": {"VBAT": 1.2, "PUMP_A_LO": 1.2, "PUMP_B_LO": 1.2,
                    "+3V3": 1.0,
                    # the gate rail is small but it is the one that makes the
                    # pumps switch; 0.4 keeps it off the 0.25 default floor
@@ -657,7 +750,69 @@ BOARD_NOTES = {
     # diameter". The stitcher asks for a via BESIDE each ground pad and there is
     # no room beside these -- because each of them is already a via to the plane.
     "stitch_exceptions": tuple("U1.9" for _ in range(6)),
-    "zones": [("GND", "B.Cu", 0.3)],
+    # == THE THREE HIGH-CURRENT NETS, AS COPPER REGIONS =====================
+    # A pour is the only thing that can carry these: 7.5 A at a 20 C rise wants
+    # 3.18 mm by IPC-2221, and the note that chose this board's old 1.2 mm said
+    # the quiet part out loud -- a track that wide is not a track, it is a pour.
+    #
+    # ⚠ VBAT IS ONE POLYGON, AND IT HAS TO BE. The readable version of this was
+    # eight overlapping rectangles, which is how it is still DESCRIBED below --
+    # but two zones on the SAME NET at DIFFERENT priorities do not merge: KiCad
+    # fills the higher one first and holds the lower one off it by the clearance,
+    # so the rectangles came back as eight islands that each filled perfectly and
+    # touched nothing. A1 reported "no copper joins J1.1 to D3.2", which is true
+    # of the copper and says nothing about the eight numbers that caused it.
+    # Equal priorities merge, but then DRC calls every overlap zones_intersect.
+    # One outline has neither problem.
+    #
+    # THE SHAPE, as the rectangles it is the union of -- check these against the
+    # measured pad deltas in the placement block, then check the corner list:
+    #
+    #   bus      x[-38.0,  8.0] y[-46.5,-39.6]  under J2.1, J1.1 and J3.1
+    #   column   x[-38.0,-35.5] y[-39.6, -6.0]  up the left to C1 and the TVS
+    #   riser A  x[-12.0, -9.7] y[-39.6,-32.0]  into D2's cathode tab
+    #   tab A    x[-19.5, -9.7] y[-33.0,-22.0]  D2's cathode tab itself
+    #   to C2    x[-15.5, -9.7] y[-22.0,-14.0]
+    #   to C17   x[-19.5,-17.0] y[-22.0,-11.5] + x[-24.5,-17.0] y[-19.0,-14.5]
+    #            + x[-24.5,-20.6] y[-14.5,-11.5]   (the last reaches R9's top leg
+    #            while leaving its VGATE end 0.7 mm outside the pour)
+    #   riser B  x[  4.3,  7.7] y[-39.6,-32.0]  up the empty span between J3 and
+    #                                           J4, which is what that gap is for
+    #   tab B    x[  3.7, 12.3] y[-33.0,-22.0]  D3's cathode tab
+    #
+    # Short, wide and local survives a routing. The first attempt ran a 3.8 mm
+    # VBAT corridor 36 mm up the middle of the board; the router laid tracks
+    # across it and the fill came back as NINETEEN islands.
+    "zones": [
+        ("GND", "B.Cu", 0.3),
+        {"net": "VBAT", "layer": "F.Cu", "priority": 0, "poly": [
+            (-38.0, -46.5), (8.0, -46.5), (8.0, -39.6),
+            # riser B, carrying on into D3's cathode tab
+            (7.7, -39.6), (7.7, -33.0), (12.3, -33.0), (12.3, -22.0),
+            (3.7, -22.0), (3.7, -33.0), (4.3, -33.0), (4.3, -39.6),
+            # riser A, into D2's cathode tab, with the two stubs off its top
+            # edge that reach C2, C17 and R9
+            (-9.7, -39.6), (-9.7, -14.0), (-15.5, -14.0), (-15.5, -22.0),
+            (-17.0, -22.0), (-17.0, -11.5), (-20.6, -11.5), (-20.6, -14.5),
+            (-24.5, -14.5), (-24.5, -19.0), (-19.5, -19.0), (-19.5, -33.0),
+            (-12.0, -33.0), (-12.0, -39.6),
+            # the left column, up to C1's positive pad and the TVS
+            (-35.5, -39.6), (-35.5, -6.0), (-38.0, -6.0),
+        ]},
+        # -- PUMP_A_LO: up from J2.2 into Q1's tab and D2's anodes ------------
+        # The top edge is -24.6, not -24.0, because Q1's gull-wing leads sit at
+        # dy +3.938: the gate pad's lower edge is -24.162, and a 7.5 A pour
+        # 0.16 mm from a gate is not a clearance, it is a coupling.
+        {"net": "PUMP_A_LO", "layer": "F.Cu", "priority": 10,
+         "poly": [(-31.96, -42.4), (-28.56, -42.4), (-28.56, -33.0),
+                  (-20.8, -33.0), (-20.8, -24.6), (-33.7, -24.6),
+                  (-33.7, -33.0), (-31.96, -33.0)]},
+        # -- PUMP_B_LO: the same shape on J3.2 / Q2 / D3 ---------------------
+        {"net": "PUMP_B_LO", "layer": "F.Cu", "priority": 10,
+         "poly": [(-6.96, -42.4), (-3.56, -42.4), (-3.56, -33.0),
+                  (2.4, -33.0), (2.4, -24.6), (-9.3, -24.6),
+                  (-9.3, -33.0), (-6.96, -33.0)]},
+    ],
     "stitch_nets": ("GND",),
     "single_sided": True,              # every part on the front: one assembly setup
 }
