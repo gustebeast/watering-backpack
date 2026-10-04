@@ -39,7 +39,7 @@ from . import housing as H
 from . import lumber_frame as L
 from . import plumbing as P
 from . import pump_frame as F
-from .dual_clamp import dual_clamp_19, dual_clamp_23
+from .dual_clamp import dual_clamp_19
 from .helpers import bump_build_counter
 from .joystick_mount import joystick_mount
 
@@ -89,7 +89,8 @@ def printed_parts():
     return (("v2_housing", H.housing(), H.PRINT_ROT["v2_housing"]),
             ("v2_housing_lid", H.lid(), H.PRINT_ROT["v2_housing_lid"]),
             ("joystick_mount", joystick_mount, None),
-            ("dual_clamp_23", dual_clamp_23, None),
+            # dual_clamp_23 retired: it gripped a 23 mm VALVE body and
+            # DESIGN_V2 section 1 has no reversing valve. See src/dual_clamp.py.
             ("dual_clamp_19", dual_clamp_19, None))
 
 
