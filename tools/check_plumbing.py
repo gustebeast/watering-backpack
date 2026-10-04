@@ -22,6 +22,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from src import housing as H           # noqa: E402
+from src import lumber_frame as L      # noqa: E402
 from src import plumbing as P          # noqa: E402
 from src import pump_frame as F        # noqa: E402
 
@@ -35,10 +37,9 @@ INTENDED = {("tank_to_A", "elbows"), ("tank_to_B", "elbows"),
 
 def parts():
     return [("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
-            ("frame_left", F.frame_left), ("frame_right", F.frame_right),
-            ("pcb_plate", F.pcb_plate_part), ("pcb_shroud", F.pcb_shroud_part),
-            ("pcb", F.pcb_solid()), ("battery_dock", F._dock_placed()),
-            ("elbows", F._elbows()), ("tank", F._tank()),
+            ("wood", L.frame()), ("housing", H.housing()),
+            ("housing_lid", H.lid()), ("pcb", H.pcb_solid()),
+            ("elbows", F._elbows()), ("tank", L.tank()),
             ("shelf", P.shelf()), ("pack_frame", P.pack_frame())]
 
 

@@ -12,7 +12,7 @@ sees.
 A planar face whose normal points down more steeply than ~45° needs support.
 Faces sitting on the build plate are supported by definition and are skipped.
 
-    py -3.12 tools/check_overhangs_v2.py        # exit 0 = clean
+    py -3.12 tools/check_v2_overhangs.py        # exit 0 = clean
 
 Exit code is the number of parts carrying steep overhang area, so this works as
 a build gate.
@@ -23,7 +23,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from cadkit.step_export import print_pose      # noqa: E402
-from src import pump_frame as F                # noqa: E402
+from src import housing as H                   # noqa: E402
 
 # A planar ceiling has n.z = -1; a 45° ramp has n.z = -0.707. Flag anything
 # steeper than ~45°, with a small tolerance band so true 45° ramps pass.
@@ -31,14 +31,12 @@ STEEP = -0.72
 BED_EPS = 0.2            # a face this close to z=0 rests on the plate
 MIN_AREA = 1.0           # ignore slivers; they are modelling noise, not overhangs
 
-PARTS = (("v2_frame_left",  F.frame_left),
-         ("v2_frame_right", F.frame_right),
-         ("v2_pcb_plate",   F.pcb_plate_part),
-         ("v2_pcb_shroud",  F.pcb_shroud_part))
+PARTS = (("v2_housing",     H.housing()),
+         ("v2_housing_lid", H.lid()))
 
 
 def report(name, part):
-    posed = print_pose(part, F.PRINT_ROT.get(name))
+    posed = print_pose(part, H.PRINT_ROT.get(name))
     bb = posed.val().BoundingBox()
     steep, ramps = [], []
     for f in posed.faces().vals():

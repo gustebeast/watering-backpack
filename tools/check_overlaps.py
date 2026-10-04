@@ -26,17 +26,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from cadkit import overlap_check              # noqa: E402
 
+from src import housing as H                  # noqa: E402
+from src import lumber_frame as L             # noqa: E402
 from src import plumbing as P                 # noqa: E402
 from src import pump_frame as F               # noqa: E402
 
 
 def collect_components():
-    comps = [("frame_left", F.frame_left.val()),
-             ("frame_right", F.frame_right.val()),
-             ("pcb_plate", F.pcb_plate_part.val()),
-             ("pcb_shroud", F.pcb_shroud_part.val()),
-             ("pcb", F.pcb_solid().val()),
-             ("battery_dock", F._dock_placed().val()),
+    comps = [("housing", H.housing().val()),
+             ("housing_lid", H.lid().val()),
+             ("pcb", H.pcb_solid().val()),
+             ("wood", L.frame().val()),
              ("pump_a", F._pump_placed(-1).val()),
              ("pump_b", F._pump_placed(+1).val()),
              ("fittings", F._elbows().val())]
@@ -50,10 +50,14 @@ def intended(a, b):
     if "fittings" in pair:
         other = (pair - {"fittings"}).pop()
         return other.startswith(("pump_", "tank_", "green_"))
-    if pair == {"pcb", "pcb_plate"}:
+    # the board rests on the housing's standoff bosses
+    if pair == {"pcb", "housing"}:
         return True
-    # the two halves meet at the mortise-and-tenon
-    if pair == {"frame_left", "frame_right"}:
+    # the housing bolts flat onto the posts
+    if pair == {"housing", "wood"}:
+        return True
+    # the lid closes onto the housing's lid pillars
+    if pair == {"housing", "housing_lid"}:
         return True
     # hoses meeting at a tee
     if all(n.startswith(("tank_", "green_")) for n in pair):
