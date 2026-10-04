@@ -22,3 +22,8 @@ elec/out/
 
 # finish.py drops its DRC report in the repo root, not in elec/out
 *-drc.rpt
+
+# SKiDL scratch logs from elec/main.py — regenerated every run, and they
+# record absolute local paths
+skidl_REPL.erc
+skidl_REPL.log
