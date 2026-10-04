@@ -202,7 +202,7 @@ check in this repo would pass.
 | pump A / pump B | 2-pos terminal each | 5.08 mm | 7.5 A each |
 | joystick | 5-pos terminal | 3.5 mm | to the existing KY-023 |
 | level sensor | 4-pos terminal | 3.5 mm | VBAT, GND, OUT, MODE |
-| programming | 6-pin 2.54 mm header | | TX/RX/EN/IO0/3V3/GND + DTR/RTS |
+| programming | 6-pin 2.54 mm header | | 3V3/GND/ESP_TX/ESP_RX/EN/IO0 — named from the **board's** end, so cross them to the adapter |
 
 **Why terminals over JST here.** JST earns its place where a joint is plugged and
 unplugged often, or where space is tight. Neither applies: every one of these is
@@ -354,6 +354,49 @@ heat source. As netted it would have dissipated nothing, which is the tell.
 SNVSAA5B §6.3.8: *"The RT/SYNC pin can't be left floating or shorted to ground."*
 It sets the switching frequency. **R8 = 49k9**, the datasheet's own table value
 for 500 kHz, which with the 10 µH inductor gives 0.55 A of ripple at 20 V in.
+
+### 4a. The buck had no catch diode, and it is not a synchronous part
+
+The worst finding in this file, because it is not a margin — the 3.3 V rail could
+not have worked, and with it the MCU, the joystick reading and the logic supply
+for both gate drivers.
+
+The LMR14020 integrates **one** switch. Its feature list says "90mΩ **high-side**
+MOSFET" and §6.1 repeats it: *"It integrates a 90 mΩ (typical) high-side
+MOSFET"*. There is no low-side device inside, so when that switch opens the
+inductor current needs an external rectifier or it has no path at all. The
+datasheet is not subtle about this:
+
+- §6.3 describes the current freewheeling *"through freewheel diode with a slope
+  of −VOUT / L"*
+- §6.3 again: *"the high-side MOSFET is off and the **external low side diode**
+  conducts"*
+- Figure 7-1, the application circuit, carries a component **D**
+- §7.2.2.5 is an entire section titled **Schottky Diode Selection**
+- the layout example on the facing page labels it *"Rectifier Diode"*
+
+This board carried L1, C15, C3, C4, C5, R1, R2, R8 and C14 — every external part
+in that figure **except D**. With the switch open the SW node is driven negative
+by the inductor until something breaks down, and SW's absolute minimum is
+**−3 V** (§5.1).
+
+**D6 = SCHOTTKY-60V-3A, SMA**, cathode on SW and anode on GND. The value carries
+the requirement rather than a part number, as Q1/Q2 and D2/D3 do, and §7.2.2.5
+sets both halves of it:
+
+- *"The breakdown voltage rating of the diode is preferred to be 25% higher than
+  the maximum input voltage"* — 1.25 × 20 V = 25 V is the floor. 60 V is used
+  instead, for the reason the whole board is built on: everything on this node is
+  rated past a fresh pack **and** past the TVS's 38.9 V clamp, SW's own absolute
+  maximum is 44 V, and 60 V makes this the same requirement as the pump
+  freewheels — one fewer number to get wrong.
+- *"The current rating for the diode must be equal to the maximum output current
+  ... A 2.5 A to 3 A rated diode is a good starting point"* — 3 A, against an
+  average of (1 − D) × IOUT = 0.835 × 0.6 = **0.50 A**.
+
+It is placed between pins 7 and 8, which are adjacent, with its two legs balanced
+at 3.60 and 3.80 mm — see section 13 for why it, and not the inductor, gets that
+place.
 
 ### 4b. The inductor saturated below the regulator's own current limit
 
@@ -571,6 +614,73 @@ as *sourced* and left out of the "cannot be ordered assembled" list — while
 sitting in the BOM with a blank part number. Thirty BOM lines reported as 17
 generic + 12 open, and the thirteenth was the rail that makes the pumps switch
 at all.
+
+### 13. The buck cluster was never laid out against its own datasheet
+
+Finding 4a came out of doing this, which is the point of the rule that asks for
+it: PCB_QUALITY M13 says to *"compare the placed board against the datasheet's
+layout figure, side by side"*, and reading SNVSAA5B §7.4 closely enough to do
+that is what turned up the missing rectifier in guidelines 4 and 5.
+
+The cluster had never been re-laid when the bottom half of the board was rebuilt
+— the note in `elec/main.py` said so in as many words, on the grounds that an
+experiment on a working region costs you a routing to compare against. It was not
+a working region. Measured on the routed board, pad to pad, before → after:
+
+| guideline | connection | before | after |
+|---|---|---:|---:|
+| 2 | CIN to VIN | 4.43 | **3.80** |
+| 2 | CIN to the GND pin | 5.44 | **3.80** |
+| — | bootstrap cap to BOOT | 14.01 | **4.90** |
+| 5 | catch diode K to the SW pin | — | **3.60** |
+| 5 | catch diode A to the GND pin | — | **3.80** |
+| 3 | SW pin to the inductor | 11.61 | **7.05** |
+| 1 | FB pin to the divider's tap | 6.07 | **1.77** |
+| 1 | FB pin to R1's tap | 10.93 | **2.73** |
+| 4 | inductor output to COUT | 10.36 | **2.85** |
+| — | RT pin to R8 | 17.67 | **2.30** |
+| — | SS pin to C14 | 17.08 | **4.33** |
+
+The whole FB node is now 3.85 mm of track, the commutation loop is 7.39 mm
+outside the parts, and the smallest courtyard gap in the cluster is 0.230 mm.
+
+**The two CIN legs are equal, and that is the shape of the whole region.** U1 is a
+dual-row HSOIC, so VIN (pin 2) and GND (pin 7) sit directly opposite each other
+at dy +0.635 — 4.95 mm apart across the body. No ceramic can sit beside both, so
+the hot loop has a floor, and centring C15 **above** the package is what reaches
+it: 3.80 mm on each side instead of 4.43 and 5.44. The bootstrap capacitor bridges
+left to right for the same reason (BOOT is pin 1, SW is pin 8).
+
+**Two deliberate deviations, both named rather than lumped.**
+
+*D6 takes the place beside pins 7 and 8, and L1 the next one out.* That costs the
+switch node about 3.5 mm. Guideline 3 wants the inductor at SW and guideline 5
+wants the diode's ground short, and on this package they compete for the same
+3 mm. The diode wins because it is the part that **commutates**: every cycle the
+inductor current steps out of the high-side switch and into D6, so the loop
+SW–D6–GND is where di/dt lives and its area sets the ringing on a node whose
+rating stops at −3 V. The inductor's own current does not step at all, and
+guideline 3's stated reason for keeping it close is *"to reduce magnetic and
+electrostatic noise"* — a radiation argument, not a loop-area one.
+
+*RT and SS are in none of the six guidelines.* Both carry microamps into a timing
+pin, so they get what is left over, and C14 at 4.33 mm gives up nothing the
+datasheet asked for.
+
+Guideline 1's second half is measured too — *"VOUT sense path away from noisy
+nodes"*: the nearest FB track comes 3.56 mm to a SW track and the nearest +3V3
+track 3.53 mm, neither adjacent.
+
+### C5 was never an output capacitor, whatever its comment said
+
+Moving C5 to the inductor broke A2 on J6, and that is how this surfaced. C5 sat at
+(−8, 26) labelled "3V3 out", and what it was actually doing was being **J6's
+bypass**: A2 gives a connector 25 mm to its nearest charge, and C5's pad was the
+only +3V3 ceramic inside that of J6 pin 1 — 20.9 mm, where C4 was 25.88 and
+failed. So C5 is now placed for the job it has, local charge for the 3V3 that
+leaves the board down the programmer's cable, exactly as C16 is for J4. **C4 is
+the output capacitor** and does the high-frequency work alone, 2.85 mm from L1's
+output pad.
 
 ### Still open: the antenna points at the battery
 

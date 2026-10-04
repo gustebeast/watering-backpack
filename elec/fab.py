@@ -41,6 +41,24 @@ OPEN_VALUES = frozenset({
     "NFET-60V-10mR",     # >= 60 V Vds, <= 10 mOhm at 4.5 V Vgs, DPAK/TO-263
     "SCHOTTKY-60V-15A",  # >= 60 V, >= 15 A, low Vf, D2PAK. 1 A parts share the
                          # SS1x numbering and will not survive this leg.
+    # ⚠ AND THIS ONE WAS COUNTED AS "GENERIC" UNTIL IT WAS LISTED HERE, which is
+    # worth knowing about the gate: fab_package's GENERIC pattern matches
+    # Diode_SMD:D_SM[AB], because a diode in an SMA land is normally picked by
+    # PART NUMBER and D1's "SMBJ24A" and D4's "1N4148W" are perfectly good
+    # orderable values. This one is not a part number, it is a requirement in
+    # the same style as the two above -- so the footprint said "orderable" and
+    # the value said nothing anybody could buy, and the package reported it in
+    # the generic count. The declaration below is what makes it visible.
+    "SCHOTTKY-60V-3A",   # the buck's CATCH diode, which the board did not have
+                         # at all: the LMR14020 integrates only a high-side
+                         # MOSFET (SNVSAA5B 6.1), so without this the SW node
+                         # is driven past its -3 V rating every cycle and the
+                         # 3V3 rail -- hence the MCU, the joystick and the gate
+                         # drivers' logic -- never comes up. >= 60 V (the
+                         # datasheet's floor is 1.25 x VIN = 25; 60 matches
+                         # everything else on this node and the TVS's 38.9 V
+                         # clamp), >= 3 A per 7.2.2.5's own starting point,
+                         # against a 0.50 A average. SMA.
     # ── decided in the schematic, part number not read off a listing yet ───
     "ESP32-WROOM-32E",   # expect an Extended part at JLCPCB (CIRCUIT.md section 3)
     "LMR14020SDDA",      # the >= 40 V buck; CIRCUIT.md section 2 lists the alternates

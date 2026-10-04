@@ -122,6 +122,16 @@ L4 = ("F.Cu,In1.Cu,In2.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,"
 # sourcing decision. They are reported separately from the real OPENs.
 GENERIC = re.compile(r"^(R_|C_|Fuse_|Jumper:|Diode_SMD:D_SOD|Diode_SMD:D_SM[AB]|"
                      r"Inductor_SMD|Crystal:)")
+# ⚠ A GENERIC LAND TRUSTS ITS VALUE TO BE SOMETHING YOU CAN BUY, and for the diode lands
+# above that trust is doing real work. D_SOD and D_SM[AB] are here because a diode in one
+# of those is normally named by PART NUMBER -- "SMBJ24A", "1N4148W" -- which is orderable
+# as written. A value that is instead a REQUIREMENT ("SCHOTTKY-60V-3A") is not, and this
+# pattern cannot tell the difference: watering-backpack added exactly that and the package
+# counted it among the generics rather than among the open items, so a part nobody had
+# sourced read as sourced. There is no mechanical test for "is this a real part number",
+# so the answer is the declaration: OPEN_VALUES is how a requirement-shaped value is
+# accounted for, and a project that writes requirements into `value` must list them there.
+#
 # ⚠ ONLY PASSIVES ARE VALUE-CHOSEN. An 0402 is picked from its value; an LED in an 0805
 # land is picked from its part number, and "IR17-21C/TR8" is a perfectly good value that
 # simply does not start with a digit. The placeholder rule below applies to this subset.
