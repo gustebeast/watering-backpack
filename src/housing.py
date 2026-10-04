@@ -49,8 +49,9 @@ HOW THE CABLES GET OUT
 ----------------------
 They could not, until they did: the bay was a closed rectangular tube with four
 power terminals facing a wall. There is now ONE down-facing chase through the
-bay floor at y 134..158, and a buttress rib under it with a tie slot through it
-so the bundle has something to be relieved against. Down-facing because the tank
+bay floor, and under it a slot straight through the back plate so the battery's
+own leads can come from the timber side without going round the housing.
+Down-facing because the tank
 is five gallons of water sitting directly above, and CIRCUIT.md already counts an
 opening as an ingress path — which is why the level sensor's lead comes out of
 the bottom and climbs back up outside rather than leaving through the roof.
@@ -199,7 +200,26 @@ SCREW_YS   = L.POST_YS                                    # 19 and 191 — on th
 # leave 0.5 mm of material under the head anyway. A cone opening inboard is a
 # void that only widens as the build rises, so nothing overhangs it — and a
 # flat-head wood screw is what you would use into timber regardless.
-WOOD_CLR_D, WOOD_CSK_D = 4.5, 9.0
+# THE HEAD IS O9.3, and that is a MEASURED number, not a guess: it is the
+# "v2's validated screw geometry, verbatim" block in the retractable-cable-spool
+# project (src/params.py, WOOD_SCREW_SHAFT_D 4.0 / WOOD_SCREW_HEAD_D 9.3 /
+# WOOD_SCREW_HEAD_H 4.0), and the same screws are what goes in here.
+#
+# The countersink used to be O9.0 -- 0.3 mm SMALLER than the head it was cut
+# for, so the head would have landed on the pocket's rim instead of seating in
+# it. It opens O9.6 now, 0.3 of clearance on a printed cone.
+#
+# The 45 degree pocket is the right shape for an 82 degree screw and not an
+# accident of printability: the pocket's half-angle (45) is STEEPER than the
+# head's (41), so the head contacts near the mouth and seats flush. A shallower
+# pocket would bottom the head out early and hold the plate off the post.
+WOOD_HEAD_D = 9.3                     # the real head, cited above
+WOOD_CSK_CLR = 0.3
+WOOD_CLR_D, WOOD_CSK_D = 4.5, WOOD_HEAD_D + WOOD_CSK_CLR     # 4.5, 9.6
+WOOD_CSK_DEPTH = (WOOD_CSK_D - WOOD_CLR_D) / 2.0             # 45 deg -> 2.55
+assert WOOD_CSK_DEPTH < BACK_T, (
+    "a %.2f mm countersink breaks through a %.1f mm plate: there would be no "
+    "seat left for the head" % (WOOD_CSK_DEPTH, BACK_T))
 
 
 # ── PCB stack, measured outboard from the back plate's inner face ───────────
@@ -279,31 +299,79 @@ assert Y_PCB0 < CHASE_Y0 and CHASE_Y1 < Y_PCB1, (
     "the chase (%.1f..%.1f) runs past the bay cavity (%.1f..%.1f)"
     % (CHASE_Y0, CHASE_Y1, Y_PCB0, Y_PCB1))
 
+# ── THE BATTERY WIRES COME THROUGH THE PLATE, NOT ROUND IT ─────────────────
+# The pack's leads are on the +X side of the back plate, with the timber; every
+# terminal they have to reach is on the -X side, in the bay. Until now there was
+# no opening for them at all and the implicit answer was "round the edge of the
+# housing", which is a 200 mm detour on a 7.5 A pair.
+#
+# A slot straight through the plate, directly below the bay, and then a 90
+# degree turn +Z into the chase. The turn happens in open air: the chase ALREADY
+# cuts the bay's -Z wall away over this whole Y band, so once the leads are
+# through the plate they are looking straight up into the bay with nothing in
+# between.
+#
+# WHERE IT CAN GO IS A 7 mm BAND, and all three edges of it are measured:
+#   Z <= 11.0   the bay's -Z wall starts here; above it is the bay, not air
+#   Z >=  4.0   the floor plank's top, measured off the frame solid -- below
+#               this the slot opens into timber, which is no opening at all
+#   Y 121.7..172.0  the chase at one end, the +Y post's inboard face at the
+#               other. Drill outside that and the slot is blind against a post.
+# The slot sits inside all three with margin and the asserts below hold it there.
+#
+# It needs no overhang relief: the housing builds -X (PRINT_ROT), so a hole
+# bored through the plate along X is a VERTICAL hole with no ceiling anywhere
+# in it.
+WIRE_SLOT_Y_C = 150.0
+WIRE_SLOT_Z_C = 8.0
+WIRE_SLOT_W   = 22.0        # along Y, tip to tip
+WIRE_SLOT_H   = 5.0         # along Z, and the end radius
+WIRE_WOOD_Z   = 4.0         # measured: the floor plank's top at this Y
+WIRE_POST_Y   = 172.0       # measured: the +Y post's inboard face
+
+
+def _wire_slot() -> cq.Workplane:
+    """The battery leads' way in: through the plate, below the bay."""
+    # From FLOOR_X, not BACK_X. A YZ workplane extrudes +X and the plate runs
+    # FLOOR_X -> BACK_X, so starting at the outboard face cut a 0.5 mm blind
+    # pocket in the back of the plate and left it otherwise solid -- the same
+    # slip the wood screws' comment above records, and the overhang gate caught
+    # this one too: a blind pocket has a floor, and that floor read as 104.6 mm2
+    # of flat ceiling facing the bed.
+    return (cq.Workplane("YZ").workplane(offset=FLOOR_X - BOOL_OVERSHOOT)
+            .center(WIRE_SLOT_Y_C, WIRE_SLOT_Z_C)
+            .slot2D(WIRE_SLOT_W, WIRE_SLOT_H, 0.0)
+            .extrude(BACK_T + 2 * BOOL_OVERSHOOT))
+
+
+assert WIRE_SLOT_Z_C + WIRE_SLOT_H / 2.0 <= BAY_Z0 - WALL, (
+    "the wire slot reaches Z %.1f and the bay's -Z wall starts at %.1f: it "
+    "would open into the wall, not under it"
+    % (WIRE_SLOT_Z_C + WIRE_SLOT_H / 2.0, BAY_Z0 - WALL))
+assert WIRE_SLOT_Z_C - WIRE_SLOT_H / 2.0 >= WIRE_WOOD_Z, (
+    "the wire slot reaches Z %.1f and the floor plank's top is %.1f: it would "
+    "open into timber" % (WIRE_SLOT_Z_C - WIRE_SLOT_H / 2.0, WIRE_WOOD_Z))
+assert CHASE_Y0 <= WIRE_SLOT_Y_C - WIRE_SLOT_W / 2.0 and        WIRE_SLOT_Y_C + WIRE_SLOT_W / 2.0 <= min(CHASE_Y1, WIRE_POST_Y), (
+    "the wire slot spans Y %.1f..%.1f, outside the chase/post window %.1f..%.1f"
+    % (WIRE_SLOT_Y_C - WIRE_SLOT_W / 2.0, WIRE_SLOT_Y_C + WIRE_SLOT_W / 2.0,
+       CHASE_Y0, min(CHASE_Y1, WIRE_POST_Y)))
+
+
 # CIRCUIT.md: "Terminals provide NO strain relief — a tugged cable pulls out of
 # the clamp or snaps at it. The printed shroud needs a cable-tie anchor."
 #
-# THE ANCHOR IS CUT, NOT BUILT. It used to be a 14 mm buttress rib standing off
-# the back plate below the chase, with a tie slot bored through it — 3.4 cm3 of
-# added material whose whole job was to give a cable tie something to pass
-# through. A pair of slots through the bay floor does the same job and adds
-# nothing: the tie goes up through one, over the bundle, down the other, and
-# cinches it against the floor's underside, which is the face the bundle runs
-# along anyway. The rib also stood exactly where the lid's -Z skirt now drops.
+# ⚠ THERE IS NO ANCHOR AT THE MOMENT, and that is worth saying plainly rather
+# than letting the absence pass as a decision. It was a 14 mm buttress rib
+# first, then a pair of diamond tie slots through the bay floor; the slots are
+# gone at the user's request and nothing replaced them. What the design still
+# has is the wire slot above, which the battery pair threads through a 3 mm
+# plate and turns 90 degrees against -- a bend through a close-fitting hole is
+# real relief for THAT pair, and it is the pair carrying 7.5 A.
 #
-# DIAMOND slots, for the same reason the rib's was a diamond: they are cut
-# through a 3 mm floor that is PARALLEL to the build (the housing builds in -X),
-# so a rectangular slot presents a flat 3 x 3 ceiling where the floor closes
-# back over it. A diamond's roof is two planes 17 degrees off the build axis.
-#
-# They sit at the floor's INBOARD end, in the 8.5 mm of it the lid's skirt does
-# not reach (SKIRT_D), so the tie and the bundle it holds are never pinched
-# between the floor and the skirt -- and the skirt's wiring window only has to
-# clear the chase.
-TIE_SLOT_HX = 3.0                            # half-length along the build (X)
-TIE_SLOT_HY = 2.0                            # half-width across it; 34 deg roof
-TIE_SLOT_OFFSET = 5.0                        # chase edge -> slot centre
-TIE_SLOT_YS = (CHASE_Y0 - TIE_SLOT_OFFSET, CHASE_Y1 + TIE_SLOT_OFFSET)
-TIE_SLOT_X  = FLOOR_X - 4.25                 # -197.25, mid-way in that strip
+# It is not relief for the leads that arrive down the chase from the tank side
+# (the level sensor, the joystick), and those still land straight on a terminal
+# clamp. A tie around the bundle where it leaves the chase, anchored to anything
+# at all, would close it.
 
 
 def _slab(x0, x1, y0, y1, z0, z1):
@@ -557,9 +625,24 @@ RET_CLR      = 0.3      # air over the laminate at the lip's root
 RET_ROOT_GAP = 0.5      # lip root to the board's +Y edge
 RET_OVER     = 1.0      # how far the lip reaches over the board
 RET_LEN      = 14.0     # each lip's length along Z
+# ⚠ THE RAMP USED TO END IN A KNIFE EDGE. The hook's far corner was the meeting
+# of the 45 degree underside and the vertical back face: a 45 degree wedge
+# tapering to nothing, which a nozzle cannot resolve -- it prints as a ragged
+# tip a layer or two thick, in the one feature that holds the board down.
+# RET_TIP_T of square section goes on the END of the ramp, so the extreme face
+# is a flat land instead of a line. The ramp keeps its 45 degrees and its reach
+# over the board is unchanged; the lip simply stands RET_TIP_T taller.
+RET_TIP_T    = 1.6      # the blunt land at the hook's tip
 RET_LIP_ZS   = (35.0, 70.0, 105.0)       # three of them, spread up the edge
 RET_STOP_T   = 2.0      # Z stop thickness
 RET_STOP_CLR = 0.3      # air between a Z stop and the laminate
+# ⚠ A STOP THE HEIGHT OF THE BOARD IS NOT A STOP. These used to rise to exactly
+# BOARD_X1, the laminate's top face, so a board lifted by its own thickness --
+# 1.6 mm, which is nothing when the whole machine is being carried and shaken --
+# cleared them and could walk along Z. They stand RET_STOP_OVER proud of the top
+# face now, so the board has to come most of the way out of the bay before Z is
+# free. There is room: the lid's inner face is 19.5 mm above the board top.
+RET_STOP_OVER = 2.4     # how far a Z stop reaches past the laminate's top face
 
 BOARD_Y1 = PCB_Y_C + BOARD_Y_MINUS                  # 199.0 — laminate's +Y edge
 BOARD_Y0 = PCB_Y_C - BOARD_Y_MINUS                  # 104.0 — laminate's -Y edge
@@ -587,9 +670,10 @@ def _pcb_lip() -> cq.Workplane:
     y_root = BOARD_Y1 + RET_ROOT_GAP
     y_tip = BOARD_Y1 - RET_OVER
     x_root = BOARD_X1 - RET_CLR
-    x_tip = x_root - (y_root - y_tip)               # 45 deg
+    x_ramp = x_root - (y_root - y_tip)              # 45 deg, where the ramp ends
+    x_tip = x_ramp - RET_TIP_T                     # ...and the land above it
     pts = [(FLOOR_X, Y_PCB1), (x_tip, Y_PCB1), (x_tip, y_tip),
-           (x_root, y_root), (FLOOR_X, y_root)]
+           (x_ramp, y_tip), (x_root, y_root), (FLOOR_X, y_root)]
     out = None
     for z0 in RET_LIP_ZS:
         s = (cq.Workplane("XY").polyline(pts).close()
@@ -605,26 +689,10 @@ def _pcb_z_stops() -> cq.Workplane:
         for z_in, side in ((BOARD_Z0, -1), (BOARD_Z1, +1)):
             z_a = z_in + side * RET_STOP_CLR
             z_b = z_a + side * RET_STOP_T
-            s = _slab(FLOOR_X, BOARD_X1, y0, y1, min(z_a, z_b), max(z_a, z_b))
+            s = _slab(FLOOR_X, BOARD_X1 - RET_STOP_OVER,
+                      y0, y1, min(z_a, z_b), max(z_a, z_b))
             out = s if out is None else out.union(s)
     return out
-
-
-def _tie_slots() -> cq.Workplane:
-    """Two diamond slots through the bay floor, one each side of the chase.
-
-    A tie passes up through one, over the bundle and down the other, cinching
-    it against the floor's underside. Diamonds because the floor is parallel to
-    the build (-X) and a rectangular slot would close over a flat ceiling."""
-    cut = None
-    for y_c in TIE_SLOT_YS:
-        d = (cq.Workplane("XY").workplane(offset=BAY_Z0 - BOOL_OVERSHOOT)
-             .center(TIE_SLOT_X, y_c)
-             .polyline([(TIE_SLOT_HX, 0.0), (0.0, TIE_SLOT_HY),
-                        (-TIE_SLOT_HX, 0.0), (0.0, -TIE_SLOT_HY)]).close()
-             .extrude(WALL + 2 * BOOL_OVERSHOOT))
-        cut = d if cut is None else cut.union(d)
-    return cut
 
 
 def housing() -> cq.Workplane:
@@ -646,8 +714,8 @@ def housing() -> cq.Workplane:
     h = h.cut(_slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,
                     CHASE_Y0, CHASE_Y1,
                     BAY_Z0 - BOOL_OVERSHOOT, BAY_Z0 + WALL + BOOL_OVERSHOOT))
-    # ...flanked by two diamond tie slots through the floor: the strain relief
-    h = h.cut(_tie_slots())
+    # ...and the battery leads' way through the plate, under that same chase
+    h = h.cut(_wire_slot())
     h = h.union(_dock_placed())
     # ...and reopen the connector pocket the back plate just sealed. AFTER the
     # union, necessarily: the plate is what closes it.
@@ -707,9 +775,10 @@ assert SKIRT_D < abs(WALL_X - FLOOR_X), "the skirt is deeper than the bay is tal
 # ── The -Z skirt has to let the wiring out ─────────────────────────────────
 # Every other side laps a closed wall. This one laps the wall the cable chase
 # goes through, so a continuous skirt there would re-close the only opening
-# this bay has. A window, spanning the chase and nothing more: the tie slots
-# are deliberately INBOARD of SKIRT_D (see TIE_SLOT_X) so the strain relief
-# stays under solid skirt and the window does not have to grow to clear it.
+# this bay has. A window, spanning the chase and nothing more. The skirt stops
+# 4.9 mm short of the back plate, so the battery slot and the 90 degree turn the
+# leads make out of it are both inboard of the skirt's end and the window never
+# has to grow to clear them.
 LID_WIN_MARGIN = 1.5
 
 # ── Lid retention ──────────────────────────────────────────────────────────
@@ -751,15 +820,24 @@ LID_WIN_MARGIN = 1.5
 # an access path that did not exist.
 LID_BOSS_W  = 16.0                            # Y width
 LID_BOSS_H  = 16.0                            # Z height
-LID_BORE_D  = 9.5                             # the screw head is Ø9
+LID_BORE_D  = WOOD_HEAD_D + 1.7               # 11.0 -- the head is Ø9.3 and
+                                              # this is a hole you post a screw
+                                              # down on the end of a driver. 9.5
+                                              # cleared the head by 0.1 a side,
+                                              # which is a fit, not an access
+                                              # path.
 LID_BOSS_Y  = SCREW_YS[1]                     # 191
 LID_BOSS_Z  = SCREW_ZS[1]                     # 145
 LID_BOSS_X1 = FLOOR_X                         # -193: the back plate's inboard face
-LID_CSK_T   = 3.0                             # material the countersink lives in
+LID_CSK_T   = 3.5                             # material the countersink lives in.
+                                              # Set BY the bore: a 45 deg cone
+                                              # from Ø11.0 to Ø4.5 is 3.25 deep,
+                                              # and 3.0 of seat could not hold
+                                              # it.
 LID_UP      = (1.0, 0.0, 0.0)                 # build direction (see PRINT_ROT)
-assert LID_BORE_D > WOOD_CSK_D, (
-    "a %.1f mm screw head will not pass a %.1f mm access bore"
-    % (WOOD_CSK_D, LID_BORE_D))
+assert LID_BORE_D >= WOOD_HEAD_D + 1.0, (
+    "a %.1f mm screw head needs more than %.1f mm of bore to be posted through "
+    "it, not just to fit" % (WOOD_HEAD_D, LID_BORE_D))
 assert LID_BOSS_H / 2.0 - LID_BORE_D / 2.0 >= 2.0, "under 2 mm of boss over the bore"
 assert LID_BOSS_W / 2.0 - LID_BORE_D / 2.0 >= 2.0, "under 2 mm of boss beside the bore"
 assert LID_CSK_T >= (LID_BORE_D - WOOD_CLR_D) / 2.0, "the countersink is deeper than its seat"
@@ -805,8 +883,10 @@ def _lid_screw_path() -> cq.Workplane:
             .extrude(x_csk - (WALL_X - LID_T) + BOOL_OVERSHOOT))
     # The cone's mouth is the ACCESS BORE's diameter, not the screw head's. At
     # Ø9.0 into a Ø9.5 bore the step left a 7.3 mm2 flat annulus facing the bed
-    # -- the overhang gate's whole subject. Starting it at Ø9.5 removes the step
-    # and costs 0.25 mm of head seat on a 45 deg cone.
+    # -- the overhang gate's whole subject. Starting it at the bore removes the
+    # step; the Ø9.3 head then seats 0.85 mm down the cone instead of at its
+    # mouth, which is seat spent to buy a hole you can actually post a screw
+    # through.
     csk = cq.Solid.makeCone(LID_BORE_D / 2.0, WOOD_CLR_D / 2.0,
                             (LID_BORE_D - WOOD_CLR_D) / 2.0,
                             cq.Vector(x_csk, y_c, z_c), cq.Vector(1, 0, 0))
