@@ -62,6 +62,11 @@ HINT = {
     "A2": "move or add a bypass capacitor beside the pin; tune quality.decoupling only with "
           "a reason",
     "A3": "add a `match` group, or quality.unmatched_ok with the bit-time arithmetic",
+    "A5": "fix the label, or list a deliberate one in quality.single_pin_ok",
+    "A6": "one 5.1 k 1% from EACH CC pin to ground on a device port",
+    "A7": "one pull-up pair per bus: say where it is, and that it is the only one",
+    "A8": "connect the pad as the datasheet says and put vias in it",
+    "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
           "page in quality.pinouts -- by ref, value or footprint",
@@ -485,6 +490,193 @@ def pinouts(ctx):
 
 
 # ── the manual list, read from the markdown ──────────────────────────────────────────
+# ── shared: a resistor's ohms from its value text ────────────────────────────────────
+def _ohms(value):
+    """"4.7k" / "4k7" / "5K1" / "600R" / "120" / "1M" -> ohms, or None."""
+    v = (value or "").strip().replace("Ω", "").replace("ohm", "").replace(" ", "")
+    m = re.match(r"^(\d+)([RrkKmM])(\d+)$", v)                 # 4k7, 5K1, 0R5
+    if m:
+        num, unit = float("%s.%s" % (m.group(1), m.group(3))), m.group(2)
+    else:
+        m = re.match(r"^(\d+(?:\.\d+)?)([RrkKM]?)", v)
+        if not m:
+            return None
+        num, unit = float(m.group(1)), m.group(2)
+    return num * {"k": 1e3, "K": 1e3, "M": 1e6}.get(unit, 1.0)
+
+
+def _resistors_to(ctx, net, targets):
+    """[(ref, ohms or None)] for resistors with one pad on `net` and the other on a net in
+    `targets`."""
+    out = []
+    for ref, _num, _pad in ctx.by_net.get(net, ()):
+        if _prefix(ref) != "R":
+            continue
+        others = {p.GetNetname() for p in ctx.fps[ref].Pads()} - {net}
+        if others & targets:
+            out.append((ref, _ohms(ctx.fps[ref].GetValue())))
+    return out
+
+
+# ── A5: the netlist says what the designer meant ─────────────────────────────────────
+AUTO_NET = re.compile(r"^(N\$|Net-\(|unconnected-|\$)")
+
+
+@rule("A5")
+def net_sanity(ctx):
+    out = []
+    ok_single = set(ctx.q.get("single_pin_ok", ()))
+    for net in sorted(ctx.by_net):
+        pads = ctx.by_net[net]
+        if (len(pads) == 1 and not AUTO_NET.match(net) and not NOT_CONNECTED.search(net)
+                and net not in ok_single):
+            out.append((net, False,
+                        "net %s reaches only %s.%s: a label that connects to nothing (a "
+                        "typo, or a pin that was meant to go somewhere)"
+                        % (net, pads[0][0], pads[0][1])))
+        else:
+            out.append((net, True, "%s: %d pads" % (net, len(pads))))
+    folded = collections.defaultdict(set)
+    for net in ctx.by_net:
+        if not AUTO_NET.match(net):
+            folded[re.sub(r"[^A-Z0-9+]", "", net.upper())].add(net)
+    for key in sorted(folded):
+        if len(folded[key]) > 1:
+            names = sorted(folded[key])
+            out.append(("/".join(names), False,
+                        "nets %s differ only in case or punctuation: one net typed two "
+                        "ways is two nets" % " and ".join(names)))
+    return out
+
+
+# ── A6: USB-C configuration channel ──────────────────────────────────────────────────
+@rule("A6")
+def usb_c_cc(ctx):
+    out = []
+    for ref in sorted(ctx.fps):
+        pads = {p.GetNumber(): p for p in ctx.fps[ref].Pads()}
+        if "A5" not in pads or "B5" not in pads:
+            continue                                    # not a USB-C receptacle
+        cc = [pads["A5"].GetNetname(), pads["B5"].GetNetname()]
+        if cc[0] and cc[0] == cc[1]:
+            out.append((ref, False,
+                        "%s: CC1 and CC2 are ONE net (%s). An e-marked cable then puts its "
+                        "Ra in parallel with the shared resistor and the source supplies "
+                        "nothing: each CC pin needs its own resistor" % (ref, cc[0])))
+            continue
+        for pin, net in zip(("A5", "B5"), cc):
+            subject = "%s.%s" % (ref, pin)
+            if not net:
+                out.append((subject, False, "%s (CC) is not connected: a USB-C source "
+                                            "will not turn VBUS on" % subject))
+                continue
+            down = _resistors_to(ctx, net, ctx.grounds)
+            up = _resistors_to(ctx, net, ctx.power)
+            ics = [r for r, _n, _p in ctx.by_net[net] if _prefix(r) == "U"]
+            if down:
+                bad = [(r, o) for r, o in down if o is None or abs(o - 5100.0) > 5100 * 0.011]
+                if bad:
+                    out.append((subject, False, "%s: Rd %s is %s, not 5.1 k 1%%"
+                                % (subject, bad[0][0], ctx.fps[bad[0][0]].GetValue())))
+                elif len(down) > 1:
+                    out.append((subject, False, "%s: %d resistors to ground on one CC pin"
+                                % (subject, len(down))))
+                else:
+                    out.append((subject, True, "%s: 5.1 k to ground (%s)"
+                                % (subject, down[0][0])))
+            elif up or ics:
+                out.append((subject, True, "%s: %s" % (subject, "pulled up (a source port)"
+                                                       if up else "on %s" % ics[0])))
+            else:
+                out.append((subject, False, "%s (CC, net %s) has no resistor to ground, no "
+                                            "pull-up and no controller" % (subject, net)))
+    return out
+
+
+# ── A7: I2C pull-ups ─────────────────────────────────────────────────────────────────
+I2C = re.compile(r"(^|_)(SDA|SCL)\d*($|_)")
+
+
+@rule("A7")
+def i2c_pullups(ctx):
+    out = []
+    lo = float(ctx.q.get("i2c_min_ohm", 1000.0))
+    for net in sorted(n for n in ctx.by_net if I2C.search(n.upper())):
+        ups = _resistors_to(ctx, net, ctx.power)
+        if not ups:
+            out.append((net, False,
+                        "%s has no pull-up on this board. If it is on the other end of the "
+                        "bus, waive this saying WHERE -- one pair per bus, not zero"
+                        % net))
+            continue
+        vals = [o for _r, o in ups if o]
+        par = 1.0 / sum(1.0 / o for o in vals) if vals else 0.0
+        ok = par >= lo
+        out.append((net, ok, "%s: %s = %.0f ohm%s"
+                    % (net, " || ".join(r for r, _o in ups), par,
+                       "" if ok else " -- below %.0f: more than the pins can sink (and count "
+                                     "the pull-ups on every other board on this bus)" % lo)))
+    return out
+
+
+# ── A8: exposed pads are connected and stitched ──────────────────────────────────────
+@rule("A8")
+def exposed_pads(ctx):
+    out = []
+    vias = collections.defaultdict(list)
+    for t in ctx.board.GetTracks():
+        if t.GetClass() == "PCB_VIA":
+            vias[t.GetNetname()].append(t.GetPosition())
+    for ref in sorted(ctx.fps):
+        fp = ctx.fps[ref]
+        if not re.search(r"\dEP|_EP\d|-EP", fp.GetFPIDAsString().split(":")[-1]):
+            continue
+        smd = [p for p in fp.Pads() if p.GetNumber() and p.GetAttribute() == pcbnew.PAD_ATTRIB_SMD]
+        if not smd:
+            continue
+        ep = max(smd, key=lambda p: p.GetSize().x * p.GetSize().y)
+        net = ep.GetNetname()
+        if not net:
+            out.append((ref, False, "%s: the exposed pad (pad %s) is not connected. It is "
+                                    "usually the part's main ground AND its heat path"
+                        % (ref, ep.GetNumber())))
+            continue
+        bb = ep.GetBoundingBox()
+        n = sum(1 for v in vias[net] if bb.Contains(v))
+        ok = n >= int(ctx.q.get("ep_min_vias", 1))
+        out.append((ref, ok, "%s: exposed pad on %s, %d via(s) in it%s"
+                    % (ref, net, n, "" if ok else " -- no path to the plane or for heat")))
+    return out
+
+
+# ── A9: crystals sit beside the pins they drive ──────────────────────────────────────
+@rule("A9")
+def crystal_distance(ctx):
+    out = []
+    limit = float(ctx.q.get("crystal_mm", 10.0))
+    for ref in sorted(ctx.fps):
+        if _prefix(ref) not in ("Y", "X") or "rystal" not in ctx.fps[ref].GetFPIDAsString():
+            continue
+        for pad in ctx.fps[ref].Pads():
+            net = pad.GetNetname()
+            if not net or net in ctx.grounds or net in ctx.power:
+                continue
+            x, y = _xy(pad)
+            ics = [(math.hypot(_xy(p)[0] - x, _xy(p)[1] - y), "%s.%s" % (r, n))
+                   for r, n, p in ctx.by_net[net] if _prefix(r) == "U"]
+            if not ics:
+                # through a series resistor: one hop is enough to find the oscillator pin
+                continue
+            d, pin = min(ics)
+            ok = d <= limit
+            out.append(("%s.%s" % (ref, pad.GetNumber()), ok,
+                        "%s.%s to %s on %s: %.1f mm%s"
+                        % (ref, pad.GetNumber(), pin, net, d,
+                           "" if ok else " (limit %.0f) -- a long crystal trace is stray "
+                                         "capacitance and an antenna" % limit)))
+    return out
+
+
 def doc_rules():
     """({A id: title}, [(M id, title, text)]) parsed from PCB_QUALITY.md."""
     auto, manual = {}, []
@@ -494,7 +686,7 @@ def doc_rules():
         return auto, manual
     for m in re.finditer(r"^### (A\d+) — (.+)$", text, re.M):
         auto[m.group(1)] = m.group(2).strip()
-    for m in re.finditer(r"^- \*\*(M\d+) — (.+?)\*\*\s*(.*?)(?=^- \*\*M\d+|^#|\Z)", text,
+    for m in re.finditer(r"^- \*\*(M\d+) — (.+?)\*\*\s*(.*?)(?=^- \*\*M\d+|^#|^---|\Z)", text,
                          re.M | re.S):
         manual.append((m.group(1), m.group(2).strip().rstrip("."),
                        " ".join(m.group(3).split())))
