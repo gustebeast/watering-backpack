@@ -20,6 +20,16 @@ That is where the board's 95 mm came from — it is the leftover, not a choice.
 elec/main.py asserts the same arithmetic from the other end so the two cannot
 drift.
 
+HOW THE CABLES GET OUT
+----------------------
+They could not, until they did: the bay was a closed rectangular tube with four
+power terminals facing a wall. There is now ONE down-facing chase through the
+bay floor at y 134..158, and a buttress rib under it with a tie slot through it
+so the bundle has something to be relieved against. Down-facing because the tank
+is five gallons of water sitting directly above, and CIRCUIT.md already counts an
+opening as an ingress path — which is why the level sensor's lead comes out of
+the bottom and climbs back up outside rather than leaving through the roof.
+
 WHY THE WOOD SCREWS ARE ABOVE AND BELOW THE BAYS
 ------------------------------------------------
 The screws into the posts have to be driven from OUTBOARD, which means their
@@ -100,6 +110,46 @@ SCREW_YS   = L.POST_YS                                    # 19 and 191 — on th
 # void that only widens as the build rises, so nothing overhangs it — and a
 # flat-head wood screw is what you would use into timber regardless.
 WOOD_CLR_D, WOOD_CSK_D = 4.5, 9.0
+
+# ── Cable exit and strain relief ────────────────────────────────────────────
+# The bay was a closed rectangular tube: four power terminals sat on the board's
+# bottom edge with NO WAY OUT. The housing could not be wired.
+#
+# One chase, not a hole per connector, and it faces DOWN. CIRCUIT.md counts an
+# opening as a water path ("a connector is a water-ingress path on an outdoor
+# machine") and the tank sits directly above at z=208, so nothing opens upward —
+# the level sensor's lead leaves through this chase too and climbs outside.
+#
+# It lands between J3 and J4, the middle of the bottom connector group, which is
+# the shortest internal gather. 134 is forced: the lid pillar at y=125.1 is Ø10
+# through the full depth, so a chase any lower in Y is split in two by it.
+CHASE_Y0, CHASE_Y1 = 134.0, 158.0
+# CIRCUIT.md: "Terminals provide NO strain relief — a tugged cable pulls out of
+# the clamp or snaps at it. The printed shroud needs a cable-tie anchor." The
+# shroud is gone; this is that anchor. A rib on the back plate's OUTBOARD face,
+# set below the bay floor, with the gap between the two taking the tie.
+#
+# It is a rib and not a bar across the chase because of the build direction
+# (-X). A member spanning the chase in Y lands on the bottom wall's cut edges,
+# which makes it a 28.5 mm cantilever of 4 x 3 section loaded across the layers
+# — 10 N at the tip is already 51 MPa in PCTG. Fused flat to the plate instead,
+# the tie load goes in as shear over 32 mm of weld, and the rib starts at build
+# height 3 directly on top of plate that is already there, so it overhangs
+# nothing.
+TIE_T   = BAY_Z0                             # 11 — up to the bay floor
+TIE_D   = 14.0                               # how far it stands off the plate
+TIE_Y0, TIE_Y1 = CHASE_Y0 - 4.0, CHASE_Y1 + 4.0
+# A tie has to pass THROUGH the rib — you cannot loop one around a block that
+# is fused to the plate along its whole length, which is what the rib would be
+# without this. The hole runs in Y, across the build, so it is a DIAMOND and
+# not a rectangle: a rectangular slot across the build has a flat roof, and a
+# 10 mm flat roof is the exact defect this project's overhang gate exists to
+# catch (it has caught four of them already). A diamond's roof is two planes
+# at 31 degrees off the build axis, which self-supports.
+TIE_SLOT_HX = 5.0                            # half-length along the build (X)
+TIE_SLOT_HZ = 3.5
+TIE_SLOT_OFF = TIE_D / 2.0 + 0.5             # centred in the rib, 2.5 mm walls
+TIE_SLOT_Z  = (TIE_T - 1.0) / 2.0 + 1.0
 
 # ── PCB stack, measured outboard from the back plate's inner face ───────────
 FLOOR_X    = BACK_X - BACK_T                 # -193
@@ -274,6 +324,22 @@ def housing() -> cq.Workplane:
         h = h.union(cq.Workplane("YZ").workplane(offset=WALL_X)
                     .center(hy, hz).circle(BOSS_D / 2.0)
                     .extrude(abs(WALL_X - FLOOR_X)))
+    # cable-tie rib, a buttress on the plate from the ground to the bay floor.
+    # It goes on BEFORE the chase is cut, so the chase trims it. Unioned after,
+    # it roofed the 0.5 mm the chase's own overshoot takes out of the back plate
+    # — 24 x 0.5 mm of flat ceiling, which the overhang gate caught.
+    h = h.union(_slab(FLOOR_X, FLOOR_X - TIE_D, TIE_Y0, TIE_Y1, 0.0, TIE_T))
+    # cable chase — the terminals faced a closed box before this
+    h = h.cut(_slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,
+                    CHASE_Y0, CHASE_Y1,
+                    BAY_Z0 - BOOL_OVERSHOOT, BAY_Z0 + WALL + BOOL_OVERSHOOT))
+    # ...with a diamond tie slot bored through it along Y
+    dia = (cq.Workplane("XZ").workplane(offset=-TIE_Y1)
+           .center(FLOOR_X - TIE_SLOT_OFF, TIE_SLOT_Z)
+           .polyline([(TIE_SLOT_HX, 0.0), (0.0, TIE_SLOT_HZ),
+                      (-TIE_SLOT_HX, 0.0), (0.0, -TIE_SLOT_HZ)]).close()
+           .extrude(TIE_Y1 - TIE_Y0))
+    h = h.cut(dia)
     h = h.union(_dock_placed())
     # wood screws, in the flange bands clear of both bays
     for sy in SCREW_YS:

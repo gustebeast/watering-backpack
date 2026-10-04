@@ -153,8 +153,16 @@ not. It is also faster to land a wire with no screwdriver and no torque question
 too close to 7.5 A to be comfortable. Signal connections are fine at 3.5 mm.
 
 **Terminals provide NO strain relief** — a tugged cable pulls out of the clamp or
-snaps at it. The printed shroud needs a cable-tie anchor or clamp bar directly
-behind them. Cheap now, awkward to retrofit.
+snaps at it, so the anchor is in the housing: `src/housing.py` puts a buttress rib
+on the back plate under the board's bottom edge with a 10 × 7 mm tie slot through
+it (`TIE_*`), and the cables reach it through a single down-facing chase
+(`CHASE_Y0/Y1`) at y 134..158, between J3 and J4. Tie the bundle to that rib, not
+to the terminals.
+
+The chase is the ONLY opening in the bay and it faces down, because an opening is
+a water path and the tank sits directly above it. The level sensor's lead leaves
+through it too and climbs the outside of the housing — longer than going straight
+up through the roof, which is the point.
 
 **They are through-hole**, so either a THT assembly surcharge at JLCPCB or hand
 soldering. Terminal blocks are large forgiving parts, so hand soldering is trivial
