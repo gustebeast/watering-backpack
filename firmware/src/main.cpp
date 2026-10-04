@@ -31,17 +31,27 @@
  * one pump and a manual X-port valve, and the enable pin this used to hold HIGH
  * (IO4) is connected to nothing on the v2 board, so it is gone.
  *
- * STILL UNIMPLEMENTED, both provisioned on the board and unread: IO14, the tank
- * level sensor (open-collector, pulled up — DESIGN_V2.md §7), and IO27, the
- * buzzer (elec/CIRCUIT.md §5).
+ * TANK-FULL ALARM. IO14 reads the capacitive level sensor and IO27 beeps the
+ * buzzer while it reads full. That is the spigot-fill overflow alarm from
+ * elec/CIRCUIT.md §5 — "filling happens with the pump OFF and the user standing
+ * at the tank" — so it runs independently of `armed`, which inhibits the pumps.
+ *
+ * It is deliberately NOT an interlock on either pump. DESIGN_V2.md §7 accepts
+ * false positives because for FILLING they are cheap ("stop early, look, carry
+ * on"), but a false positive that blocked pump B would block retract, leaving a
+ * primed line to drip — not cheap, and not a trade that section asked for.
+ *
+ * The debounce is asymmetric and tools/check_level_alarm.py is where it is
+ * checked: the tank rides on someone's back and §7 puts the sensor BELOW the
+ * full line on purpose, so the threshold gets crossed early and often.
  *
  * Pins, from elec/main.py — the schematic is the authority, not this comment:
  *   IO26  -> pump A gate driver   (tank -> pot)
  *   IO25  -> pump B gate driver   (pot  -> tank)
  *   IO35  -> VBAT_SENSE, off the R20/R21 divider (ADC1, input-only)
  *   IO34  -> joystick SIG, after its RC filter   (ADC1, input-only)
- *   IO14  -> tank level  (unread)
- *   IO27  -> buzzer      (unread)
+ *   IO14  -> tank level, open-collector, R23 pulls it up to 3V3
+ *   IO27  -> buzzer, through Q3
  *   EN / IO0 / RXD0 / TXD0 -> programming header
  *
  * ── NOISE REJECTION ──────────────────────────────────────────────────────────
@@ -115,6 +125,8 @@
 // ── Pin map ──────────────────────────────────────────────────────────────────
 constexpr int JOY_PIN  = 34;   // ADC1 (input-only is fine for an analog read)
 constexpr int VBAT_PIN = 35;   // ADC1_CH7, input-only — VBAT_SENSE off R20/R21
+constexpr int LEVEL_PIN = 14;  // XKC-Y25 tank level, open-collector, R23 pulls up
+constexpr int BUZZ_PIN  = 27;  // tank-full buzzer, through Q3
 // One low-side MOSFET per pump, each behind its own non-inverting gate driver,
 // so PWM high = that pump runs. No H-bridge and NO ENABLE PIN: a diaphragm pump
 // cannot be reversed (DESIGN_V2 §1 — the check valves are passive), so direction
@@ -243,6 +255,35 @@ constexpr int VOTE_K_ON  = 6;
 constexpr int VOTE_N_OFF = 5;                // 25 ms window
 constexpr int VOTE_K_OFF = 3;
 
+// ── Tank level and the full alarm ───────────────────────────────────────────
+// DESIGN_V2.md §7: an XKC-Y25-class capacitive sensor clamped to the OUTSIDE of
+// the tank wall, slightly below the true full line, because "false positives are
+// cheap (stop early, look, carry on) but a false negative means overflow".
+// elec/CIRCUIT.md §5 gives it the buzzer: "Filling happens with the pump OFF and
+// the user standing at the tank", so this is the spigot-fill overflow alarm.
+//
+// POLARITY IS NOT A GUESS. elec/main.py ties the sensor's MODE wire to GND
+// (gnd += j_lvl["GND"], j_lvl["MODE"]), and MODE shorted to GND selects the
+// part's NORMALLY-CLOSED mode: no liquid -> output HIGH, liquid -> output LOW.
+// (MODE left floating would instead select normally-open, which inverts it.) So
+// with R23 pulling up to 3V3, a LOW on this pin means liquid at the sensor.
+// The manufacturer's warning not to "use the black wire as GND" is about not
+// using it as the power RETURN in place of the blue wire; shorting it to GND to
+// pick the mode is the documented configuration.
+constexpr bool LEVEL_FULL_IS_LOW = true;
+// Confirm times, CHOSEN and labelled as such per cadkit/AGENTS.md. The part's own
+// response time is ~500 ms, and this tank is being carried on someone's back, so
+// the water sloshes across the threshold constantly. Assert faster than it
+// clears: an overflow is time-critical, a stale alarm is only annoying.
+constexpr uint32_t LEVEL_ASSERT_MS = 500;
+constexpr uint32_t LEVEL_CLEAR_MS  = 2000;
+// A beep, not a solid tone. The buzzer is ACTIVE (CIRCUIT.md §5: "it needs DC,
+// not a driven waveform") so this switches it on and off whole rather than
+// synthesising anything -- and a pattern says "alarm" where a continuous note
+// just sounds like a fault.
+constexpr uint32_t BUZZ_ON_MS  = 200;
+constexpr uint32_t BUZZ_OFF_MS = 800;
+
 // ── Direction ───────────────────────────────────────────────────────────────
 // DESIGN_V2 §1: two pumps in anti-parallel sharing both lines through tees, pump
 // A tank->pot and pump B pot->tank, with the idle pump's own check valves
@@ -303,6 +344,10 @@ uint32_t lastStopMs  = 0;                    // when it last went to DIR_NONE
 // A flag rather than seeding lastStopMs backwards, because millis() - 250 wraps
 // when millis() < 250 and would gate forever.
 bool     everStopped = false;
+
+bool     tankFull    = false;                // debounced
+bool     levelRawHit = false;                // this pass, before debouncing
+uint32_t levelSince  = 0;                    // when the raw state last changed
 
 // Pack voltage and the duty ceiling it implies. Both start at the SAFE end: as
 // if the pack were fresh, so the very first engage after boot is capped even if
@@ -447,6 +492,35 @@ void readVbat() {
 // The ONLY place either gate gets a non-zero duty, and it writes BOTH pins every
 // call -- so "run A" is always also "B off". The interlock cannot be forgotten at
 // a call site because there is no call site that can set one pin alone.
+// Debounced tank-full. Asymmetric on purpose: see LEVEL_ASSERT_MS.
+void readLevel() {
+  bool hit = (digitalRead(LEVEL_PIN) == LOW) == LEVEL_FULL_IS_LOW;
+  uint32_t now = millis();
+  if (hit != levelRawHit) { levelRawHit = hit; levelSince = now; }
+  uint32_t need = hit ? LEVEL_ASSERT_MS : LEVEL_CLEAR_MS;
+  if (hit != tankFull && (now - levelSince) >= need) tankFull = hit;
+}
+
+// Beeps while the tank reads full. Independent of `armed`, which inhibits the
+// PUMPS -- the tank can overflow from the spigot with the pumps disarmed, which
+// per CIRCUIT.md §5 is exactly when someone is standing there filling it.
+// Silenced mid-OTA so a reflash is not done to a screaming board.
+void updateBuzzer() {
+  static uint32_t phase = 0;
+  static bool on = false;
+  if (!tankFull || otaActive) {
+    if (on) { on = false; digitalWrite(BUZZ_PIN, LOW); }
+    phase = millis();
+    return;
+  }
+  uint32_t now = millis();
+  if (now - phase >= (on ? BUZZ_ON_MS : BUZZ_OFF_MS)) {
+    on = !on;
+    phase = now;
+    digitalWrite(BUZZ_PIN, on ? HIGH : LOW);
+  }
+}
+
 void drivePumps(Dir dir, int duty) {
   int d = constrain(duty, 0, min(DUTY_CAP, vbatCap));
   ledcWrite(PUMP_A_PIN, dir == DIR_A ? d : 0);
@@ -493,7 +567,7 @@ void handleCommand(char c) {
     case 's':
       logf("state=%s dir=%s deadtime=%lums centre=%d duty=%d "
            "| vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
-           "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d "
+           "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d | tank=%s(pin %s) "
            "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
            armed ? "ARMED" : "DISARMED",
            runDir == DIR_A ? "A(tank>pot)" : runDir == DIR_B ? "B(pot>tank)" : "none",
@@ -501,8 +575,20 @@ void handleCommand(char c) {
            VOTE_K_ON, VOTE_N_ON, VOTE_K_OFF, VOTE_N_OFF,
            DEADBAND_ON, DEADBAND_OFF, RUN_DUTY,
            RAMP_MS, START_DUTY, (double)vbatV, vbatOK ? "" : "?", vbatCap,
+           tankFull ? "FULL" : "ok", digitalRead(LEVEL_PIN) ? "HIGH" : "LOW",
            VOTE_K_ON * 5, VOTE_K_OFF * 5,
            WiFi.RSSI(), WiFi.localIP().toString().c_str(), millis() / 1000UL);
+      break;
+    case 'b':
+      // Bench bring-up for the two things that cannot be verified anywhere but
+      // on the hardware: that the buzzer is wired and audible, and that the
+      // level sensor's polarity really is the NC mode the schematic selects.
+      // Wet the sensor and watch pin= flip; if "full" reads backwards, flip
+      // LEVEL_FULL_IS_LOW -- it is one constant.
+      logf("buzzer 1 s | level pin=%s -> %s (LEVEL_FULL_IS_LOW=%d)\n",
+           digitalRead(LEVEL_PIN) ? "HIGH" : "LOW",
+           tankFull ? "FULL" : "not full", (int)LEVEL_FULL_IS_LOW);
+      digitalWrite(BUZZ_PIN, HIGH); delay(1000); digitalWrite(BUZZ_PIN, LOW);
       break;
     case 'R':
       logf("Rebooting...\n");
@@ -605,6 +691,11 @@ void setup() {
   // neither pump can twitch while the peripheral is being set up.
   pinMode(PUMP_A_PIN, OUTPUT); digitalWrite(PUMP_A_PIN, LOW);
   pinMode(PUMP_B_PIN, OUTPUT); digitalWrite(PUMP_B_PIN, LOW);
+  pinMode(BUZZ_PIN,   OUTPUT); digitalWrite(BUZZ_PIN,   LOW);
+  // R23 on the board is the real pull-up; the internal one only matters on a
+  // bench with no sensor wired, where it keeps the pin from floating and
+  // alarming at random.
+  pinMode(LEVEL_PIN, INPUT_PULLUP);
   ledcAttach(PUMP_A_PIN, PWM_FREQ, PWM_RES);
   ledcAttach(PUMP_B_PIN, PWM_FREQ, PWM_RES);
   allStop();
@@ -635,6 +726,11 @@ void loop() {
   // owns the fast path on the same ADC block.
   static uint8_t vbatTick = 0;
   if (++vbatTick >= VBAT_EVERY_N) { vbatTick = 0; readVbat(); }
+
+  // Tank level and its alarm. Deliberately NOT an interlock on either pump --
+  // see the note above readLevel's constants and the header.
+  readLevel();
+  updateBuzzer();
 
   int rawOffset  = raw  - joyCentre;   // drives the on/off vote — the control path
   int offset     = filt - joyCentre;   // diagnostic only, reported but never acted on

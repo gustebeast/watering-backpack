@@ -101,6 +101,21 @@ pack voltage, which is what the divider below is for.
   *Open-collector is load-bearing:* the sensor runs at 18 V, and an
   open-collector output only ever pulls down, so the GPIO sees a safe level with
   no divider. Configured push-pull it would put 18 V into a pin.
+
+  **MODE → GND, and that sets the polarity.** `elec/main.py` shorts the sensor's
+  MODE wire to GND (`gnd += j_lvl["GND"], j_lvl["MODE"]`), which selects the
+  part's **normally-closed** mode: *no liquid → output HIGH, liquid → output
+  LOW*. MODE left floating selects normally-open instead, which inverts it. So
+  on this board **a LOW on IO14 means liquid at the sensor**, which is what
+  `LEVEL_FULL_IS_LOW` in the firmware encodes.
+
+  The vendor warning not to "use the black wire as GND" is about not using MODE
+  as the power *return* in place of the blue wire — shorting it to GND to pick
+  the mode is the documented configuration, so the schematic is right. Recorded
+  here because it is a two-source web finding, not something the schematic or
+  the footprint can tell you, and getting it backwards means the alarm is silent
+  during the one event it exists to catch. Confirm it on the bench with the `b`
+  serial command, which prints the raw pin state next to the decoded one.
 - *Optional:* low-side shunt per pump → ADC, for current telemetry.
 
 ## 5. Alert
