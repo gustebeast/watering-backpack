@@ -690,11 +690,33 @@ assert RET_OVER < BOARD_SLIDE_Y, (
 
 # Z stops go where the floor is free: clear of the cable chase, and clear of
 # the lip. Two bands, one each side of the chase.
-RET_STOP_YS = ((BOARD_Y0 + 1.0, BOARD_Y0 + 11.0),
-               (BOARD_Y1 - 11.0, BOARD_Y1 - 1.0))
+#
+# DERIVED FROM THE CHASE, NOT TYPED BESIDE IT. These used to be a flat 10 mm in
+# from each end of the board, which was true of the board the chase was then --
+# and the chase is derived from the routed terminals (see _edge_connector_span),
+# so re-laying the bottom edge moved it and left the +Y stop sitting over the
+# opening. The assert below caught that, which is the system working; but an
+# assert that fires every time the board is re-laid is a constant that should
+# have been a derivation. A stop now takes what is left between the chase and
+# the board's edge, up to the 10 mm it wants.
+RET_STOP_MAX  = 10.0    # as long as a stop gets to be, where the floor allows
+RET_STOP_MIN  =  4.0    # shorter than this is not a stop, it is a bump
+RET_STOP_CHASE_GAP = 1.0                       # floor left either side of the chase
+RET_STOP_YS = ((BOARD_Y0 + 1.0,
+                min(BOARD_Y0 + 1.0 + RET_STOP_MAX, CHASE_Y0 - RET_STOP_CHASE_GAP)),
+               (max(BOARD_Y1 - 1.0 - RET_STOP_MAX, CHASE_Y1 + RET_STOP_CHASE_GAP),
+                BOARD_Y1 - 1.0))
 for _y0, _y1 in RET_STOP_YS:
     assert _y1 <= CHASE_Y0 or _y0 >= CHASE_Y1, (
         "a Z stop at y %.1f..%.1f sits over the cable chase" % (_y0, _y1))
+    # ⚠ AND IT HAS TO BE LONG ENOUGH TO BE ONE. Deriving the band from the chase
+    # means a wide enough chase silently shrinks it to nothing, and a 0.5 mm rib
+    # holding a 1.6 mm laminate down is not retention, it is a witness mark.
+    assert _y1 - _y0 >= RET_STOP_MIN, (
+        "a Z stop is only %.1f mm long (min %.1f): the cable chase at %.1f..%.1f "
+        "has eaten the floor it needs. Narrow the connector group on the board's "
+        "bottom edge, or move a stop to the board's Y edges"
+        % (_y1 - _y0, RET_STOP_MIN, CHASE_Y0, CHASE_Y1))
 
 
 def _pcb_lip() -> cq.Workplane:
