@@ -145,3 +145,39 @@ carried-up plate strip stopping at the boss's own face, leaving an 8.4 × 13.6 m
 notch between two walls that look like they should meet. The strip runs to the
 lid's +Y edge now, so the boss ties into the skirt corner instead of cantilevering
 off a tab — which matters, because that boss takes the lid's whole retention load.
+
+
+## Round 4
+
+**The step at the lid's screw boss.** Two faces, one cause.
+
+The 81.6 mm² face is the boss's **underside**, over the 5.1 × 16 mm of it that
+reached past the skirt's end to the back plate. It could not "extend a few mm
+−Z": the housing's bay +Z wall sits **1.6 mm** below it in the same X band, so a
+few millimetres of −Z and the lid will not go on at all.
+
+The step was never about Z. The boss's X limit and the skirt's X limit are set by
+different jobs and can never be the same number:
+
+- the boss **must** touch the back plate — the screw clamps lid, plate and timber
+  in one stack, and a gap there is a gap the lid rocks through;
+- the skirt **must not** — the lid seats on the bay **rim**, and a skirt that
+  bottoms out on the plate holds the lid off the one joint that is under five
+  gallons of water.
+
+The gap between those two limits *is* the step, so the fix is to make it small
+rather than to remove it. Measured: the bay is 25.1 mm deep, a test skirt clears
+the dock, the pack and the timber at 25.1, and fouls the plate at 26.0. The skirt
+is **24.0** now (30 beads) — the last whole bead short of the plate. The lid
+closes on 1.1 mm of gap and the step drops from **81.6 mm² to 17.6**.
+
+A new assert holds it: the skirt must stay ≥ 1.0 mm clear of the plate. Nothing
+downstream would have caught that one — every part still fits and the install
+gate still sweeps clear while the lid quietly closes on the wrong face.
+
+**The 115.4 mm² face is the strip, and it is load-bearing.** It is the piece
+added in round 3 that carries the lid plate up behind the boss. Without it the
+boss hangs off the plate by the 1.2 mm of Z where the two overlap — for the one
+feature that takes the whole lid's retention load. The 7.8 mm of it beyond the
+boss's own face is what ties it into the +Y skirt corner. Say the word and it
+comes off, but it is doing a job.
