@@ -424,7 +424,16 @@ def circuit():
 # its cable anchor.
 BOARD_W, BOARD_L = 95.0, 100.0
 HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
-HOLES = [(-41.0, -44.0), (41.0, -44.0), (-41.0, 44.0), (41.0, 44.0)]
+# ⚠ 43, NOT 41, AND THE REASON IS UNDER THE BOARD. A mounting hole is also a
+# STANDOFF BOSS in the housing (src/housing.py derives one per hole from the
+# routed board, BOSS_D = 10.4 across), and a boss stands in the 4 mm between the
+# bay floor and the laminate -- which is exactly where a through-hole terminal's
+# solder tails stand. At 41 the boss edge passed 0.1 mm inside J2's VBAT tail:
+# 1.17 mm3 of interference, caught by tools/check_overlaps.py, and on a real
+# board it is a connector that holds the laminate off its own screws.
+# 43 leaves 2.25 mm of laminate round the hole (the assert below wants 1.5) and
+# clears that tail by 2.4 mm.
+HOLES = [(-43.0, -44.0), (43.0, -44.0), (-43.0, 44.0), (43.0, 44.0)]
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
