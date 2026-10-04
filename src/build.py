@@ -190,12 +190,21 @@ def main() -> int:
                          "*** BLOCKS THE PACK, %.0f mm3 ***" % v))
     print("  the pack needs %.0f mm of lift to clear its rails" % travel)
 
+    # Does the CAD draw the board that was actually ROUTED? PCB_README lists
+    # cad_geom_check under "your build gate should too", and it was not here --
+    # which is how it went unnoticed that the check was aimed at the printed
+    # frame's board, on the far side of the machine, instead of the housing's.
+    print("\n=== routed-board agreement ===")
+    sys.path.insert(0, str(OUT / "elec"))
+    import cad_geom_check
+    board_bad = cad_geom_check.main(["main"])
+
     b = asm.toCompound().BoundingBox()
     print("\nwhole assembly %.0f x %.0f x %.0f mm"
           % (b.xlen, b.ylen, b.zlen))
     print("Wrote %s  [build #%d]" % (out, build_n))
     show(out)
-    return bad + oversize + blocked
+    return bad + oversize + blocked + board_bad
 
 
 if __name__ == "__main__":

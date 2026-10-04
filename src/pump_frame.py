@@ -89,7 +89,6 @@ import pathlib
 
 import cadquery as cq
 
-from cadkit.board_geom import Boards
 from cadkit.cq_colors import color
 from cadkit.fasteners import M4, ScrewJoint
 from cadkit.freecad import show
@@ -164,8 +163,6 @@ _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161
 # PCB_README: "Model from the routed board, never from the placement table. A
 # hand-typed copy can only be checked against itself, and it always agrees. It
 # agreed while two connectors sat 0.54 mm short of the board edge."
-PCB_PANEL_T  = 4.0       # backing panel on the +X face, the board's mounting surface
-PCB_STANDOFF = 3.0       # panel face -> board underside; bottom-side parts clear
 PCB_BOSS_D   = 9.0
 # Hole positions come FROM THE ROUTED BOARD, never typed here. They were typed
 # once, and when the board was re-laid from 140x100 to 95x100 the CAD kept
@@ -190,49 +187,12 @@ _PCB_HEIGHT = {
     "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,
 }
 
-_BOARDS = Boards(str(OUT / "elec" / "geom"), height=_PCB_HEIGHT)
-PCB_FACE_X = FRAME_W / 2.0 + PCB_PANEL_T          # 186 — panel outer face
-
-# The board is centred BETWEEN THE POSTS, not on the frame's depth. The frame's
-# +X face is not a surface — it is two posts with 119 mm of air between them —
-# so where the board sits decides whether its mounting holes have anything
-# behind them. Centred on FRAME_D/2 (105) they did not: the plate overlapped one
-# post by 30 mm and the other by 4, and every screw but one would have pulled on
-# a cantilever. Centred on the posts' own midline, ALL FOUR of the routed
-# board's holes land inside a post, in both Y and Z — asserted below, because it
-# is a coincidence of three independent numbers (the hole pitch, the rib inset
-# that sets the posts, and the deck height) and any of them can move.
-PCB_Y_C = sum(BEAM_YS) / 2.0                      # 86.5
-
-
-def _board_holes():
-    return tuple((x, y) for x, y, _d in _BOARDS.holes("main"))
-
-
-PCB_HOLE_XY = _board_holes()
-
-
-def _pose_board(solid):
-    """Lay a board (modelled in XY, +Z normal) flat on the frame's +X face.
-
-    board +X -> world +Y, board +Y -> world +Z, board +Z -> world +X. The board's
-    -Y edge therefore points DOWN, which is where every terminal sits — so all
-    the shroud's openings face the ground, which is the only weatherproofing this
-    enclosure needs.
-    """
-    r = (solid.rotate((0, 0, 0), (0, 1, 0), 90)
-               .rotate((0, 0, 0), (1, 0, 0), 90))
-    bb = r.val().BoundingBox()
-    return r.translate((PCB_FACE_X + PCB_STANDOFF - bb.xmin,
-                        PCB_Y_C - (bb.ymin + bb.ylen / 2.0),
-                        DECK_Z / 2.0 - (bb.zmin + bb.zlen / 2.0)))
-
-
-def pcb_solid():
-    """The board as the assembly places it — laminate + every routed part body.
-    This is what elec/cad_geom_check.py checks against the routed board."""
-    return _pose_board(_BOARDS.solid("main"))
-
+# The board's own placement lives in src/housing.py, which is what the
+# assembly places. It used to live here too -- a second _BOARDS, a second
+# pose and a second pcb_solid(), from when the board bolted to the printed
+# frame's +X face. Two pcb_solid()s is how elec/cad_geom_check.py came to be
+# aimed at the one nothing places; that is why the dead one is gone rather
+# than left for reference. _PCB_HEIGHT stays, because housing imports it.
 
 def _pump(flip: bool) -> cq.Workplane:
     p = cq.importers.importStep(str(REFERENCES_DIR / "seaflo_42_pump.step"))
