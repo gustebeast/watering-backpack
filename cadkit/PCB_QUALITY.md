@@ -356,6 +356,41 @@ needs to be one is **M42**.
 **How strict.** **Hard.** Spell it one way. (A different tolerance or rating is not a different
 spelling: write it as a qualifier after the value.)
 
+### A12 — The board is inside what the fab says it can make
+
+**Rule.** The finished board's own copper, holes and silk text — measured, not read from
+its design-rule file — are inside the fab's published minimums: narrowest track, smallest
+via hole and its ring, plated-hole annular ring, smallest non-plated hole, hole-to-hole
+spacing (via to via, and a pad hole to anything), hole edge to another net's track, SMD
+pad-to-pad gap, silk text height and stroke.
+
+**Why.** The numbers a board is routed to are typed into its rule file by someone, and
+DRC then proves the board against *those*. On the first boards this was run on, the rule
+file was looser than the fab's page in five places (pad-hole spacing 0.25 against 0.45,
+plated hole to track 0.25 against 0.28, silk height 0.8 against 1.0, silk stroke, SMD
+pad gap) and every label on every board was under the height the fab calls legible. A
+clean DRC said nothing about any of it.
+
+**How it is checked.** The table `FAB` in `quality.py` holds one fab's standard-service
+numbers with the date its page was read; `quality.fab` overrides any of them for a board
+ordered elsewhere or on a costlier option (say where the number was read). Each check
+reports the worst place and how many places fail. Copper-to-edge and track-to-track
+spacing are left to DRC, whose loaded values the pipeline sets tighter than the fab's.
+A via drilled smaller than the fab's no-surcharge size is a note, so the order form is
+filled in to match.
+
+**How strict.** **Hard:** rings, holes, track width, pad gaps — the fab either makes it or
+does not, and a board outside the table comes back as an engineering query or a scrap
+panel. If the order really is on a finer process, state that process's numbers in
+`quality.fab`; that is a declaration, not a waiver. **Soft:** silk height and stroke.
+*Break it when:* (a) the fab's own page for the service being ordered gives a smaller
+figure (put it in `quality.fab`); (b) the label has no site at the legible size anywhere
+in reach and the choice is a small label or none — `kicad_silk` then places it at 0.8 mm
+and says so; waive naming those labels, and only if what they say is not needed to
+assemble or wire the board correctly (a board name, a test-pad name). *Do not break it*
+for a polarity mark, a pin-1 mark, or the only statement of a connector's pin order: if
+that does not fit at the legible size, make room.
+
 ---
 
 ## Manual checks
@@ -516,12 +551,13 @@ access the bring-up will need.
   (some regulators' tab is the OUTPUT, not ground — check what copper it sits on). Read
   the datasheet of the specific part number in the BOM, and re-read it for any
   substitution the fab proposes.
-- **M29 — The board is buildable by THIS fab.** The design rules loaded in the board are
-  the fab's own numbers for this order (track/space, annular ring, drill, hole-to-copper,
-  copper-to-edge, mask web between fine-pitch pads) — not the EDA defaults. No open via
-  in or touching an SMD pad unless it is filled and capped. Small two-pad parts have
-  matching copper on both pads (thermal spokes on a pad that sits in a pour), or they
-  tombstone.
+- **M29 — The board is buildable by THIS fab.** **A12** measures the tracks, holes, rings,
+  pad gaps and silk against the fab's table; this rule is the rest. The table's numbers
+  are current (re-read the fab's capability page if its date is more than a few months
+  old, and for the service actually being ordered: layer count, copper weight, finish).
+  No open via in or touching an SMD pad unless it is filled and capped. Small two-pad
+  parts have matching copper on both pads (thermal spokes on a pad that sits in a pour),
+  or they tombstone.
 - **M30 — The assembly order has no surprises.** Every placed part is one the service can
   place in the chosen tier (some parts force a costlier tier or a minimum board size);
   the count of extra-fee part lines is known; the board is inside the service's size
@@ -625,3 +661,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-04 | (third survey: a community review FAQ for schematics, read by the owner and summarised here in our own words) | USB device inrush capacitance, unused inputs and outputs, gate over-voltage and series resistance, live tabs and heatsinks, connectors without a ground, values that cannot be bought, undebounced contacts | A10, M39–M41; M19, M25, M32 extended |
 | 2026-10-04 | (same community FAQ: its layout and bill-of-materials pages, summarised in our own words) | crystal traces changing layer and load capacitors on the wrong side of the crystal, protection parts placed after the capacitor instead of at the connector, hardware keep-out differing per face, unlabelled controls and connector pins, one value typed two ways, parts that are obsolete or single-sourced at order time | A11, M42; A9, M10, M11, M23, M24, M31 extended |
 | 2026-10-04 | (design review, before first order) | four classes of fault named as the ones to stop before a board is ordered: supply choke points, missing surge capacitance, unmatched high-speed traces, mirrored pinouts | A1, A2, A3, A4, M3, M4, M6 |
+| 2026-10-04 | the fab's own capability page, read against the rule files of seven routed boards | the rule file is typed by a person and DRC only proves the board against it; five of its values were looser than the fab's, and all silk was under the fab's legible height | **A12** (new, measured); M29 narrowed to what A12 cannot measure; `kicad_silk` and the layout's reference text raised to 1.0 mm |
