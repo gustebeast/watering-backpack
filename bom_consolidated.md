@@ -232,8 +232,8 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 150 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 72 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw |
+| `v2_housing` | 146 cm³ | battery mount + PCB case, one piece |
+| `v2_housing_lid` | 74 cm³ | shoebox cover: 20 mm skirt on all four bay walls, one wood screw |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
