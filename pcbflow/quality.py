@@ -75,6 +75,25 @@ HINT = {
 }
 
 
+# HARD findings: ones no board has a good reason to keep. A waiver written for one is
+# IGNORED (and said so); the design or the declaration changes instead. Everything else is
+# SOFT: the default is to fix, and PCB_QUALITY.md says, rule by rule, the only cases in
+# which a waiver is honest. Matched against the finding's text; "" = every finding.
+HARD = {
+    "A1": ("is not a pad on", "no copper joins", "declares no power_paths"),
+    "A3": ("",),
+    "A4": ("",),
+    "A5": ("differ only in case",),
+    "A6": ("are ONE net", "not 5.1 k", "resistors to ground on one CC"),
+    "A10": ("cannot read the value",),
+    "A11": ("",),
+}
+
+
+def is_hard(rid, text):
+    return any(p in text for p in HARD.get(rid, ()))
+
+
 def rule(rid):
     def deco(fn):
         RULES[rid] = fn
@@ -881,12 +900,19 @@ def run(stem, verbose=True, brief=False):
         bad = []
         for subject, ok, text in rows:
             status = "ok" if ok else ("note" if ok is None else "FAIL")
+            hard = ok is False and is_hard(rid, text)
             if ok is False:
                 why = ctx.waived(rid, subject)
-                if why:
+                if why and hard:
+                    text += "  [a waiver is written for this and is IGNORED: a hard finding"\
+                            " is fixed, not waived]"
+                elif why:
                     status, text = "WAIVED", "%s  [waived: %s]" % (text, why)
                     waived += 1
-            results.append({"rule": rid, "subject": subject, "status": status, "text": text})
+                if status == "FAIL":
+                    text = ("[hard] " if hard else "[soft] ") + text
+            results.append({"rule": rid, "subject": subject, "status": status, "text": text,
+                            "hard": hard})
             if status != "ok":
                 bad.append((status, subject, text))
         nfail = sum(1 for s, _a, _b in bad if s == "FAIL")
