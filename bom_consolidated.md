@@ -276,8 +276,15 @@ water paths into the electronics on a machine carrying five gallons above them.*
 - [ ] 🎒 **Cable ties — 2.5 mm × 100 mm, a handful**. The housing's tie rib
       takes a 10 × 7 mm slot, so anything up to ~4 mm wide threads. These are the
       only strain relief the screw terminals have.
-- [ ] 🎒 **#8 flat-head wood screws × 4**, ≥ 25 mm — housing → posts. Ø4.5 clearance
+- [ ] 🎒 **#8 flat-head wood screws × 3**, ≥ 25 mm — housing → posts. Ø4.5 clearance
   with a Ø9 countersink, so the heads sit flush inside the housing.
+- [ ] 🎒 **#8 flat-head wood screw × 1**, ≥ 32 mm — the **+y +z** one, which now also
+  holds the LID. It passes through the lid's retention tab (3 mm), the housing's back
+  plate (3 mm) and then into the post, so it needs ~3 mm more than the other three;
+  32 mm leaves 25 mm in the wood. Its head lands in the TAB's countersink, not the
+  housing's. **Back this screw out to take the lid off** — that is what retains it.
+  The housing keeps its own countersink at that position so it can still be mounted
+  on its own, lid off, during assembly.
 
 ## 8. DigiKey  *(all 🐱 — unchanged)*
 
