@@ -106,6 +106,44 @@ board arrives down a cable, which is the worst inductance in the system.
 **Fix.** Beside the pin, on the pin's own layer, with the capacitor's ground via right
 at its pad: the loop through the via is part of the distance.
 
+**Deciding a failure: fix it, or exempt it?** The default is to FIX: move or add the
+capacitor. Work down this list and stop at the first line that matches the pin.
+
+1. *The part's datasheet names a capacitor for this pin* (a value, "as close as
+   possible", a layout figure) → **fix**, and use the datasheet's value. No exemption.
+2. *The pin is an analog supply, a reference, a PLL/oscillator supply, or a regulator's
+   input, output or internal-regulator pin (VCAP, VDDA, VREF, AVDD, DVDD-out)* → **fix**.
+   These are the pins where distance matters most.
+3. *The part switches fast or draws current in steps: an MCU, FPGA, PHY, hub, codec's
+   digital supply, motor or LED driver, radio, anything clocked above about 1 MHz* →
+   **fix**. Two supply pins side by side may share one capacitor (the rule measures
+   distance, so that already passes).
+4. *A connector that brings power in from, or sends it out down, a cable to a load* →
+   **fix** (within `connector_mm`), and see **M16** for damping.
+5. *The part is slow and small — a single logic gate, an analog switch, a low-speed
+   op-amp or comparator, a sensor sampled at kHz — AND its datasheet asks only for "a
+   bypass capacitor", AND one is on the same rail within about 10 mm with a short, wide
+   connection* → **exempt** that pin, naming the capacitor and the distance.
+6. *The pin is named like a supply but is not one* (an open-drain output called `V+`, a
+   sense input, an enable tied to the rail) → **exempt**, saying what the pin is.
+7. *The board has an unbroken power plane and ground plane as adjacent layers under the
+   part, and the pin drops into them with its own via* → the limit may be raised for
+   that board (`ic_mm`, to 8) with that sentence as the reason. Not on a two-layer board,
+   and not for the pins in lines 1 and 2.
+
+Anything not on lines 5–7 is a fix. "The router put it there", "no room" and "it is only
+0.4 mm over" are not reasons: the first two are placement problems to solve in the
+generator, and a pin 0.4 mm over is fixed by moving one part 0.4 mm.
+
+An exemption is written per pin, with evidence a reader can check:
+
+```python
+"decoupling": {"exempt": {
+    "U12.5": "SN74LVC1G3157 analog switch, static select line; datasheet asks only for a "
+             "bypass cap; C41 on +3V3 at 7.2 mm over a 0.5 mm track",
+}}
+```
+
 **How it is checked.** Pad-centre to capacitor-pad distance, capacitors counted only if
 their other pad is on a ground net. An IC is judged pin by pin, a connector once per net.
 It checks **presence and distance, not value** — values and ratings are **M4**. A big
