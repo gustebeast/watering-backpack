@@ -33,6 +33,26 @@ any good. That is what this list is for.
    mating part), then sign it in the generator with the evidence.
 4. Do not order at anything but `0 FAIL, 0 OPEN`.
 
+## Hard and soft
+
+Every `FAIL` line is tagged.
+
+* **`[hard]`** — no board has a good reason to keep it. It cannot be waived (the script
+  ignores a waiver written for one). Change the design, or correct the declaration.
+* **`[soft]`** — a default. **Follow it unless the rule's own "Break it when" list names
+  your case**; then waive it (`quality.waive`, or the rule's own key) with evidence a
+  reader can check: the part, the datasheet line, the measured number. If your case is
+  not on the list, it is a fix — and if you believe the list is missing a real case, that
+  is a change to this file (see "Adding a learning"), not a waiver.
+
+Never a reason, for any rule: "the autorouter did it", "there was no room", "it is only
+just over", "it worked on the last board", "it is a prototype". The first two are
+placement problems to solve in the generator; the rest are how respins happen.
+
+Manual rules have the same two kinds, marked in the list below: **must hold** rules are
+signed only by showing the thing is true; **decide** rules may also be signed as a
+decision not to do it, with the reason and what is relied on instead.
+
 Everything a board declares lives in its generator, under `BOARD_NOTES["quality"]`:
 
 ```python
@@ -91,6 +111,18 @@ the arithmetic if that is the design.
 **Fix.** Size the net in `net_widths`, or lay the path as declared copper (`tracks`), or
 pour it. Then check **M3** (the return path).
 
+**How strict.** **Hard:** a rail with no declared path (declare it, or list the net in `not_power` if
+it carries no current); a path whose ends are not pads on the net; a path with no copper.
+**Soft:** the width and the drop. *Break it when:* (a) the narrow point is a neck no
+longer than about 2 mm between wide copper — IPC-2221 is a long-trace figure and a short
+neck sheds its heat into the copper either side: waive with the neck's length; (b) the
+current is shared by parallel tracks or vias the script does not sum: waive with the
+arithmetic; (c) the current is a brief peak, not continuous: declare the continuous
+figure and say what the peak is; (d) the load tolerates the drop: set `max_drop_mv` on
+that path with the load's minimum voltage. *Do not break it* for a rail feeding a
+regulator's input near its dropout, an analog reference, or anything whose current you
+have not actually added up (**M33**).
+
 ### A2 — Every supply pin has a capacitor beside it
 
 **Rule.** Each IC pin (`U*`) on a supply net has a capacitor to ground on that net within
@@ -105,6 +137,8 @@ board arrives down a cable, which is the worst inductance in the system.
 
 **Fix.** Beside the pin, on the pin's own layer, with the capacitor's ground via right
 at its pad: the loop through the via is part of the distance.
+
+**How strict.** **Soft**, with the longest list of any rule — because it is the one most often waived wrongly.
 
 **Deciding a failure: fix it, or exempt it?** The default is to FIX: move or add the
 capacitor. Work down this list and stop at the first line that matches the pin.
@@ -165,6 +199,14 @@ budget on an unrouted net measures incompleteness, not mismatch — route first.
 **How it is checked.** `pcbflow/verify.py` on the declared groups, plus a name scan for
 pairs nobody declared. It cannot find a high-speed **bus** by name — that is **M6**.
 
+**How strict.** **Hard:** a declared group that fails. The budget is yours — if it was wrong, correct the
+budget and say why in the group's `why`; do not waive your own declaration.
+**Soft:** whether a named pair needs matching at all. *Break it* (`unmatched_ok`) *when*
+the skew you could possibly have is a small fraction of a bit time — write the
+arithmetic (CAN at 1 Mbit/s over 40 mm; full-speed USB over 20 mm). *Do not break it*
+for high-speed USB, any pair over about 10 Mbit/s, or a pair that runs more than a few
+centimetres.
+
 ### A4 — Pinouts: every pin exists, and every multi-pin part cites its source
 
 **Rule.** Every pin the netlist connects exists as a pad on the footprint. Every part
@@ -183,6 +225,9 @@ reading itself is the designer's — do it pin by pin, against the maker's own d
 and for a connector decide explicitly which face the drawing shows. **M28** is the same
 check for the exact part variant.
 
+**How strict.** **Hard**, all of it. A pin with no pad is a broken connection, and a pinout is cited or
+it has not been checked. There is no board on which "I did not look it up" is correct.
+
 ### A5 — The netlist says what the designer meant
 
 **Rule.** No named net reaches only one pad, and no two nets differ only in case or
@@ -195,6 +240,11 @@ board; ERC-clean and DRC-clean, because both ends are "legally" unconnected.
 deliberate ones go in `quality.single_pin_ok`), and net names folded to letters and
 digits.
 
+**How strict.** **Hard:** two nets that differ only in case or punctuation — rename one.
+**Soft:** a single-pad net. *Break it* (`single_pin_ok`) *when* the pin is deliberately
+brought to nothing and the name is its documentation (a spare GPIO, a test signal with no
+pad yet). Better still, name it `…_NC`, which the rule already accepts.
+
 ### A6 — USB-C: each CC pin has its own resistor
 
 **Rule.** On every USB-C receptacle, CC1 and CC2 are different nets, and each has its own
@@ -205,6 +255,13 @@ cable's Ra parallels it, the source sees an audio accessory and supplies nothing
 shipped single-board computer needed a respin for exactly this.
 
 **How it is checked.** The nets on pads A5 and B5 and the resistors on them.
+
+**How strict.** **Hard:** CC1 and CC2 on one net; a resistor to ground that is not 5.1 kΩ; two on one
+pin. **Soft:** a CC pin with nothing on it. *Break it when* the port is a pure
+pass-through whose CC lines are wired straight to another USB-C receptacle (then the far
+end terminates them — say which connector), or the receptacle is used for power only
+from a fixed supply that is always on. *Do not break it* for any port a standard USB-C
+source or host will be plugged into: without the resistor it supplies nothing.
 
 ### A7 — I2C buses have one pair of pull-ups
 
@@ -219,6 +276,12 @@ bound (rise time against bus capacitance) is **M20**.
 **How it is checked.** Resistors from the net to a supply net, values read from the BOM
 value text.
 
+**How strict.** **Soft.** *Break it when* the bus's one pair of pull-ups is on another board — name the
+board and the resistors, and confirm no third board adds its own; or the IC's internal
+pull-ups are used deliberately on a short, slow bus — say which register enables them.
+*Do not break* the 1 kΩ floor unless every device on the bus is rated for the larger sink
+current (Fast-mode Plus, 20 mA), with the datasheet lines.
+
 ### A8 — Exposed pads are connected and have vias
 
 **Rule.** Every footprint with an exposed pad has that pad on a net, with at least one via
@@ -230,6 +293,12 @@ datasheet asks for are **M25**.
 
 **How it is checked.** The largest SMD pad of any footprint named `…-1EP…`, its net, and
 the vias on that net inside it.
+
+**How strict.** **Soft.** *Break it when* the datasheet says the pad may or must be left unconnected
+(cite it), or the part dissipates so little that the datasheet's own thermal figures put
+it far inside its limit without vias (write the milliwatts) and the pad is still
+connected to its net by copper on its own layer. *Do not break it* for a regulator, a
+driver, a PHY or any part whose exposed pad is its only ground.
 
 ### A9 — Crystals sit beside the pins they drive
 
@@ -243,6 +312,12 @@ it; marginal oscillators fail to start. The load-capacitor arithmetic is **M24**
 **How it is checked.** Pad-to-pin distance on each crystal net that reaches an IC
 directly. A via on a crystal net is reported as a note: worth removing, not worth a
 re-route on its own at the frequencies these boards use.
+
+**How strict.** **Soft**, narrowly. *Break it when* the part is not a bare crystal but an oscillator
+module with a driven output (then it is a clock trace: series resistor at the module,
+**M20**), or the maker's own layout guide for this part shows a longer run (cite the
+figure). *Do not break it* for a bare crystal because of placement convenience: the load
+capacitance and start-up margin were computed for a short trace.
 
 ### A10 — A USB device presents no more than 10 µF on VBUS
 
@@ -259,6 +334,12 @@ specification before treating it as a limit.
 **How it is checked.** The sum of capacitor values with one pad on the receptacle's VBUS
 net and the other on ground.
 
+**How strict.** **Hard:** a capacitor whose value cannot be read (write it parseably).
+**Soft:** the 10 µF limit. *Break it when* the port is only ever fed by a dedicated
+supply, never a host or hub (say so — and it then should not be called a USB port), or
+the excess sits behind a load switch, soft-start or series element that the script has
+counted as "directly on VBUS" wrongly (name the element).
+
 ### A11 — One value, one spelling
 
 **Rule.** No resistance or capacitance appears on a board under two spellings in the same
@@ -272,6 +353,9 @@ one. It is also the cheapest sign that a value was typed rather than derived.
 after the value (`10k 0.1%`, `10uF/16V`) makes it a different part on purpose; whether it
 needs to be one is **M42**.
 
+**How strict.** **Hard.** Spell it one way. (A different tolerance or rating is not a different
+spelling: write it as a qualifier after the value.)
+
 ---
 
 ## Manual checks
@@ -284,6 +368,18 @@ no switching-regulator rules; no IC: no strap pins, op-amps or errata; no crysta
 USB, no transistor, no switch, likewise) — the table is `NOT_APPLICABLE` in
 `quality.py`. Anything it cannot tell from the parts list stays `OPEN` for you. Thresholds quoted here are starting points
 from published guidance: where a part's own datasheet says otherwise, the datasheet wins.
+
+**Which manual rules must hold, and which are decisions.**
+
+| kind | rules | how to sign |
+|---|---|---|
+| **must hold** | M1 mating connectors, M2 polarity, M4 capacitor ratings, M5 absolute ratings, M7 application circuit, M8 config pins defined, M14 inductor saturation, M15 regulator stability, M18 back-powering, M19 gate drive, M24 crystal load, M26 signal direction, M27 strap pins, M28 exact-part pinout, M32 connector series, M33 power budget, M34 levels and polarities, M37 files match the board, M39 unused pins | Only by showing it is true: the two things compared and the document read. If it is not true, the board changes. |
+| **decide** | M3 return path, M6 bus matching, M9 programming and probing, M10 protection, M11 fit, M12 order, M13 regulator layout, M16 hot-plug, M17 ferrites, M20 termination, M21 converter ground, M22 op-amp limits, M23 USB details, M25 thermal pads, M29 fab capability, M30 assembly tier, M31 markings, M35 errata, M36 output limiting, M38 stress and access, M40 design record, M41 debounce, M42 lifecycle | By showing it is done — or by recording the decision not to: what was left out, why this board does not need it, and what is relied on instead ("no TVS: the connector is inside the enclosure and mates only to our own harness; the trunk's TVS is on the supply board"). A decision is not "skipped". |
+
+A **decide** rule is still broken only for a reason about THIS board's use: where it
+lives, what it plugs into, how fast it runs, how much it dissipates. Cost, time and board
+area are reasons to choose a different part or placement, not to drop protection or
+access the bring-up will need.
 
 - **M1 — Mating connectors agree pin for pin.** For every cable and board-to-board joint,
   write out pin N at one end and what it reaches at the other, viewed from each
