@@ -37,6 +37,41 @@ PUMP_A   = 7.5           # per pump, peak
 # 100k/18k -> 20 V * 18/118 = 3.05 V. 100k top leg keeps idle draw ~170 uA.
 RDIV_TOP, RDIV_BOT = "100k", "18k"
 
+# ── The buck's feedback divider, DERIVED from the datasheet's own reference ──
+# It was R1=100k / R2=31k6, with the comment "FB bottom -> 3.3 V". It is not
+# 3.3 V. LMR14020's VFB is 0.750 V typ (SNVSAA5B, 5.5 Electrical
+# Characteristics: 0.744 / 0.750 / 0.756 at 25 C), so 100k/31k6 sets
+# 0.75 x (1 + 100/31.6) = 3.12 V -- 5.4% low, on the rail that is also the ADC
+# reference for the battery gauge and the joystick.
+#
+# Written as arithmetic so the comment can no longer disagree with the part.
+BUCK_VFB   = 0.750       # V, LMR14020 datasheet
+FB_TOP     = "100k"      # datasheet recommends 10k..100k for the BOTTOM leg
+FB_BOT     = "29k4"      # E96. 100k * 0.75 / (3.3 - 0.75) = 29.41k
+FB_VOUT    = BUCK_VFB * (1.0 + 100.0 / 29.4)
+assert abs(FB_VOUT - 3.3) < 0.03, (
+    "the feedback divider sets %.3f V, not 3.3" % FB_VOUT)
+
+# RT/SYNC: the datasheet's own table, 500 kHz.
+BUCK_FSW_KHZ = 500.0
+BUCK_RT      = "49k9"
+
+# ── VGATE, the gate-driver rail ─────────────────────────────────────────────
+GATE_DRV_VDD_MIN = 4.5       # UCC27517 datasheet, "4.5 to 18-V Single-Supply Range"
+GATE_DRV_VDD_MAX = 18.0
+VGATE_V      = 10.0
+VGATE_R_OHM  = 1500.0
+VGATE_R      = "1k5"
+VGATE_ZENER  = "ZENER-%.0fV-0W5" % VGATE_V
+VGATE_I_MIN_MA = (VBAT_MIN - VGATE_V) / VGATE_R_OHM * 1000.0
+VGATE_LOAD_MA  = 1.5         # driver Iq + Qg x fsw, one pump at 20 kHz
+assert GATE_DRV_VDD_MIN <= VGATE_V <= GATE_DRV_VDD_MAX, (
+    "VGATE is %.1f V; the gate driver wants %.1f..%.1f"
+    % (VGATE_V, GATE_DRV_VDD_MIN, GATE_DRV_VDD_MAX))
+assert VGATE_I_MIN_MA > VGATE_LOAD_MA, (
+    "at a %.0f V pack the dropper passes %.1f mA and the drivers want %.1f: "
+    "VGATE collapses" % (VBAT_MIN, VGATE_I_MIN_MA, VGATE_LOAD_MA))
+
 # Joystick RC: the ONLY noise defence, since there is no joystick board to buffer
 # at the source. 1k + 100n = 1.6 kHz — far above a hand, far below switching.
 RC_R, RC_C = "1k", "100n"
@@ -92,6 +127,9 @@ def circuit():
     n_lvl  = Net("LEVEL")
     n_bz   = Net("BUZZ")
     n_bzd  = Net("BUZZ_DRV")
+    n_rt   = Net("RT")
+    n_ss   = Net("SS")
+    n_vg   = Net("VGATE")
     n_en   = Net("EN")
     n_io0  = Net("IO0")
     n_rx   = Net("RXD0")
@@ -125,29 +163,59 @@ def circuit():
 
     # ── 18 V -> 3.3 V buck. >= 40 V in; 24 V-max parts are too close to a fresh
     # pack. ~1 A covers the ESP32's ~500 mA WiFi bursts.
-    u_bk = gen.part("U1", "LMR14020SDDA", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
-                    {1: "BOOT", 2: "VIN", 3: "EN", 4: "RT", 5: "FB", 6: "COMP",
-                     7: "GND", 8: "SW"}, "18 V -> 3.3 V, 40 V in, 2 A")
+    # PIN 6 IS SS, NOT COMP, and PIN 9 IS THE THERMAL PAD. The LMR14020 is
+    # internally compensated -- it has no COMP pin -- and its DDA package is an
+    # HSOIC with an exposed pad the datasheet calls "the major heat dissipation
+    # path of the die", which "must be connected to ground plane on PCB". This
+    # was drawn on a plain Package_SO:SOIC-8 land: no pad under the pad, and the
+    # part's whole thermal path landing on solder mask. wbp:SOIC-8-1EP-FABDRILL
+    # is KiCad's EP2.29x3mm ThermalVias footprint with its 0.2 mm vias opened to
+    # 0.3 for the fab floor, the same fix the ESP32 footprint needed.
+    u_bk = gen.part("U1", "LMR14020SDDA", "wbp:SOIC-8-1EP-FABDRILL",
+                    {1: "BOOT", 2: "VIN", 3: "EN", 4: "RT", 5: "FB", 6: "SS",
+                     7: "GND", 9: "EP", 8: "SW"}, "18 V -> 3.3 V, 40 V in, 2 A")
     l1   = gen.part("L1", "15uH/3A", "Inductor_SMD:L_Bourns_SRN6045TA", 2, "buck inductor")
     c_bt = gen.part("C3", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "boot")
     c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2, "3V3 out")
     c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "3V3 out")
-    r_f1 = gen.part("R1", "100k", "Resistor_SMD:R_0603_1608Metric", 2, "FB top")
-    r_f2 = gen.part("R2", "31k6", "Resistor_SMD:R_0603_1608Metric", 2, "FB bottom -> 3.3 V")
+    r_f1 = gen.part("R1", FB_TOP, "Resistor_SMD:R_0603_1608Metric", 2, "FB top")
+    r_f2 = gen.part("R2", FB_BOT, "Resistor_SMD:R_0603_1608Metric", 2,
+                    "FB bottom -> %.2f V" % FB_VOUT)
+    # "The RT/SYNC pin can't be left floating or shorted to ground" -- datasheet
+    # SNVSAA5B section 6.3.8, in those words. It was floating. 49.9k is the
+    # datasheet's own table value for 500 kHz, which with the 15 uH inductor
+    # gives 0.37 A of ripple at a 20 V input.
+    r_rt = gen.part("R8", BUCK_RT, "Resistor_SMD:R_0603_1608Metric", 2,
+                    "switching frequency: %.0f kHz" % BUCK_FSW_KHZ)
+    # SS, the pin this file used to call COMP. Floating it leaves the ramp to
+    # stray capacitance and 3 uA, which is no ramp at all: 10 nF x 0.75 V / 3 uA
+    # gives a defined 2.5 ms into 42 uF of output capacitance.
+    c_ss = gen.part("C14", "10n", "Capacitor_SMD:C_0603_1608Metric", 2,
+                    "buck soft-start, ~2.5 ms")
 
     vbat += u_bk["VIN"], u_bk["EN"]
     n_sw += u_bk["SW"], l1[1], c_bt[2]
     v3v3 += l1[2], c_o1[1], c_o2[1], r_f1[1], j_joy["3V3"], j_prg["3V3"]
     n_fb += r_f1[2], r_f2[1], u_bk["FB"]
-    gnd  += u_bk["GND"], c_o1[2], c_o2[2], r_f2[2]
+    n_rt += u_bk["RT"], r_rt[1]
+    n_ss += u_bk["SS"], c_ss[1]
+    gnd  += u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], r_f2[2], r_rt[2], c_ss[2]
     c_bt[1] += u_bk["BOOT"]
 
     # ── MCU ─────────────────────────────────────────────────────────────────
     # Joystick on IO34 and pumps on IO25/IO26 match the firmware already running.
+    # ALL FOUR GROUND PINS, NOT TWO. KiCad's own RF_Module symbol declares this
+    # module's GND pin as number "[1,15,38,39]" -- 1, 15, 38 AND 39. This read
+    # {1: GND, ..., 38: GND}, so pin 15 and pin 39 were on no net at all, and
+    # pin 39 is the module's underside thermal pad: TWENTY-ONE pads in the
+    # footprint, the module's whole RF and thermal ground, floating. Nothing
+    # reported it, because a pad with NO net is not an unconnected net -- DRC
+    # and the 0-unconnected gate both pass a board full of them.
+    # tools/check_ic_pinouts.py counts pads now, which is what found this.
     u_mcu = gen.part("U2", "ESP32-WROOM-32E", "wbp:ESP32-WROOM-32E-FABDRILL",
                      {1: "GND", 2: "3V3", 3: "EN", 6: "IO34", 7: "IO35", 10: "IO25",
-                      11: "IO26", 12: "IO27", 13: "IO14", 25: "IO0", 34: "RXD0",
-                      35: "TXD0", 38: "GND"}, "MCU + WiFi. LOCAL footprint: KiCad's stock one has twelve 0.2 mm thermal vias, below the 0.3 mm fab minimum — 12 of this board's 14 DRC violations were that one footprint")
+                      11: "IO26", 12: "IO27", 13: "IO14", 15: "GND", 25: "IO0",
+                      34: "RXD0", 35: "TXD0", 38: "GND", 39: "GND"}, "MCU + WiFi. LOCAL footprint: KiCad's stock one has twelve 0.2 mm thermal vias, below the 0.3 mm fab minimum — 12 of this board's 14 DRC violations were that one footprint")
     c_m1 = gen.part("C6", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "MCU bulk")
     c_m2 = gen.part("C7", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "MCU decoupling")
     r_en = gen.part("R3", "10k", "Resistor_SMD:R_0603_1608Metric", 2, "EN pull-up")
@@ -161,29 +229,95 @@ def circuit():
     n_tx += u_mcu["TXD0"], j_prg["TXD"]
     gnd  += j_prg["GND"]
 
+    # ── VGATE: the rail the gate drivers actually need ──────────────────────
+    # The UCC27517 is a 4.5 V to 18 V part and the only logic rail on this board
+    # is 3.3 V. Under 4.5 V its own UVLO holds the output low, so BOTH PUMPS
+    # WOULD HAVE BEEN DEAD even with the pinout right. CIRCUIT.md states "There
+    # is no 5 V rail" and specifies a UCC27517-class driver in the same
+    # document; the two cannot both stand.
+    #
+    # It is also already implied elsewhere: the FET requirement is "<= 10 mOhm
+    # at 4.5 V Vgs", which is a gate drive this board could not produce.
+    #
+    # A SHUNT, NOT A REGULATOR, and deliberately. The load is tiny -- the
+    # driver's quiescent plus Qg x fsw, about 1.5 mA with one pump running at
+    # 20 kHz -- so a series resistor and a Zener do the whole job with two
+    # passives and no pinout to get wrong. A 60 V LDO would be tidier and would
+    # not idle; this costs VBAT/R - I_load of standing current, 6.7 mA at a
+    # fresh pack, which is nothing beside the ESP32's 100 mA and the level
+    # sensor's own draw. The machine has no low-power idle state to protect.
+    #
+    # 10 V, not 5: it is inside the driver's 4.5-18 V window with margin at both
+    # ends, and it enhances the FET harder than the 4.5 V its Rds(on) is quoted
+    # at. 1k5 passes 3.3 mA at a flat 15 V pack and 6.7 mA at a fresh 20 V one.
+    r_vg = gen.part("R9", VGATE_R, "Resistor_SMD:R_0805_2012Metric", 2,
+                    "VGATE dropper — %.1f mA at a flat pack" % VGATE_I_MIN_MA)
+    d_vg = gen.part("D5", VGATE_ZENER, "Diode_SMD:D_SOD-123", ["K", "A"],
+                    "VGATE shunt — the gate drivers' supply")
+    c_vg = gen.part("C13", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+                    "VGATE bulk — the gate peaks come from here, not through R9")
+    vbat += r_vg[1]
+    n_vg += r_vg[2], d_vg["K"], c_vg[1]
+    gnd  += d_vg["A"], c_vg[2]
+
     # ── Pump drive: one low-side switch each. 60 V so the freewheel clamp has
     # margin; ~5 mOhm gives ~0.28 W at 7.5 A, against ~0.9 W for a BTS7960 half.
     for n, (gate, lo, pwm, jp) in enumerate(
             ((n_gA, n_pA, n_pwmA, j_pa), (n_gB, n_pB, n_pwmB, j_pb)), start=1):
         q = gen.part("Q%d" % n, PUMP_FET_VALUE, "Package_TO_SOT_SMD:TO-252-3_TabPin2",
                      {1: "G", 2: "D", 3: "S"}, "pump %d low-side switch" % n)
+        # THE PINOUT WAS WRONG ON FOUR OF FIVE PINS. TI SLUSAY4C, figure on page
+        # 2: 1 VDD, 2 GND, 3 IN+, 4 IN-, 5 OUT. This read
+        # {1: IN, 2: GND, 3: NC, 4: OUT, 5: VDD}, which put the MCU's PWM on
+        # the driver's SUPPLY pin, the FET gate on an INPUT, the driver's 4 A
+        # OUTPUT straight onto the 3.3 V rail, and left the real input floating
+        # -- and "Output Held Low when Input Pins are Floating". Neither pump
+        # could have run, and powering it would have taken the rail with it.
+        #
+        # IN- IS TIED TO GND ON PURPOSE: "the unused input pin is not left
+        # floating and must be properly biased to ensure that driver output is
+        # enabled for normal operation". Grounded IN- enables the non-inverting
+        # path; it is also the active-low enable, so this is the enabled state.
         u = gen.part("U%d" % (2 + n), "UCC27517", "Package_TO_SOT_SMD:SOT-23-5",
-                     {1: "IN", 2: "GND", 3: "NC", 4: "OUT", 5: "VDD"},
+                     {1: "VDD", 2: "GND", 3: "IN+", 4: "IN-", 5: "OUT"},
                      "gate driver — 7.5 A at 20 kHz is not a job for a bare GPIO")
+        # BOTH ANODE LEADS, NOT ONE. TO-263-2 is a THREE-pad land: pads 1 and 3
+        # are the outer leads and pad 2 is the 101.5 mm2 tab (measured off
+        # KiCad's own footprint). Declared as ["A", "K"] this netted pad 1 and
+        # the tab and left PAD 3 WITH NO NET -- and at >= 15 A / 60 V in D2PAK
+        # the part you can actually buy is usually a common-cathode DUAL, whose
+        # pad 3 is the second anode. Half the diode would never have conducted,
+        # in the one part this document calls the board's largest heat source,
+        # carrying 7.5 A. Nothing would have reported it: a pad with no net is
+        # not an unconnected net, so DRC and the 0-unconnected gate both pass.
+        #
+        # Tying pad 3 to the anode is right whichever part arrives: on a dual it
+        # parallels the two halves as intended, and on a true 2-lead device
+        # there is no pin there for it to reach.
         d = gen.part("D%d" % (1 + n), FREEWHEEL_VALUE, "Package_TO_SOT_SMD:TO-263-2",
-                     ["A", "K"], "freewheel — the board's largest heat source, ~1.5 W")
+                     {1: "A", 2: "K", 3: "A2"},
+                     "freewheel — the board's largest heat source, ~1.5 W")
         rg = gen.part("R%d" % (3 + n), "10R", "Resistor_SMD:R_0603_1608Metric", 2, "gate")
         rp = gen.part("R%d" % (5 + n), "100k", "Resistor_SMD:R_0603_1608Metric", 2,
                       "gate pull-down — FET off while the MCU boots")
         cv = gen.part("C%d" % (8 + n), "100n", "Capacitor_SMD:C_0603_1608Metric", 2,
                       "driver decoupling")
-        pwm += u["IN"]
-        v3v3 += u["VDD"], cv[1]
-        gnd += u["GND"], cv[2], q["S"], rp[2], d["A"]
+        pwm += u["IN+"]
+        n_vg += u["VDD"], cv[1]
+        gnd += u["GND"], u["IN-"], cv[2], q["S"], rp[2]
         gate += u["OUT"], rg[1]
         rg[2] += q["G"]
         rp[1] += q["G"]
-        lo += q["D"], d["K"], jp["LO"]
+        # THE FREEWHEEL DIODE GOES ACROSS THE PUMP, NOT ACROSS THE SWITCH. It
+        # was anode on GND and cathode on the FET drain, which is the catch
+        # diode for a HIGH-side switch. This is a LOW-side switch with the pump
+        # returned to VBAT: when the FET opens, the pump's inductance pushes
+        # current INTO the drain node and it has to get back to VBAT. A diode
+        # from GND to the drain is reverse-biased for that current and does
+        # nothing at all, so the drain would have flown up until the FET
+        # avalanched -- 7.5 A, 20 kHz.
+        lo += q["D"], d["A"], d["A2"], jp["LO"]
+        vbat += d["K"]
 
     n_pwmA += u_mcu["IO26"]
     n_pwmB += u_mcu["IO25"]
@@ -226,6 +360,35 @@ def circuit():
     # Unused joystick pins land on the connector but nowhere else; tie them off so
     # netcheck does not see a one-pin net.
     gnd += j_joy["VRX"], j_joy["SW"]
+
+    # ── BRING-UP PADS ───────────────────────────────────────────────────────
+    # Ten bare 1.5 mm pads, one per question you ask when a board arrives and
+    # does not work. They cost nothing: each one is SEARCHED for a site that
+    # already sits on its own net's copper (route.py's _resite_post_pads), so
+    # no track is added for them and the search runs against the FINISHED
+    # board, not against a coordinate that goes stale when the copper moves.
+    #
+    # cadkit/kicad_silk.py then labels each one with its NET name, which is the
+    # half that makes them useful: a bring-up note saying "probe VGATE" is no
+    # help if the board does not say which pad that is.
+    #
+    # WHY THESE TEN. Each answers one question, in the order you would ask it:
+    #   GND         the reference for every other probe. Without it, nothing.
+    #   VBAT        did the pack reach the board at all
+    #   +3V3        did the buck start, and at what voltage (it sets the ADC's
+    #               full scale too, so this reading explains the other two)
+    #   VGATE       did the Zener rail come up -- the new rail, and the one
+    #               that decides whether either pump can switch
+    #   SW          is the buck switching, and at what frequency (R8's job)
+    #   GATE_A/B    is the driver driving, or is it the FET that is dead
+    #   VBAT_SENSE  what the ADC actually sees, against what the divider says
+    #   JOY_FILT    the same for the joystick, after the RC
+    #   LEVEL       is the sensor's open collector pulling down
+    for ref, net in (("TP1", gnd), ("TP2", vbat), ("TP3", v3v3), ("TP4", n_vg),
+                     ("TP5", n_sw), ("TP6", n_gA), ("TP7", n_gB),
+                     ("TP8", n_vsen), ("TP9", n_joyf), ("TP10", n_lvl)):
+        net += gen.part(ref, "TP", "TestPoint:TestPoint_Pad_D1.5mm", 1,
+                        "bring-up probe")[1]
 
 
 # ── THE BOARD ───────────────────────────────────────────────────────────────
@@ -295,7 +458,51 @@ BOARD_NOTES = {
         # buzzer — below the keepout's y band
         "BZ1": (33.0, -24.0, 0.0), "Q3": (22.0, -14.0, 0.0),
         "R24": (28.0, -8.0, 0.0), "D4": (28.0, -2.0, 0.0),
+        # buck frequency-setting resistor, beside the buck
+        "R8": (-27.0, 10.0, 0.0), "C14": (-20.0, 14.0, 0.0),
+        # VGATE shunt, beside the drivers it feeds
+        "R9": (-36.0, -32.0, 0.0), "D5": (-27.0, -32.0, 0.0),
+        "C13": (-18.0, -32.0, 0.0),
+        # bring-up pads. These are PREFERENCES, not sites: route.py re-searches
+        # each one against the finished copper and nudges it if the board has
+        # moved underneath it.
+        "TP1": (0.0, -31.0, 0.0),   "TP2": (-42.0, -32.0, 0.0),
+        "TP3": (0.0, 31.0, 0.0),    "TP4": (-10.0, -31.0, 0.0),
+        "TP5": (-28.0, 30.0, 0.0),  "TP6": (-22.0, -16.0, 0.0),
+        "TP7": (-22.0, 10.0, 0.0),  "TP8": (27.0, 3.0, 0.0),
+        "TP9": (8.0, -24.0, 0.0),   "TP10": (8.0, -14.0, 0.0),
     },
+    # Placed AFTER routing, on copper that is already there -- see the
+    # bring-up-pad block in circuit().
+    "post_route_refs": tuple("TP%d" % i for i in range(1, 11)),
+    # ⚠ PER-NET TRACK WIDTH, because the default is 0.25 mm and cadkit's own
+    # note says what that carries: "By IPC-2221 at a 10 C rise, 0.25 mm of 1 oz
+    # outer copper carries 0.88 A". VBAT and both pump legs carry 7.5 A peak and
+    # ~3.75 A average, and every one of them was drawn at 0.25. Nothing
+    # downstream could notice -- "DRC compares copper to the netlist and has no
+    # concept of current, and the netlist has no concept of width".
+    #
+    # 1.2 mm is NOT the IPC answer. 7.5 A at a 10 C rise wants ~4.8 mm of 1 oz
+    # copper, and a track that wide is not a track, it is a pour. What a width
+    # can do here is carry the AVERAGE (3.75 A wants ~1.9 mm at 10 C, ~1.1 mm at
+    # 30 C) and stop the router drawing a 0.25 mm wire between a 5.08 mm screw
+    # terminal and a D2PAK tab. The real current path is pad-to-pad and short;
+    # what is left after that is this.
+    #
+    # ⚠ AND A WIDTH IS ONLY USEFUL IF A PAD CAN ACCEPT IT. These three nets land
+    # only on MKDS-3 terminal pads, TO-252/TO-263 tabs and 10 x 10.5 electrolytic
+    # pads -- all of them wider than 1.2 -- which is why they can take it and the
+    # 0603-populated signal nets cannot.
+    "net_widths": {"VBAT": 1.2, "PUMP_A_LO": 1.2, "PUMP_B_LO": 1.2,
+                   # the gate rail is small but it is the one that makes the
+                   # pumps switch; 0.4 keeps it off the 0.25 default floor
+                   "VGATE": 0.4},
+    # U1's six EP pads ARE the stitching. wbp:SOIC-8-1EP-FABDRILL carries six
+    # plated 0.3 mm thermal vias through the exposed pad, which is the LMR14020
+    # datasheet's own layout: "Optional vias can be used with 0.2 mm typical
+    # diameter". The stitcher asks for a via BESIDE each ground pad and there is
+    # no room beside these -- because each of them is already a via to the plane.
+    "stitch_exceptions": tuple("U1.9" for _ in range(6)),
     "zones": [("GND", "B.Cu", 0.3)],
     "stitch_nets": ("GND",),
     "single_sided": True,              # every part on the front: one assembly setup

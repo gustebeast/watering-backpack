@@ -1147,7 +1147,21 @@ def drop_redundant_pth_vias(board):
             break
     for t, _why in doomed:
         board.Remove(t)
+    # ⚠ THE REMOVED VIAS HAVE TO OUTLIVE THIS FUNCTION. board.Remove() hands
+    # ownership to Python, so `doomed` going out of scope FREES them -- and the
+    # board still refers to them from its connectivity, so the next thing to
+    # walk the board dies on a dangling pointer. It surfaced as
+    # `'SwigPyObject' object has no attribute 'Pads'` from board.GetFootprints()
+    # in link_close_gaps, fifteen lines later in route.py and nowhere near here,
+    # which is what a use-after-free looks like from the outside.
+    #
+    # It only bit once a board removed enough of them: this ran for months
+    # removing four vias from connector pads, and broke the day the ESP32
+    # module's twelve thermal vias got a net and the count went to ten.
+    # Parking them on the board keeps them alive exactly as long as it is.
     if doomed:
+        board._pcbflow_removed = (getattr(board, "_pcbflow_removed", ())
+                                  + tuple(t for t, _w in doomed))
         board.BuildConnectivity()
         print("  removed %d redundant via(s) drilled into a through-hole pad: %s"
               % (len(doomed), ", ".join(w for _t, w in doomed[:8])))
