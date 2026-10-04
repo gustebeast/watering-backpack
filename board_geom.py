@@ -60,6 +60,7 @@ from . import pcb as _pcb
 HEIGHT = {
     # chip passives, diodes, small-signal packages: package maximum heights
     "C_0402_1005Metric": 0.55, "R_0402_1005Metric": 0.50, "R_0603_1608Metric": 0.55,
+    "C_0603_1608Metric": 0.90, "R_0805_2012Metric": 0.65,
     "C_0805_2012Metric": 1.45, "C_1206_3216Metric": 1.60, "C_1210_3225Metric": 1.80,
     "L_0603_1608Metric": 0.95, "Fuse_1206_3216Metric": 1.10,
     "D_SMA": 2.20, "D_SMB": 2.45, "D_SOD-123": 1.10, "D_SOD-523": 0.75,
@@ -125,6 +126,7 @@ TAIL = {
     "PinHeader_2x07_P1.27mm_Horizontal": 1.5,    # ESTIMATE: ~3 mm tail less a 1.6 board
     "R_0402_1005Metric": 0.0, "C_0402_1005Metric": 0.0, "C_0805_2012Metric": 0.0,
     "R_0603_1608Metric": 0.0, "LED_0603_1608Metric": 0.0, "LED_0805_2012Metric": 0.0,
+    "C_0603_1608Metric": 0.0, "R_0805_2012Metric": 0.0,
     "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 3.4, "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 3.4,   # cadkit.pcb XH_POST_TAIL
     "TestPoint_Pad_D1.5mm": 0.0, "TestPoint_Pad_D1.0mm": 0.0,
     "C_1206_3216Metric": 0.0, "Fuse_1206_3216Metric": 0.0,

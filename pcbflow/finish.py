@@ -370,6 +370,23 @@ def finish(stem, rounds=1):
     # only way it cannot drift from the board is if the step that makes the board also
     # writes it. The CAD used to model boards from hand-copied placements and nothing
     # re-read the finished board -- see export_geom.py for what that let through.
+    # THE QUALITY PASS (cadkit/PCB_QUALITY.md): what DRC cannot judge -- supply choke
+    # points, missing bypass capacitors, undeclared pairs, uncited pinouts -- plus the
+    # manual checklist still unsigned. It REPORTS here; the count goes in the last line.
+    quality = None
+    try:
+        proc = subprocess.run([PY, os.path.join(HERE, "quality.py"), "--brief", stem],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in proc.stdout.splitlines():
+            if "image handler" in line or "memory leak" in line or not line.strip():
+                continue
+            print("    " + line)
+            m = re.search(r"quality (\d+) FAIL, (\d+) OPEN", line)
+            if m:
+                quality = (int(m.group(1)), int(m.group(2)))
+    except Exception as exc:
+        print("    quality.py did not run: %r" % (exc,))
+
     try:
         proc = subprocess.run([PY, _step("export_geom.py", stem), stem],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -418,10 +435,12 @@ def finish(stem, rounds=1):
                  "the project has no %s (see cadkit/PCB_README.md, 'Gate it')"
                  % os.path.join(os.path.basename(project_dir(stem)), "cad_geom_check.py")))
 
-    print("%s: %d unconnected, %d violation(s)%s"
+    print("%s: %d unconnected, %d violation(s)%s%s"
           % (os.path.basename(stem), best_n, best_v,
              (" -- AND %d verify.py FAIL(s): NOT A CLEAN BOARD" % verify_fails)
-             if verify_fails else ""))
+             if verify_fails else "",
+             (" | quality: %d FAIL, %d OPEN" % quality) if quality else
+             " | quality: DID NOT RUN"))
     return best_n, best_v
 
 

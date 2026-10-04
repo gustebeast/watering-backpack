@@ -12,8 +12,9 @@ KiCad) and writes elec/geom/blinky.geom.json, which the CAD builds the board fro
     from cadkit.board_geom import Boards
     pcb = Boards("elec/geom").solid("blinky")
 
-A board file has three parts, in this order: the CIRCUIT, the BOARD, and the checks that
-tie the board to the CAD it has to fit.
+A board file has four parts, in this order: the CIRCUIT, the BOARD, the checks that tie
+the board to the CAD it has to fit, and the QUALITY record (cadkit/PCB_QUALITY.md) --
+what `finish.py` holds the board to before it may be ordered: `0 FAIL, 0 OPEN`.
 """
 from __future__ import annotations
 
@@ -44,8 +45,10 @@ def circuit():
     r1 = gen.part("R1", R_LED, "Resistor_SMD:R_0603_1608Metric", 2, "LED current, 5 mA")
     d1 = gen.part("D1", "RED", "LED_SMD:LED_0805_2012Metric", ["K", "A"], "power indicator")
     tp1 = gen.part("TP1", "TP", "TestPoint:TestPoint_Pad_D1.5mm", 1, "probe ground")
-    gnd += j1["GND"], d1["K"], tp1[1]
-    vin += j1["VIN"], r1[1]
+    # power arrives down a cable: a capacitor beside the connector (quality rule A2)
+    c1 = gen.part("C1", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "input bypass, 50 V X7R")
+    gnd += j1["GND"], d1["K"], tp1[1], c1[2]
+    vin += j1["VIN"], r1[1], c1[1]
     led_a += r1[2], d1["A"]
 
 
@@ -64,6 +67,7 @@ BOARD_NOTES = {
     # ref: (x, y, rotation) -- of the part's PAD CENTROID, KiCad rotation in degrees
     "placements": {
         "J1": (-8.0, 2.0, 0.0),
+        "C1": (-3.0, -2.0, 90.0),
         "R1": (2.0, 4.0, 0.0),
         "D1": (8.0, 4.0, 0.0),
         "TP1": (0.0, -5.0, 0.0),
@@ -72,6 +76,34 @@ BOARD_NOTES = {
     "zones": [("GND", "B.Cu", 0.3)],
     "stitch_nets": ("GND",),
     "single_sided": True,                # every part on the front: one assembly setup
+}
+
+# ── 4. THE QUALITY RECORD ────────────────────────────────────────────────────────────
+# cadkit/PCB_QUALITY.md is the rule list; `pcbflow/quality.py` (run by finish.py) holds
+# the board to it. The automated rules read what is declared here; each manual rule is
+# signed with WHAT WAS CHECKED AGAINST -- "checked" is not a sign-off.
+BOARD_NOTES["quality"] = {
+    # A1: every supply net -- where it enters, where it goes, how many amps
+    "power_paths": [{"net": "VIN", "from": "J1.2", "to": "R1.1", "amps": LED_MA / 1000.0}],
+    # A4: where each part with three or more pads had its pinout read (none here: J1 has
+    # two, and its order is M1's business)
+    "pinouts": {},
+    "manual": {
+        "M1": "J1 B2B-XH-A, JST drawing: pin 1 at the polarising slot = GND, pin 2 = VIN; "
+              "the harness XHP-2 is crimped 1:1 and the housing is keyed",
+        "M2": "D1 pad 1 = K in LED_0805_2012Metric and in the part's pin list ['K', 'A']",
+        "M3": "GND returns on the B.Cu pour, unbroken under the VIN track",
+        "M4": "C1 100 nF 50 V on a 5 V rail; no regulator and no stepping load",
+        "M5": "5 V in; LED at 5 mA of 20 mA rated; R1 15 mW of 100 mW",
+        "M6": "no high-speed nets",
+        "M7": "no ICs",
+        "M8": "no configuration pins",
+        "M9": "TP1 is ground for a clip; VIN is reachable at J1",
+        "M10": "bench-supplied indicator inside the enclosure: no ESD or reverse protection "
+               "by decision; a reversed plug only leaves the LED dark (5 V = its max reverse)",
+        "M11": "elec/cad_geom_check.py passes; J1 plugs from +Z with the board installed",
+        "M12": "example board: not ordered",
+    },
 }
 
 # ── 3. THE CHECKS ────────────────────────────────────────────────────────────────────
