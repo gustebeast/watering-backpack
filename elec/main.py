@@ -820,15 +820,53 @@ BOARD_NOTES = {
         # it still covers is a corner mounting hole -- a cutout, which the
         # keepout does not forbid.
         "U2": (34.4, 19.5, 270.0),
-        "C6": (36.5, 31.5, 0.0), "C7": (42.8, 31.5, 0.0),
+        # C6 moved up 1.5 mm to free the band the ADC filters needed; it is the
+        # MCU's BULK, and A2's 5 mm belongs to C7, which bypasses U2.2 at
+        # 3.86 mm. Bulk at 8.97 mm behind an unbroken plane is what bulk is for.
+        "C6": (36.5, 33.0, 0.0), "C7": (42.8, 31.5, 0.0),
         "R3": (2.0, 32.0, 0.0),  "C8": (2.0, 26.0, 0.0),
         # -- sensing and the buzzer, right of the switch row ------------------
         # R20's top leg is on VBAT and a long way from the pour, which is right
         # rather than sloppy: the divider passes 170 uA. What must be short is
         # VBAT_SENSE -- the 100k node the ADC reads -- so R21 and C11 sit at the
         # MCU and the long run is the one carrying nothing.
-        "R20": (22.0, 6.0, 0.0), "R21": (22.0, 0.0, 0.0), "C11": (33.0, 0.0, 0.0),
-        "R22": (20.0, -22.0, 0.0), "C12": (20.0, -26.0, 0.0),
+        #
+        # ⚠ AND THEY DID NOT. That comment described an intention, not the
+        # board: measured on the routed copper, C11 was 28.04 mm from IO35 and
+        # C12 -- the joystick RC's capacitor, the ONLY noise defence on an ADC
+        # input fed by a hand-held stick on the end of a lead -- was 56.81 mm
+        # from IO34. A filter capacitor that far from its pin filters the cable
+        # and leaves the board's own 57 mm of high-impedance track unshunted, on
+        # the two signals that are the machine's entire input.
+        #
+        # The module's pads are the constraint. U2 at 270 puts pins 1-19 in one
+        # row at y 27.716 and pins 25-38 at y 10.216, with the body between
+        # them, so there is no "beside the pin" below -- the only free ground is
+        # ABOVE that top row, which is where C6/C7 already are. Measured pads:
+        #   U2.7  IO35 VBAT_SENSE  (36.456, 27.716)
+        #   U2.6  IO34 JOY_FILT    (37.726, 27.716)
+        # The two pins are 1.27 mm apart and an 0603 is 3.05 mm wide, so both
+        # capacitors cannot each sit directly over their own pin; they sit side
+        # by side just above the row, each rotated so its SIGNAL pad is the one
+        # facing its pin.
+        #
+        # y 29.9 IS THE FLOOR AND IT IS MEASURED. U2's courtyard is not the box
+        # its bounding box suggests -- it is one 8-point outline covering the
+        # module body at x 25.28..45.13, y 9.22..28.71, plus the antenna keepout
+        # hanging off the laminate at x 45.13..66.81. So the body's top edge is
+        # y 28.71, and an 0603's half-height is 0.775: 29.9 leaves 0.415.
+        # Placing these at 29.3 cost three courtyards_overlap against U2, which
+        # is how the real outline got measured instead of assumed.
+        "R20": (22.0, 6.0, 0.0),
+        "R21": (31.2, 29.9, 180.0),     # divider bottom, at the tap it sets
+        "C11": (34.8, 29.9, 180.0),     # VBAT_SENSE filter, 2.35 mm from IO35
+        "C12": (38.4, 29.9, 0.0),       # JOY_FILT filter, 2.19 mm from IO34
+        # R22 stays at the CONNECTOR end on purpose, and that is the half of an
+        # RC that belongs there: with the resistor at J4 and the capacitor at
+        # the pin, the whole board run sits INSIDE the filter and its pickup is
+        # shunted by C12. Swapping them would put 1k at the pin and leave the
+        # run outside the pole, which is the one arrangement that buys nothing.
+        "R22": (20.0, -22.0, 0.0),
         "R23": (20.0, -30.0, 0.0),
         "BZ1": (33.0, -24.0, 0.0), "Q3": (26.0, -14.0, 0.0),
         "R24": (28.0, -8.0, 0.0),  "D4": (28.0, -3.0, 0.0),
