@@ -123,6 +123,11 @@ BOARD_NOTES["quality"] = {
         "M35": "no parts with errata",
         "M36": "no power leaves the board",
         "M37": "example board: not ordered",
+        "M39": "no ICs: no unused pins",
+        "M40": "R1 600R is E96 (604R) -- fit 620R (E24) if 600R is not stocked; nothing "
+               "critical, any red 0805 LED will do",
+        "M41": "no switches",
+        "M42": "all four parts are generic, multi-source and active",
         "M38": "C1 is 12 mm from the nearest edge and 13 mm from the screw; J1 plugs from "
                "+Z with nothing above it",
     },
