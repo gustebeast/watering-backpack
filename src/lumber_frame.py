@@ -62,6 +62,29 @@ DECK_Z   = RAIL_Z1 + PLANK_T             # 208 — the tank sits here
 
 N_DECK_PLANKS = 3
 
+# ── Pump floor ──────────────────────────────────────────────────────────────
+# The pumps had nothing to stand on. The frame was four posts, rails and a top
+# deck carrying the tank; the pump bay below was open air, and the pumps were
+# placed at a z that came from a 4 mm PRINTED deck in src/pump_frame.py which
+# never made it into the lumber frame.
+#
+# The floor goes UNDER the posts rather than between them, and that is forced:
+# a pump is 115 mm tall and the rails start at RAIL_Z0 = 150, so everything
+# below the pump feet has to fit in 35 mm. Bearers plus planks do not. With the
+# frame standing ON the floor, the floor's TOP face lands exactly on the pump
+# seating plane already in use, so the pumps and every hose route keep the
+# heights they have -- this adds a part without moving anything.
+#
+# The posts shorten to suit: they start at the floor top instead of z=0.
+FLOOR_TOP = F.FLOOR_T                      # 4.0 -- pumps bolt to this face
+FLOOR_Z0  = FLOOR_TOP - PLANK_T            # -16.0
+# Three planks, spanning the frame width EXACTLY (380): the two outer ones are
+# ripped to 121.5 so the floor stops at the post outer face. Full 137s would
+# reach x = -205.5 and foul the electronics housing, which comes down to z = 0
+# at x = -221.5..-190.
+FLOOR_RIP_W = (FRAME_W - PLANK_W) / 2.0    # 121.5
+M4_CLR      = 4.5                          # pump bolt clearance (M4 + nut under)
+
 # ── Battery access notch ────────────────────────────────────────────────────
 # The battery hangs on the -X face of the frame and seats by sliding DOWN --
 # src/housing.py asserts that, because a pack that seated upward would be
@@ -95,9 +118,23 @@ def pieces():
     h = BEAM / 2.0
     for sx in (-1, 1):
         for py in POST_YS:
-            out.append(("post", RAIL_Z0,
+            out.append(("post", RAIL_Z0 - FLOOR_TOP,
                         _box(sx * POST_X - h, sx * POST_X + h,
-                             py - h, py + h, 0.0, RAIL_Z0)))
+                             py - h, py + h, FLOOR_TOP, RAIL_Z0)))
+    # floor planks: the frame STANDS on these, and the pumps bolt through them
+    floor_xs = ((-FRAME_W / 2.0, -FRAME_W / 2.0 + FLOOR_RIP_W),
+                (-PLANK_W / 2.0, PLANK_W / 2.0),
+                (FRAME_W / 2.0 - FLOOR_RIP_W, FRAME_W / 2.0))
+    bolts = F.pump_bolt_xy()
+    for x0, x1 in floor_xs:
+        plank = _box(x0, x1, 0.0, FRAME_D, FLOOR_Z0, FLOOR_TOP)
+        for bx, by in bolts:
+            if x0 < bx < x1:
+                plank = plank.cut(cq.Workplane("XY")
+                                  .workplane(offset=FLOOR_Z0 - 1.0)
+                                  .center(bx, by).circle(M4_CLR / 2.0)
+                                  .extrude(PLANK_T + 2.0))
+        out.append(("plank_floor", FRAME_D, plank))
     # cross rails run the full width and land on the posts
     for py in POST_YS:
         out.append(("rail_cross", FRAME_W,
@@ -119,6 +156,15 @@ def pieces():
                                    RAIL_Z1 - 1.0, DECK_Z + 1.0))
         out.append(("plank_deck", FRAME_D, plank))
     return out
+
+
+def floor_note():
+    bolts = F.pump_bolt_xy()
+    return ("floor: 2 planks RIPPED to %.1f mm (outer) + 1 full %.0f mm, all "
+            "%.0f long, laid under the posts; the frame stands on them. Drill "
+            "%d x D%.1f for the pump M4s (bolt + nut, nuts underneath) at the "
+            "positions src.pump_frame.pump_bolt_xy() reports."
+            % (FLOOR_RIP_W, PLANK_W, FRAME_D, len(bolts), M4_CLR))
 
 
 def notch_note():
