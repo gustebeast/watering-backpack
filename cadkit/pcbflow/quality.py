@@ -248,6 +248,46 @@ class _Net:
                     if n[0] == L and poly.Contains(pcbnew.VECTOR2I(
                             pcbnew.FromMM(n[1]), pcbnew.FromMM(n[2]))):
                         self._edge(zk, n, self.POUR, "pour", L, (n[1], n[2]))
+                # ⚠ AND THE PADS, BY SHAPE RATHER THAN BY THEIR CENTRE POINT.
+                # The loop above reaches a pad only through the position node
+                # at its CENTRE, and a pour that connects a pad perfectly well
+                # often does not contain that one point: the fill abuts the pad
+                # from one side, or wraps three of its four edges, or the pad is
+                # a through-hole whose middle is the drill. Measured on
+                # watering-backpack's main board, where the three high-current
+                # nets are regional pours: of the 26 pads on them, 8 collided
+                # with their own pour while failing the centre test -- J2.1,
+                # J2.2 and J3.2 (the screw terminals the pack and both pumps
+                # land on), the D3 cathode tab, and every DPAK drain lead.
+                #
+                # What that cost was not a warning. A1 grades the WIDEST
+                # bottleneck path it can find, so dropping the pour edge did not
+                # make the check fail honestly -- it made it fall through to the
+                # 1.2 mm track beside the pour and report that as the board's
+                # narrowest point, "CHOKE POINT", on a net whose copper is 13 mm
+                # wide. Three of the five were worse still: with no pour edge
+                # and no track, A1 reported the HARD "no copper joins", which
+                # reads as an open circuit on a net that is solidly poured.
+                #
+                # A pad is connected to a pour when their copper touches, which
+                # is what Collide asks. Collide is the same predicate DRC uses
+                # for clearance, so this agrees with the board's own rules
+                # rather than approximating them.
+                lsid = b.GetLayerID(L)
+                for ref, num, pad in ctx.by_net.get(net, ()):
+                    k = self.pad_keys.get("%s.%s" % (ref, num))
+                    if k is None or not pad.IsOnLayer(lsid):
+                        continue
+                    try:
+                        touches = poly.Collide(pad.GetEffectiveShape(lsid), 0)
+                    except Exception:
+                        # No shape for this pad on this layer: fall back to the
+                        # centre test rather than claiming a connection.
+                        x, y = _xy(pad)
+                        touches = poly.Contains(pcbnew.VECTOR2I(
+                            pcbnew.FromMM(x), pcbnew.FromMM(y)))
+                    if touches:
+                        self._edge(zk, k, self.POUR, "pour", L, _xy(pad))
 
     def _edge(self, a, c, w, kind, layer, at, ohm=0.0):
         self.g[a].append((c, w, kind, layer, at))
