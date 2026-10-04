@@ -760,24 +760,45 @@ def _dock_back_trim() -> cq.Workplane:
             .translate((0, PLATE_Y / 2, -10)))
 
 
-battery_dock = (_slot
-                .cut(_lightening_cutter())
-                .cut(_front_pocket_cutter())
-                .cut(_front_opening_cutter())
-                .cut(_top_recess_cutter())
-                .cut(_front_corner_cutter(+1))
-                .cut(_front_corner_cutter(-1))
-                .cut(_back_corner_cutter(+1))
-                .cut(_back_corner_cutter(-1))
-                .cut(_terminal_t_cutter())
-                .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
-                .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
-                .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
-                .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
-                .union(_ribs)
-                .union(_dovetail_ears())           # width tabs hosting the rails
-                .cut(_dovetail_mortises())         # grooves, outboard of battery
-                .cut(_front_side_relief(+1))       # battery front-shoulder clearance
-                .cut(_front_side_relief(-1))       # (after ears, so it clips them too)
-                .cut(_catch_top_relief())          # clear battery above the catch
-                .cut(_dock_back_trim()))           # flange back -> dock mounting face
+# ── THE DOVETAIL JOINERY IS v1-ONLY ────────────────────────────────────────
+# In v1 the dock was a separate print that slid onto two dovetail rails on the
+# housing's outer wall. The ears exist only to host those mortises: they grow
+# the dock 14.3 mm wider on EACH side (x +-36 -> +-50.3) purely so the grooves
+# sit outboard of the battery rails and the contact block.
+#
+# v2 does not slide the dock onto anything. src/housing.py unions the dock into
+# the one printed housing, so there is no joint, and the ears are 28.6 mm of
+# plan width carrying nothing. That width is not free: the housing's Y budget
+# is the frame's 210 mm (see housing.py "WHY THE TWO BAYS SIT WHERE THEY DO"),
+# and the ears were spending an eighth of it on a joint that was deleted.
+#
+# Kept behind a flag rather than deleted outright, because src/backpack_housing
+# -- the v1 model -- still builds the matching tenons, and a dock whose mortises
+# silently vanished would have printed a housing it could not go on.
+def dock(joinery: bool = False) -> cq.Workplane:
+    """The dock. `joinery=True` adds v1's dovetail ears and mortises."""
+    d = (_slot
+         .cut(_lightening_cutter())
+         .cut(_front_pocket_cutter())
+         .cut(_front_opening_cutter())
+         .cut(_top_recess_cutter())
+         .cut(_front_corner_cutter(+1))
+         .cut(_front_corner_cutter(-1))
+         .cut(_back_corner_cutter(+1))
+         .cut(_back_corner_cutter(-1))
+         .cut(_terminal_t_cutter())
+         .union(_plus_x_lips())             # sides 10 + 9 + 8 (inner 9/10, outer 8/9)
+         .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
+         .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
+         .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
+         .union(_ribs))
+    if joinery:
+        d = (d.union(_dovetail_ears())      # width tabs hosting the rails
+               .cut(_dovetail_mortises()))  # grooves, outboard of battery
+    return (d.cut(_front_side_relief(+1))   # battery front-shoulder clearance
+             .cut(_front_side_relief(-1))   # (after ears, so it clips them too)
+             .cut(_catch_top_relief())      # clear battery above the catch
+             .cut(_dock_back_trim()))       # flange back -> dock mounting face
+
+
+battery_dock = dock()

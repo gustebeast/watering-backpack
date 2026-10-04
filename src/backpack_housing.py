@@ -1102,8 +1102,10 @@ def _dock_transform(wp: cq.Workplane) -> cq.Workplane:
 
 
 def _dock_placed():
-    from .battery_dock import battery_dock
-    return _dock_transform(battery_dock)
+    # joinery=True: v1 is the design that HAS the dovetail, and _dovetail_tenons
+    # below cuts the matching rails. v2 fuses the dock in and takes the default.
+    from .battery_dock import dock
+    return _dock_transform(dock(joinery=True))
 
 
 def _terminal_placed():
