@@ -259,6 +259,46 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
 
 ---
 
+## What checks this design, and what each one is for
+
+Ten gates. Every one of them exists because something it now catches had already
+got through, so the list below says what each was *written for* rather than what
+it nominally covers. All exit non-zero on failure, so any of them works in CI.
+
+`py -3.12 -m src.build` runs five of them itself:
+
+| gate | written because |
+|---|---|
+| overlap | parts that interpenetrate. The whitelist is three entries and each carries its measured volume; three more were dropped once measuring showed they were whitelisting 0.0 mm³ — i.e. standing ready to hide the first real clash |
+| battery access | the pack could not be lifted out. It fits in the dock, and that is not the same thing: it needs 93 mm of lift |
+| install/removal | the same question for the lid and the contact block, both of which can fit where they end up and still be impossible to get there |
+| pump mount | the pumps bolted to nothing at all. Checks all 8 holes are open, land in wood, and that the feet still touch the floor |
+| routed-board agreement | the CAD must draw the board that was actually routed, not a typed placement. PCB_README: *"a hand-typed copy can only be checked against itself, and it always agrees"* |
+
+Standalone:
+
+| gate | written because |
+|---|---|
+| `tools/check_v2_overhangs.py` | it was checking 3 of the 5 parts shipped, and its classifier judged a 270° arc by one sampled normal. Now enumerates `printed_parts()` and takes the pose from there, so coverage and build direction cannot drift from the exporter |
+| `tools/check_pin_map.py` | six GPIOs typed in three places — firmware, `elec/main.py`, CIRCUIT.md — with nothing requiring them to agree. Also enforces the ESP32 rules (ADC1 for analog, no outputs on 34–39, no gates on strapping pins) against the role the firmware *actually uses* |
+| `tools/check_bom.py` | the BOM's volumes and cut list are generated fact written by hand. Both had gone stale within a day of the edits that moved them |
+| `tools/check_pump_dirs.py` | "never both pumps at once" has to hold, not usually hold. Transcribes the firmware and fails if the C++ it claims to transcribe changed |
+| `tools/check_level_alarm.py` | the tank is carried on someone's back, so the sensor is crossed constantly. The debounce *is* the feature and a still bucket cannot test it |
+
+Two habits go with them, and they matter more than the list:
+
+- **A gate is not finished until it has been made to fail.** Every one above was
+  verified by reverting the defect it was written for and confirming it bites.
+  Two were found to be *vacuous* that way — asserts that could only ever check
+  their own arithmetic — and one had a tolerance wider than the error it existed
+  to catch.
+- **Accepted findings are named and measured, never lumped.** The overhang gate's
+  `ACCEPTED` table and `pcbflow`'s `pcb_declared.py` both list a specific feature
+  with a reason it cannot be designed out. A single total teaches everyone to read
+  the number as "fine".
+
+---
+
 ## Open questions
 
 1. **Confirm the buck thermal theory.** Run continuously into a bucket for 60 s and
