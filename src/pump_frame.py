@@ -406,28 +406,94 @@ PRINT_ROT = {
 }
 
 
+# Where the dock sits on the -X face. Centred on the REAR post (y=12): the
+# battery is ~0.6 kg hanging outboard of the frame, so every mm closer to the
+# wearer's back is moment saved, and the post is the only frame material behind
+# it to eventually bolt into.
+DOCK_Y_C = 55.0
+DOCK_Z0  = FLOOR_T
+
+# The dock's own axes, expressed in world terms. battery_dock is modelled with
+# z=0 the FLAT BACK (the face that goes against the host) and +Z the front that
+# wraps the battery; +Y is the slide, with the battery ENTERING at y=0 and
+# sliding toward +Y until the latch catches.
+#
+# Both of those have to land correctly, and the first cut of this file got BOTH
+# wrong: it put the dock's front (+Z) at world +X, pointing the battery INTO the
+# frame, and its slide (+Y) at world +Z, so the battery had to be pushed UPWARD
+# to seat and would drop out if the latch let go.
+#
+#   dock +Z -> world -X   front faces AWAY from the frame, battery outboard
+#   dock +Y -> world -Z   battery enters at the TOP and slides DOWN to seat,
+#                         so gravity holds it against the latch, not the latch
+#                         against gravity
+#   dock +X -> world +Y   (forced: the frame has to stay right-handed)
+#
+# Rotating about +Y by -90 sends dock +Z to world -X; then about +X by -90 sends
+# dock +Y to world -Z and leaves +Z alone. _DOCK_AXES pins the result so a
+# future edit cannot quietly re-break it.
+_DOCK_AXES = {"+X": (0.0, 1.0, 0.0), "+Y": (0.0, 0.0, -1.0), "+Z": (-1.0, 0.0, 0.0)}
+
+
+def _dock_oriented() -> cq.Workplane:
+    return (battery_dock
+            .rotate((0, 0, 0), (0, 1, 0), -90)
+            .rotate((0, 0, 0), (1, 0, 0), -90))
+
+
 def _dock_placed() -> cq.Workplane:
     """v1's Makita dock, ported onto the -X outer face.
 
     The DOCK ITSELF ports unchanged — it is a Makita interface and v2 changes
-    nothing about the battery. What does not port is v1's ATTACHMENT: it hung the
-    dock on printed dovetail rails standing proud of the housing's -X wall. In
-    v2's X-build that wall IS the bed face, so an arrowhead rail would print
-    starting on its own point — the worst possible first layer. See the note in
-    the module docstring.
+    nothing about the battery. What does not port is v1's ATTACHMENT: it hung
+    the dock on printed dovetail rails standing proud of the housing's -X wall.
 
-    Placed here as a fit/width check only; the attachment is unresolved.
+    That cannot work here, and the reason generalises: frame_left stands on its
+    -X face to print, and the dock stands on its own flat back. The two faces
+    that have to meet are BOTH bed faces, so neither can carry a protruding
+    rail — a rail on either one would print starting on its own tip and lift the
+    whole face off the plate. The attachment is therefore still open; what is
+    fixed here is the orientation, which was simply wrong.
     """
-    bb = battery_dock.val().BoundingBox()
-    # The dock plate is 100.6 x 93.0 x 18.8, modelled flat. Stand it against the
-    # -X face: its thickness runs out along -X, its 93 mm axis up in Z.
-    d = (battery_dock
-         .rotate((0, 0, 0), (0, 1, 0), 90)       # plate normal -> X
-         .rotate((0, 0, 0), (1, 0, 0), 90))      # 93 mm axis -> Z
+    d = _dock_oriented()
     db = d.val().BoundingBox()
-    return d.translate((-FRAME_W / 2.0 - db.xlen - (db.xmin - db.xmin),
-                        FRAME_D / 2.0 - (db.ymin + db.ylen / 2.0),
-                        FLOOR_T - db.zmin))
+    return d.translate((-FRAME_W / 2.0 - db.xmax,
+                        DOCK_Y_C - (db.ymin + db.ylen / 2.0),
+                        DOCK_Z0 - db.zmin))
+
+
+def _check_dock_orientation():
+    """The dock's flat BACK must face the frame, and its slide must run DOWN.
+
+    Asserted on the placed geometry rather than on the rotation arguments,
+    because the rotations are what a future edit would change. The back is the
+    dock's one big planar face (~5265 mm2); if it is not pointing at the frame
+    with the body outboard of it, the battery is mounted into the frame.
+    """
+    d = _dock_placed()
+    bb = d.val().BoundingBox()
+    best, best_a = None, 0.0
+    for f in d.faces().vals():
+        try:
+            n = f.normalAt()
+        except Exception:
+            continue
+        if f.Area() > best_a:
+            best, best_a = (n, f.Center()), f.Area()
+    n, c = best
+    if not (n.x > 0.99 and abs(c.x - bb.xmax) < 0.5):
+        raise AssertionError(
+            "battery dock is facing the wrong way: its largest face (%.0f mm2) "
+            "has normal %s at x=%.1f, but the mounting back must point +X at "
+            "x=%.1f" % (best_a, (round(n.x, 2), round(n.y, 2), round(n.z, 2)),
+                        c.x, bb.xmax))
+    # slide direction: dock +Y is the seating direction and must be world -Z
+    if _DOCK_AXES["+Y"][2] >= 0:
+        raise AssertionError("the battery must slide DOWN to seat")
+    return best_a
+
+
+_check_dock_orientation()
 
 
 def _tank() -> cq.Workplane:
