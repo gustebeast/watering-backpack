@@ -261,11 +261,11 @@ median-based centre calibration, WiFi telemetry, OTA, and the persistent disarm.
 
 ## What checks this design, and what each one is for
 
-Eleven gates. Every one of them exists because something it now catches had already
+Twelve gates. Every one of them exists because something it now catches had already
 got through, so the list below says what each was *written for* rather than what
 it nominally covers. All exit non-zero on failure, so any of them works in CI.
 
-`py -3.12 -m src.build` runs five of them itself:
+`py -3.12 -m src.build` runs six of them itself:
 
 | gate | written because |
 |---|---|
@@ -273,6 +273,7 @@ it nominally covers. All exit non-zero on failure, so any of them works in CI.
 | battery access | the pack could not be lifted out. It fits in the dock, and that is not the same thing: it needs 93 mm of lift |
 | install/removal | the same question for the lid and the contact block, both of which can fit where they end up and still be impossible to get there |
 | pump mount | the pumps bolted to nothing at all. Checks all 8 holes are open, land in wood, and that the feet still touch the floor |
+| board seating | the board must be WHERE ITS OWN MOUNTING HOLES ARE. It was not, on both axes at once, and neither error was an overlap: the ESP32's antenna overhang shifted it 2.06 mm off the drilled holes in Y and the lead tails floated it 3.4 mm clear of its bosses in X |
 | routed-board agreement | the CAD must draw the board that was actually routed, not a typed placement. PCB_README: *"a hand-typed copy can only be checked against itself, and it always agrees"* |
 
 Standalone:

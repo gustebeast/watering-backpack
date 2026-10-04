@@ -153,8 +153,11 @@ def intended(a, b):
     # housing<->wood (bolted flat to the posts), housing<->housing_lid and
     # housing<->terminal are all face contact, so they were dropped and the gate
     # now catches them if they ever stop being zero.
-    if pair == {"pcb", "housing"}:          # board on its standoff bosses, 12.5
-        return True
+    # pcb <-> housing was here, "board on its standoff bosses, 12.5 mm3". It
+    # measures 0.00 now: the 12.5 was the board sitting 3.4 mm off those bosses
+    # with its lead tails in them, because pose_board was centring a bounding
+    # box that included the tails. Seated properly it touches and does not
+    # interpenetrate, so the entry is gone and the gate watches it instead.
     if pair == {"battery", "housing"}:      # the pack seated in its dock, 12528
         return True
     if pair == {"battery", "terminal"}:
@@ -296,6 +299,47 @@ def main() -> int:
               "%s mm   %s" % (open_holes, len(bolts), seated, len(bolts),
                               "/".join("%.2f" % g for g in gaps),
                               "" if ok else "*** THE PUMPS ARE NOT MOUNTED ***"))
+
+    # Is the board WHERE ITS OWN MOUNTING HOLES ARE? Nothing asked this, and
+    # the answer was no on both axes at once: pose_board centred the solid's
+    # BOUNDING BOX, so the ESP32's 4.12 mm antenna overhang pushed the laminate
+    # 2.06 mm off the drilled holes in Y, and the 3.4 mm lead tails floated it
+    # 3.4 mm clear of the bosses in X. Neither is an overlap -- one is a shift
+    # and one is a GAP -- and the routed-board check below compares the solid
+    # to the routed board in the BOARD's frame, where both agree perfectly.
+    #
+    # Two probes per hole, on the two things a seated board must be true of:
+    #   THROUGH  a screw-sized bore on the hole's axis must meet no laminate;
+    #   SEATED   the same bore 6 mm away, still on the Ø10 boss, must be solid
+    #            laminate over the board's thickness starting at BOARD_X0.
+    print("")
+    print("=== board seating gate ===")
+    board = by_name["pcb"]
+    probe_d, seat_off = 3.0, 6.0
+    full = 3.14159265 * (probe_d / 2.0) ** 2 * H.BOARD_T
+    missed = blocked_holes = 0
+    for hy, hz in H._hole_points():
+        thru = (cq.Workplane("YZ").workplane(offset=H.WALL_X)
+                .center(hy, hz).circle(probe_d / 2.0)
+                .extrude(abs(H.WALL_X - H.FLOOR_X)))
+        v = thru.intersect(board)
+        blocked_holes += 0 if (v.val() is None or v.val().Volume() < 1.0) else 1
+        # INBOARD of the hole, never outboard: the holes sit 6 mm from the
+        # board's edge, so a fixed +Z offset walks the top pair off the
+        # laminate and reports a seating failure that is the probe's fault.
+        inward = -seat_off if hz > H.PCB_Z_C else seat_off
+        seat = (cq.Workplane("YZ").workplane(offset=H.BOARD_X1)
+                .center(hy, hz + inward).circle(probe_d / 2.0)
+                .extrude(H.BOARD_T))
+        v = seat.intersect(board)
+        got = v.val().Volume() if v.val() is not None else 0.0
+        missed += 0 if got >= 0.95 * full else 1
+    ok = not (missed or blocked_holes)
+    blocked += 0 if ok else 1
+    print("  %d/%d holes clear for a screw, %d/%d seated on their bosses   %s"
+          % (len(H._hole_points()) - blocked_holes, len(H._hole_points()),
+             len(H._hole_points()) - missed, len(H._hole_points()),
+             "" if ok else "*** THE BOARD IS NOT WHERE ITS HOLES ARE ***"))
 
     # Does the CAD draw the board that was actually ROUTED? PCB_README lists
     # cad_geom_check under "your build gate should too", and it was not here --

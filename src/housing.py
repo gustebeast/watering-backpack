@@ -89,6 +89,22 @@ from . import pump_frame as F
 from .battery_dock import battery_dock, terminal_cutter
 from .dimensions import BOOL_OVERSHOOT
 
+# ── The board comes from the ROUTED board, never a typed placement ──────────
+# PCB_README: "Model from the routed board, never from the placement table. A
+# hand-typed copy can only be checked against itself, and it always agrees."
+# This repo has the scars. A typed copy agreed while two connectors sat 0.54 mm
+# short of the board edge; and when the board was re-laid from 140x100 to
+# 95x100 the CAD kept drilling mounting bosses at the old (+-64, +-44) while
+# the laminate had moved to (+-41, +-44). Neither drift is catchable by a copy
+# that agrees with itself.
+#
+# So everything below reads geom.json: outline, cutouts, hole positions and
+# part heights. src/build.py runs the agreement gate (elec/cad_geom_check.py)
+# that fails if this solid and the routed board diverge -- and it is pointed at
+# THIS solid, the one the assembly actually places.
+_BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
+
+
 # ── Where it mounts ─────────────────────────────────────────────────────────
 BACK_X  = -(L.POST_X + L.BEAM / 2.0)      # -190: the posts' outer face
 WALL    = 3.0
@@ -115,16 +131,35 @@ Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0                     # 89.3
 # of the bay's +Y wall and has only the frame's back edge to live in. Laying it
 # out from the dock instead would park the whole bay 1.4 mm short of the edge
 # again and put the slack where nothing needs it.
-SKIRT_GAP = 6.0                                       # air outboard of each bay wall
+SKIRT_T   = 3.0                   # the lid's skirt, defined here because the
+SKIRT_CLR = 0.4                   # bay's Y layout has to leave room for it
+SKIRT_GAP = 6.0                                       # air outboard of the +Y wall
 Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL                # 201
-Y_PCB0  = Y_PCB1 - (PCB_W + 2 * PCB_CLR)              # 102
+
+# THE CAVITY IS SIZED OFF THE POSED BOARD, NOT OFF PCB_W. The laminate is 95
+# and PCB_CLR is 2, which gives 99 and is what this used to use -- but the
+# ESP32's ANTENNA overhangs the laminate's +X edge by 4.12 mm, deliberately
+# (elec/main.py asserts it must be at the edge). Board +X is world -Y, so the
+# antenna needs its clearance on the -Y side and the laminate needs its own on
+# the +Y side. They are different numbers and only the board knows them.
+#
+# It was invisible until pose_board stopped centring the bounding box: that
+# bug shifted the laminate 2.06 mm toward +Y, which is exactly half the
+# antenna's overhang, so the two errors very nearly cancelled. "Very nearly"
+# was -0.06 mm, and this file used to quote that figure as the reason a lid
+# skirt could not fit.
+_BBB = _BOARDS.solid("main").val().BoundingBox()      # the BOARD's own frame
+BOARD_Y_PLUS  = _BBB.xmax                             # 51.62 — toward world -Y
+BOARD_Y_MINUS = -_BBB.xmin                            # 47.50 — toward world +Y
+PCB_Y_C = Y_PCB1 - PCB_CLR - BOARD_Y_MINUS            # 151.5
+Y_PCB0  = PCB_Y_C - BOARD_Y_PLUS - PCB_CLR            # 97.88
 Y_OUTER = Y_PCB1 + WALL                               # 204 — the bay's +Y face
-assert Y_OUTER + SKIRT_GAP <= L.FRAME_D, (
+assert Y_OUTER + SKIRT_CLR + SKIRT_T <= L.FRAME_D, (
     "the +Y skirt runs %.1f past the frame's %.1f"
-    % (Y_OUTER + SKIRT_GAP, L.FRAME_D))
-assert Y_PCB0 - WALL - SKIRT_GAP >= Y_DOCK1, (
-    "the -Y skirt lands on the dock: bay wall at %.1f, dock ends at %.1f"
-    % (Y_PCB0 - WALL, Y_DOCK1))
+    % (Y_OUTER + SKIRT_CLR + SKIRT_T, L.FRAME_D))
+assert Y_PCB0 - WALL - SKIRT_CLR - SKIRT_T >= Y_DOCK1, (
+    "the -Y skirt lands on the dock: skirt at %.1f, dock ends at %.1f"
+    % (Y_PCB0 - WALL - SKIRT_CLR - SKIRT_T, Y_DOCK1))
 
 # The back plate is the full frame depth, NOT the bays' extent. It carries the
 # four wood screws and L.POST_YS puts one pair at y=191 -- 11 mm outboard of the
@@ -132,7 +167,6 @@ assert Y_PCB0 - WALL - SKIRT_GAP >= Y_DOCK1, (
 # once the bay moved it would not have.
 Y_PLATE0, Y_PLATE1 = 0.0, L.FRAME_D
 
-PCB_Y_C = (Y_PCB0 + Y_PCB1) / 2.0
 PCB_Z_C = 75.0
 
 # ── Z layout ────────────────────────────────────────────────────────────────
@@ -191,20 +225,6 @@ LID_T      = 3.0
 # ceiling printed over air. The overhang gate agrees -- it is still clean.
 SEAL_T     = 1.5
 
-# ── The board comes from the ROUTED board, never a typed placement ──────────
-# PCB_README: "Model from the routed board, never from the placement table. A
-# hand-typed copy can only be checked against itself, and it always agrees."
-# This repo has the scars. A typed copy agreed while two connectors sat 0.54 mm
-# short of the board edge; and when the board was re-laid from 140x100 to
-# 95x100 the CAD kept drilling mounting bosses at the old (+-64, +-44) while
-# the laminate had moved to (+-41, +-44). Neither drift is catchable by a copy
-# that agrees with itself.
-#
-# So everything below reads geom.json: outline, cutouts, hole positions and
-# part heights. src/build.py runs the agreement gate (elec/cad_geom_check.py)
-# that fails if this solid and the routed board diverge -- and it is pointed at
-# THIS solid, the one the assembly actually places.
-_BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
 
 
 # ── Cable exit and strain relief ────────────────────────────────────────────
@@ -298,13 +318,38 @@ def pose_board(solid):
     +Y to +Z is the one that matters — it puts the board's -Y edge, which is
     where every power terminal sits, at the BOTTOM of the bay, so the cables
     leave downward through the open edge. A proper rotation, not a mirror:
-    (-Y) x (+Z) = -X, which is where +Z lands."""
+    (-Y) x (+Z) = -X, which is where +Z lands.
+
+    PLACED BY THE BOARD'S OWN ORIGIN, NOT BY ITS BOUNDING BOX. The KiCad origin
+    is the laminate's centre on its underside, so after the rotation a single
+    translate puts the laminate exactly where BOARD_X0, PCB_Y_C and PCB_Z_C say
+    it is -- which is where _hole_points() drills, where the standoff bosses
+    stand and where pcb_screws() starts.
+
+    It used to centre the BOUNDING BOX instead, and the bounding box is not the
+    board. It is the board plus whatever hangs off it, and two things do:
+
+      * the ESP32's ANTENNA overhangs the +X edge by 4.12 mm, on purpose --
+        elec/main.py asserts it must. Centring the box therefore pushed the
+        laminate 2.06 mm toward +Y, so the solid sat 2.06 off the holes the
+        same file drills for it;
+      * the through-hole LEAD TAILS stand 3.4 mm off the back. Centring put
+        their TIPS on the standoff plane, which floated the laminate 3.4 mm
+        clear of the bosses it is supposed to be bolted to -- x -202.0..-200.4
+        where BOARD_X0/BOARD_X1 say -198.6..-197.0.
+
+    Neither was catchable by anything here: a gap is not an overlap, and
+    elec/cad_geom_check compares the solid to the routed board in the BOARD's
+    own frame, where both agree perfectly. The one visible symptom was that
+    _parts_height() read 20.4 -- the 3.4 of tails, counted as part height --
+    which is why this file carries a comment correcting an earlier "guess" of
+    17 mm. The guess was right.
+
+    The tails now end 0.6 mm clear of the bay floor (4.0 standoff - 3.4), which
+    is the clearance that mattered and the only thing the old pose got right."""
     r = (solid.rotate((0, 0, 0), (0, 1, 0), -90)
                .rotate((0, 0, 0), (1, 0, 0), 90))
-    bb = r.val().BoundingBox()
-    return r.translate((BOARD_X0 - bb.xmax,
-                        PCB_Y_C - (bb.ymin + bb.ylen / 2.0),
-                        PCB_Z_C - (bb.zmin + bb.zlen / 2.0)))
+    return r.translate((BOARD_X0, PCB_Y_C, PCB_Z_C))
 
 
 def pcb_solid():
@@ -312,8 +357,10 @@ def pcb_solid():
 
 
 # Cavity depth comes FROM THE POSED BOARD, not from a guess at the tallest
-# part. The guess was 17 mm (the 5.08 terminal blocks); the board actually
-# stands 20.4 proud, so a lid set from the guess closed 1 mm INTO the parts.
+# part -- and it reads 17.0, which is what an earlier guess said and what this
+# comment used to call wrong. It read 20.4 while pose_board was centring the
+# bounding box, because that counted the 3.4 mm of lead tails on the BACK of
+# the board as part height on the front.
 def _parts_height():
     return BOARD_X1 - pcb_solid().val().BoundingBox().xmin
 
@@ -541,8 +588,6 @@ def housing() -> cq.Workplane:
 # labyrinth the butt joint never was. It stops short of the plate on purpose:
 # the lid seats on the bay RIM, not on the skirt's end, so the lap carries no
 # load and its depth is free to choose.
-SKIRT_T   = 3.0
-SKIRT_CLR = 0.4                   # air between skirt and bay wall, per side
 SKIRT_D   = 20.0                  # how far it drops. The dock's +Y face is the
                                   # limit and it is 6.3 mm clear at this depth.
 BAY_Y0, BAY_Y1 = Y_PCB0 - WALL, Y_OUTER       # the bay's outer faces
