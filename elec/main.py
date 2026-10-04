@@ -175,6 +175,19 @@ def circuit():
                     {1: "BOOT", 2: "VIN", 3: "EN", 4: "RT", 5: "FB", 6: "SS",
                      7: "GND", 9: "EP", 8: "SW"}, "18 V -> 3.3 V, 40 V in, 2 A")
     l1   = gen.part("L1", "15uH/3A", "Inductor_SMD:L_Bourns_SRN6045TA", 2, "buck inductor")
+    # ⚠ THE INPUT CAPACITOR THAT WAS NOT THERE. SNVSAA5B asks for a ceramic at
+    # VIN "as close as possible to the VIN and GND pins"; this board had only
+    # C1/C2, two 100 uF electrolytics THIRTY-EIGHT MILLIMETRES away. At 500 kHz
+    # the switching current has to come from somewhere every cycle, and 38 mm of
+    # track is about 40 nH: the loop rings VIN on every edge, and a 20 V pack
+    # ringing on 40 nH has somewhere to go on a part rated 40 V.
+    #
+    # The electrolytics are bulk for the PUMP legs and they are staying bulk for
+    # the pump legs -- they are now beside the pump terminals, which is both
+    # where their own comment always said they belonged and what puts them
+    # inside A2's 25 mm of J2 and J3.
+    c_bki = gen.part("C15", "4u7/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                     "buck input -- the hot loop. Keep it AT pins 2 and 7")
     c_bt = gen.part("C3", "100n", "Capacitor_SMD:C_0603_1608Metric", 2, "boot")
     c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2, "3V3 out")
     c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "3V3 out")
@@ -193,13 +206,14 @@ def circuit():
     c_ss = gen.part("C14", "10n", "Capacitor_SMD:C_0603_1608Metric", 2,
                     "buck soft-start, ~2.5 ms")
 
-    vbat += u_bk["VIN"], u_bk["EN"]
+    vbat += u_bk["VIN"], u_bk["EN"], c_bki[1]
     n_sw += u_bk["SW"], l1[1], c_bt[2]
     v3v3 += l1[2], c_o1[1], c_o2[1], r_f1[1], j_joy["3V3"], j_prg["3V3"]
     n_fb += r_f1[2], r_f2[1], u_bk["FB"]
     n_rt += u_bk["RT"], r_rt[1]
     n_ss += u_bk["SS"], c_ss[1]
-    gnd  += u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], r_f2[2], r_rt[2], c_ss[2]
+    gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], r_f2[2], r_rt[2],
+             c_ss[2], c_bki[2])
     c_bt[1] += u_bk["BOOT"]
 
     # ── MCU ─────────────────────────────────────────────────────────────────
@@ -342,6 +356,18 @@ def circuit():
                     "level pull-up — open-collector is what keeps 18 V off the pin")
     v3v3 += r_lv[1]
     n_lvl += r_lv[2], j_lvl["OUT"], u_mcu["IO14"]
+    # Power LEAVING the board down a cable, which is the worst inductance in the
+    # system (PCB_QUALITY A2, rule 4). Both of these feed a sensor or a stick on
+    # the end of a lead and had no charge nearer than the far side of the board:
+    # +3V3 at the joystick was 64.7 mm from C4, VBAT at the level sensor 55.1 mm
+    # from C1.
+    c_joy = gen.part("C16", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+                     "local charge at the joystick connector")
+    c_lvl = gen.part("C17", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                     "local charge at the level-sensor connector")
+    v3v3 += c_joy[1]
+    vbat += c_lvl[1]
+    gnd  += c_joy[2], c_lvl[2]
     gnd += j_lvl["GND"], j_lvl["MODE"]
 
     # ── Tank-full buzzer. Active (needs DC, not a waveform); ~30 mA is past a GPIO.
@@ -435,11 +461,19 @@ BOARD_NOTES = {
         # thing it still covers is the corner mounting hole -- a cutout, which
         # the keepout does not forbid.
         "U2": (34.4, 19.5, 270.0),
-        # MCU decoupling, left of the module and clear of its body
-        "C6": (8.0, 32.0, 0.0), "C7": (8.0, 26.0, 0.0),
+        # MCU decoupling. It used to be "left of the module and clear of its
+        # body" at x=8, which is 35.6 mm from the pin it decouples: U2's 3V3 pad
+        # is at (42.8, 27.7), hard against the module's +Y edge. A 500 mA WiFi
+        # burst 35 mm from its charge is a burst the rail does not have. These
+        # sit directly above pads 1 and 2 now.
+        "C6": (36.5, 31.5, 0.0), "C7": (42.8, 31.5, 0.0),
         "R3": (2.0, 32.0, 0.0), "C8": (2.0, 26.0, 0.0),
-        # input protection + bulk, left column
-        "D1": (-36.0, 2.0, 0.0), "C1": (-36.0, -12.0, 0.0), "C2": (-36.0, -24.0, 0.0),
+        # Input protection stays in the left column; the BULK moved to the
+        # bottom edge. C1/C2 are "bulk at the switches" by their own comment and
+        # were 38-50 mm from both the switches and the pump terminals they feed
+        # -- far enough that A2 failed J2 and J3 on VBAT. Here they are 11-20 mm
+        # from J1, J2 and J3, and the buck has its own ceramic now (C15).
+        "D1": (-36.0, 2.0, 0.0), "C1": (-36.0, -27.0, 0.0), "C2": (-20.0, -27.0, 0.0),
         # pump legs: FET / driver / freewheel in a row, gate parts beside the FET
         "Q1": (-18.0, -10.0, 0.0), "Q2": (-18.0, 4.0, 0.0),
         "U3": (-8.0, -10.0, 0.0),  "U4": (-8.0, 4.0, 0.0),
@@ -460,17 +494,25 @@ BOARD_NOTES = {
         "R24": (28.0, -8.0, 0.0), "D4": (28.0, -2.0, 0.0),
         # buck frequency-setting resistor, beside the buck
         "R8": (-27.0, 10.0, 0.0), "C14": (-20.0, 14.0, 0.0),
-        # VGATE shunt, beside the drivers it feeds
-        "R9": (-36.0, -32.0, 0.0), "D5": (-27.0, -32.0, 0.0),
-        "C13": (-18.0, -32.0, 0.0),
+        # The buck's input ceramic, AT the part. U1's VIN pad is at (-38.5,
+        # 26.6) and its GND pad at (-33.5, 26.6), so this sits just above the
+        # two of them and the loop closes in millimetres instead of in 38.
+        "C15": (-38.5, 30.8, 0.0),
+        # VGATE shunt, in the left column the electrolytics vacated. It feeds
+        # the two drivers' VDD at a milliamp and a half, so the run is long and
+        # does not care; what it must not do is sit where the bulk now goes.
+        "R9": (-44.0, -10.0, 0.0), "D5": (-44.0, -15.0, 0.0),
+        "C13": (-44.0, -20.0, 0.0),
         # bring-up pads. These are PREFERENCES, not sites: route.py re-searches
         # each one against the finished copper and nudges it if the board has
         # moved underneath it.
         "TP1": (0.0, -31.0, 0.0),   "TP2": (-42.0, -32.0, 0.0),
         "TP3": (0.0, 31.0, 0.0),    "TP4": (-10.0, -31.0, 0.0),
         "TP5": (-28.0, 30.0, 0.0),  "TP6": (-22.0, -16.0, 0.0),
-        "TP7": (-22.0, 10.0, 0.0),  "TP8": (27.0, 3.0, 0.0),
+        "TP7": (-12.0, 9.0, 0.0),  "TP8": (27.0, 3.0, 0.0),
         "TP9": (8.0, -24.0, 0.0),   "TP10": (8.0, -14.0, 0.0),
+        # local charge at the two connectors that feed a cable
+        "C16": (12.0, -34.0, 0.0), "C17": (-25.0, 32.0, 0.0),
     },
     # Placed AFTER routing, on copper that is already there -- see the
     # bring-up-pad block in circuit().
@@ -493,7 +535,119 @@ BOARD_NOTES = {
     # only on MKDS-3 terminal pads, TO-252/TO-263 tabs and 10 x 10.5 electrolytic
     # pads -- all of them wider than 1.2 -- which is why they can take it and the
     # 0603-populated signal nets cannot.
-    "net_widths": {"VBAT": 1.2, "PUMP_A_LO": 1.2, "PUMP_B_LO": 1.2,
+    # ── PCB_QUALITY.md declarations ────────────────────────────────────────
+    # The automated half of cadkit/pcbflow/quality.py reads this. Nothing here
+    # is a setting: each entry is a claim about the board, and the pass fails if
+    # the copper does not back it.
+    "quality": {
+        # A1 -- every supply net: where it enters, where it goes, how many amps.
+        # VBAT's 7.5 A is ONE pump at full duty; check_pump_dirs.py is the gate
+        # that holds "never both at once", so the rail is never asked for 15.
+        "power_paths": [
+            {"net": "VBAT", "from": "J1.1",
+             # NOT Q1.2/Q2.2: those are the FET drains, and a drain is on the
+             # pump leg, not on VBAT. The motor is the thing between them.
+             "to": ["U1.2", "J2.1", "J3.1", "J5.1", "C1.1", "C2.1"],
+             "amps": 7.5, "max_drop_mv": 300},
+            {"net": "+3V3", "from": "L1.2",
+             "to": ["U2.2", "J4.1", "J6.1"], "amps": 0.6},
+            {"net": "PUMP_A_LO", "from": "J2.2", "to": ["Q1.2", "D2.1"], "amps": 7.5,
+             "max_drop_mv": 300},
+            {"net": "PUMP_B_LO", "from": "J3.2", "to": ["Q2.2", "D3.1"], "amps": 7.5,
+             "max_drop_mv": 300},
+            {"net": "VGATE", "from": "R9.2", "to": ["U3.1", "U4.1"], "amps": 0.01},
+        ],
+        # ⚠ max_drop_MV, NOT max_drop_pct, on the three 7.5 A nets, and the rule
+        # itself says why: the percentage is taken against "the rail the net's
+        # name states", and VBAT / PUMP_A_LO / PUMP_B_LO state no voltage at
+        # all, so the check falls back to a flat 50 mV. 50 mV at 7.5 A is a
+        # 6.7 milliohm budget end to end -- less than the terminal blocks'
+        # own contact resistance, and not a number any amount of copper on a
+        # 95 x 100 board reaches.
+        #
+        # 300 mV is 2% of the pack at its flat-discharge 15 V, which is the
+        # figure the percentage would have given if the net had been called
+        # VBAT_15V. What it buys is real: at 7.5 A it holds the board's own
+        # copper under 2.25 W and keeps the drop below the pump's own lead
+        # resistance, so the board is not the thing limiting flow.
+        #
+        # The 3V3 rail keeps the 2% default untouched, because its name DOES
+        # state its voltage and because it is the ADC reference: an error there
+        # is an error in every reading the machine takes.
+        "temp_rise_c": 20, "copper_oz": 1,
+        "not_power": [
+            # a divider tap into an ADC pin, not a rail: 5 pads and no current
+            "VBAT_SENSE",
+        ],
+        "decoupling": {
+            "ic_mm": 5.0, "connector_mm": 25.0,
+            "exempt": {
+                "U1.3": "EN is an enable tied straight to VBAT so the buck runs "
+                        "whenever the pack is on -- a logic input, not a supply "
+                        "pin (PCB_QUALITY A2 rule 6)",
+                "U2.7": "VBAT_SENSE at IO35 is the divider's tap into an ADC "
+                        "input. It carries the 7 uA the divider passes and "
+                        "nothing else (A2 rule 6); C11 is its filter",
+            },
+        },
+        # A4 -- where each multi-pin part's pinout was read. These are the same
+        # citations tools/check_ic_pinouts.py compares the netlist against, so
+        # the two cannot drift apart without that gate firing.
+        "pinouts": {
+            "LMR14020SDDA": "TI SNVSAA5B, Pin Functions table, HSOIC-8 (DDA) "
+                            "with PowerPAD; pin 9 is the EP",
+            "UCC27517": "TI SLUSAY4C p.2, DBV (SOT-23-5): 1 VDD, 2 GND, 3 IN+, "
+                        "4 IN-, 5 OUT",
+            "ESP32-WROOM-32E": "Espressif ESP32-WROOM-32E datasheet pin "
+                               "definitions, 1-38 plus the exposed P_GND/39; "
+                               "cross-checked against KiCad RF_Module, which "
+                               "declares GND as number \"[1,15,38,39]\"",
+            "MMBT3904": "SOT-23 NPN standard pinout: 1 base, 2 emitter, "
+                        "3 collector",
+            "NFET-60V-10mR": "TO-252-3_TabPin2: KiCad's own land numbers the "
+                             "37.1 mm2 tab pad 2, and a DPAK N-FET's tab is the "
+                             "DRAIN, so 1 G / 2 D / 3 S",
+            "SCHOTTKY-60V-15A": "TO-263-2: measured off KiCad's land -- pad 2 "
+                                "is the 101.5 mm2 tab and a single D2PAK "
+                                "Schottky's tab is the CATHODE, so 1 A / 2 K. "
+                                "Pad 3 is the second outer lead and is tied to "
+                                "the anode, because at this rating the part is "
+                                "usually a common-cathode dual",
+            "TB-5.08-2": "Phoenix MKDS 3/2-5,08 drawing, read from the WIRE "
+                         "entry face; pin 1 is the pad the footprint marks, and "
+                         "elec/CIRCUIT.md section 7 records the entry face as "
+                         "local +Y for all five terminals",
+            "TB-3.5-5": "Phoenix PT 1,5/5-3,5-H drawing, same face and the same "
+                        "measurement (CIRCUIT.md section 7: 43 mm3 behind +Y "
+                        "against 185 behind -Y, so +Y is the opening)",
+            "TB-3.5-4": "Phoenix PT 1,5/4-3,5-H drawing, same face; measured "
+                        "54 mm3 behind +Y against 232 behind -Y",
+            "PROG": "a 1x06 2.54 header has no maker pinout: the order is this "
+                    "board's own, printed on the back silk by kicad_silk and "
+                    "listed in elec/CIRCUIT.md -- 3V3, GND, TXD, RXD, EN, IO0",
+        },
+        "waive": {
+            "A8:U1": "the six vias ARE in the pad, but they are footprint PADS "
+                     "rather than board vias, so A8 counts zero. "
+                     "wbp:SOIC-8-1EP-FABDRILL is KiCad's EP2.29x3mm "
+                     "ThermalVias land with its 0.2 mm vias opened to the fab's "
+                     "0.3 floor: six plated holes through the exposed pad into "
+                     "the B.Cu GND pour, which is what the rule is asking for. "
+                     "The same six are why stitch_exceptions lists U1.9.",
+        },
+    },
+    # ⚠ 1.2 WAS A COMPROMISE AND THE QUALITY PASS CALLED IT. The note that set
+    # it said so in as many words -- "1.2 is not the IPC answer: 7.5 A at a 10 C
+    # rise wants ~4.8 mm" -- and then shipped 1.2 anyway on the grounds that the
+    # pads at each end are wider than that. A1 measures the NARROWEST point
+    # between the pads, which is the track, and at 7.5 A it wants 3.18 mm even
+    # at a 20 C rise. These are 3.2 (4 beads, and the fab's own grid is finer).
+    #
+    # The 3V3 rail is 1.0 for a different reason: 0.6 A needs only 0.6 mm of
+    # copper for heat, but the rail is also the ADC reference, and A1's 2% drop
+    # limit is 66 mV. At 0.25 the run to the joystick dropped 210.
+    "net_widths": {"VBAT": 3.2, "PUMP_A_LO": 3.2, "PUMP_B_LO": 3.2,
+                   "+3V3": 1.0,
                    # the gate rail is small but it is the one that makes the
                    # pumps switch; 0.4 keeps it off the 0.25 default floor
                    "VGATE": 0.4},
