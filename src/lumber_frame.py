@@ -1,0 +1,172 @@
+"""The frame in LUMBER — 38 x 38 beams and 137 x 20 planks, not printed.
+
+v2's frame was printed because v1's was. It does not need to be: it is a
+rectangular table carrying a static 21 kg, which is what framing lumber is for.
+Wood is also stiffer per gram than PCTG, immune to the creep that drove the
+material choice, and free of the whole X-build argument that the printed frame
+was contorted around.
+
+What stays printed is the thing that actually wants printing: the electronics
+and battery housing, which screws onto these beams.
+
+STOCK (user-measured)
+---------------------
+  BEAM   38 x 38 mm square
+  PLANK  137 x 20 mm flat
+
+WHAT SETS EACH DIMENSION
+------------------------
+Only three numbers here are chosen; the rest fall out of stock sizes.
+
+  POST_X     The elbow swivel nuts reach |x| = 147. A post inboard of that sits
+             on a fitting. 152 is the first clear inner face, so the posts run
+             x = 152..190 and the frame is 380 wide — 20 mm proud of the 340 mm
+             shelf on each side, which the user has accepted ("we can also go
+             wider than 340, just it won't be supported"). Wood cantilevers 20 mm
+             without noticing.
+
+  RAIL_Z0    The hose that crosses OVER the pumps is the binding constraint, not
+             the pumps. Its centreline is at z=134 and it is 19 mm across, so
+             nothing may intrude below 143.5. The rails start at 150.
+
+  FRAME_D    The pumps are 206 long and sit at y=2..208, so 210 is the shallowest
+             frame that contains them. That is ALSO why there are no lower cross
+             rails: there is no y left to put one in. The base is two side rails
+             only, and racking is taken by the deck planks acting as a diaphragm
+             plus the pack's own shelf underneath.
+
+The deck planks run FRONT TO BACK (their 137 spans X) so they bear on the cross
+rails rather than on their ends, and three of them cover the tank's 348 mm.
+
+Run:  py -3.12 -m src.lumber_frame        # cut list + clearance report
+"""
+from __future__ import annotations
+
+import cadquery as cq
+
+from . import pump_frame as F
+
+# ── Stock ───────────────────────────────────────────────────────────────────
+BEAM   = 38.0            # square section
+PLANK_W, PLANK_T = 137.0, 20.0
+
+# ── Layout ──────────────────────────────────────────────────────────────────
+POST_X   = 171.0                         # centre; spans 152..190
+FRAME_W  = 2 * (POST_X + BEAM / 2.0)     # 380
+FRAME_D  = 210.0
+POST_YS  = (BEAM / 2.0, FRAME_D - BEAM / 2.0)    # 19 and 191
+
+RAIL_Z0  = 150.0                         # rail underside — set by the overhead hose
+RAIL_Z1  = RAIL_Z0 + BEAM                # 188
+DECK_Z   = RAIL_Z1 + PLANK_T             # 208 — the tank sits here
+
+N_DECK_PLANKS = 3
+
+
+def _box(x0, x1, y0, y1, z0, z1):
+    return (cq.Workplane("XY").center((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            .rect(x1 - x0, y1 - y0).extrude(z1 - z0).translate((0, 0, z0)))
+
+
+def pieces():
+    """Every stick of wood, as (name, length_mm, solid). The lengths ARE the
+    cut list — nothing here is drawn at a size the stock cannot be cut to."""
+    out = []
+    h = BEAM / 2.0
+    for sx in (-1, 1):
+        for py in POST_YS:
+            out.append(("post", RAIL_Z0,
+                        _box(sx * POST_X - h, sx * POST_X + h,
+                             py - h, py + h, 0.0, RAIL_Z0)))
+    # cross rails run the full width and land on the posts
+    for py in POST_YS:
+        out.append(("rail_cross", FRAME_W,
+                    _box(-FRAME_W / 2.0, FRAME_W / 2.0,
+                         py - h, py + h, RAIL_Z0, RAIL_Z1)))
+    # side rails tie front to back BETWEEN the cross rails, so nothing intersects
+    side_len = POST_YS[1] - POST_YS[0] - BEAM
+    for sx in (-1, 1):
+        out.append(("rail_side", side_len,
+                    _box(sx * POST_X - h, sx * POST_X + h,
+                         POST_YS[0] + h, POST_YS[1] - h, RAIL_Z0, RAIL_Z1)))
+    # deck planks run front-to-back, bearing on the cross rails
+    span = N_DECK_PLANKS * PLANK_W
+    for i in range(N_DECK_PLANKS):
+        x0 = -span / 2.0 + i * PLANK_W
+        out.append(("plank_deck", FRAME_D,
+                    _box(x0, x0 + PLANK_W, 0.0, FRAME_D, RAIL_Z1, DECK_Z)))
+    return out
+
+
+def frame() -> cq.Workplane:
+    s = None
+    for _, _, solid in pieces():
+        s = solid if s is None else s.union(solid)
+    return s
+
+
+def cut_list():
+    from collections import Counter
+    c = Counter((n, round(L, 1)) for n, L, _ in pieces())
+    return sorted(c.items())
+
+
+def tank() -> cq.Workplane:
+    return (cq.Workplane("XY").workplane(offset=DECK_Z)
+            .center(0, F.TANK_D / 2.0).rect(F.TANK_W, F.TANK_D)
+            .extrude(F.TANK_H))
+
+
+def clearance_report():
+    """Does anything hit the wood? Per-solid, never against a union."""
+    from . import plumbing as P
+    others = [("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
+              ("fittings", F._elbows())]
+    for name, pts in P.routes():
+        others.append((name, P.run(pts)))
+    bad = 0
+    for pname, piece_solid in (("wood", frame()),):
+        for name, s in others:
+            try:
+                i = piece_solid.intersect(s)
+                v = i.val().Volume() if i.val() is not None else 0.0
+            except Exception:
+                v = 0.0
+            flag = "clear" if v <= 1.0 else "HITS WOOD %.0f mm3" % v
+            if v > 1.0:
+                bad += 1
+            print("   %-14s %s" % (name, flag))
+    return bad
+
+
+def _build() -> None:
+    from cadkit.cq_colors import color
+    from cadkit.freecad import show
+    from . import plumbing as P
+    print("=== cut list (38x38 beam, 137x20 plank) ===")
+    for (nm, L), n in cut_list():
+        print("   %2d x  %-12s %6.1f mm" % (n, nm, L))
+    print("\nframe %.0f wide x %.0f deep, deck top z=%.0f, rail underside z=%.0f"
+          % (FRAME_W, FRAME_D, DECK_Z, RAIL_Z0))
+    print("\n=== clearance ===")
+    bad = clearance_report()
+    asm = cq.Assembly()
+    for i, (nm, _, solid) in enumerate(pieces()):
+        tint = "#8B5A2B" if nm.startswith("plank") else "#A0724A"   # wood browns
+        asm.add(solid, name="%s_%d" % (nm, i), color=color(tint))
+    asm.add(F._pump_placed(-1), name="pump_a", color=color("slategray"))
+    asm.add(F._pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
+    asm.add(F._elbows(), name="fittings", color=color("#c8a24a"))
+    asm.add(tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
+    for name, pts in P.routes():
+        tint = "#b03030" if name.startswith("tank") else "#30a050"
+        asm.add(P.run(pts), name=name, color=color(tint, alpha=0.85))
+    out = str(F.OUT / "assembly_lumber.step")
+    asm.save(out, mode="default")
+    print("\nwrote", out)
+    return bad
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_build())
