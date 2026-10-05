@@ -39,7 +39,7 @@ OPEN_VALUES = frozenset({
     # "Pump power semiconductors" block in main.py; do not re-source these two
     # without reading it.
     "NFET-60V-10mR",     # >= 60 V Vds, <= 10 mOhm at 4.5 V Vgs, DPAK/TO-263
-    "SCHOTTKY-60V-15A",  # >= 60 V, >= 15 A, low Vf, D2PAK. 1 A parts share the
+    "SCHOTTKY-60V-15A-vf0V59",  # >= 60 V, >= 15 A, low Vf, D2PAK. 1 A parts share the
                          # SS1x numbering and will not survive this leg.
     # ⚠ AND THIS ONE WAS COUNTED AS "GENERIC" UNTIL IT WAS LISTED HERE, which is
     # worth knowing about the gate: fab_package's GENERIC pattern matches
