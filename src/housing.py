@@ -23,8 +23,10 @@ cannot drift.
 
 28.6 of that 100.6 was never the dock. It was the pair of side EARS that hosted
 v1's dovetail mortises, and v2 unions the dock into this part instead of
-sliding it on, so the joint they served does not exist (src/battery_dock.py,
-`dock(joinery=...)`). With them gone the dock is 72 across. The dock did not
+sliding it on, so the joint they served does not exist. The ears, the mortises and
+the `joinery` flag that guarded them are all deleted from src/battery_dock.py now,
+along with the v1 housing that carried the tenons. With them gone the dock is 72
+across. The dock did not
 MOVE — it is anchored on its centreline at y=53.3, the seat the battery, the
 contact block and the deck notch were all validated against — so the 28.6 came
 out as air on both sides of it, and the bay could then be laid out from the
