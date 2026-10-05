@@ -56,11 +56,16 @@ WHAT THE HOUSING STILL NEEDS DECIDED (not inventable from section 4):
   3. Printed barbs or captured bought fittings. The rest of the design buys its
      fittings (Seaflo swivels, Uniseal); printed barb ribs are downward
      overhangs on their undersides.
-  4. The pump-side barb SIZE IS CONTRADICTED IN THE DOCS: DESIGN_V2 section 4
-     and section 5 say 5/8 inch, bom_consolidated.md (the 1/2 inch lines and the
-     superseded-reducers note) says 1/2 inch. Section 5 is the later, broader
-     statement ("5/8 everywhere except the probe") so 5/8 is almost certainly
-     right, but the BOM has not been reconciled and this module does not pick.
+  4. [SETTLED 2026-10-05 -- the pump-side barb is 1/2 inch.] This used to read
+     "the size IS CONTRADICTED IN THE DOCS ... section 5 is the later, broader
+     statement so 5/8 is almost certainly right, but this module does not pick".
+     It was not settled by the argument. It was settled by a PURCHASE: the owner
+     has bought the SEAFLO SFFN1-1220-01 swivels, which are 1/2"-14 FNPT x 1/2"
+     BARB, five of them, and they are the fitting on all four pump ports. A 5/8
+     inch tube does not grip a 1/2 inch barb, so the main run is 1/2 inch and
+     section 5's "5/8 everywhere except the probe" is dead -- not out-argued,
+     overtaken. The housing is still the 3/8 -> 1/2 transition; only the number
+     on the pump side moved, and it moved to the one the BOM always had.
 
 Run:  py -3.12 -m src.line_filter      -> writes line_filter_screen.step
 """
@@ -89,7 +94,7 @@ IN2_MM2     = 645.16
 # ---- rings ------------------------------------------------------------------
 END_RING_T  = 2.0               # seal/locator land the housing captures
 MID_RING_T  = 1.0               # halves the ribs' unsupported span
-RING_OD     = 33.0              # sized so the annulus beats the 5/8" line bore
+RING_OD     = 33.0              # sized so the annulus beats the line bore
 CONE_H      = 3.5               # ring -> wall transition
 BAND_N      = 2                 # slot bands (BAND_N - 1 mid rings)
 
@@ -140,7 +145,14 @@ assert abs(SLOT_L - SPEC_SLOT_L) <= 0.10 * SPEC_SLOT_L, (
                                        / SPEC_SLOT_L, SPEC_SLOT_L))
 # the annulus outside the screen must not become the new restriction
 ANNULUS = math.pi / 4.0 * (RING_OD ** 2 - SCREEN_OD ** 2)
-LINE_BORE = math.pi / 4.0 * 15.875 ** 2                       # 5/8"
+# ⚠ 1/2", NOT 5/8", AND THE CHANGE MAKES THIS ASSERT EASIER -- which is the
+# right direction and is still worth saying out loud. The test is "the annulus
+# round the screen must not become a tighter restriction than the line feeding
+# it", so it has to be taken against the line that EXISTS. That line is 1/2"
+# now (see item 4 in the header: the owner's swivels are 1/2" barb), and the
+# annulus goes from 1.43x the bore to 2.23x. Nothing was relaxed to make the
+# geometry pass; the geometry did not move.
+LINE_BORE = math.pi / 4.0 * 12.7 ** 2                         # 1/2"
 assert ANNULUS >= LINE_BORE, (
     "annulus %.0f mm2 chokes the %.0f mm2 line" % (ANNULUS, LINE_BORE))
 # the ring flare must clear the overhang gate, not sit on it
@@ -228,7 +240,7 @@ def main():
     print("  open fraction       : %.1f%%   face velocity %.2f ft/s"
           % (100.0 * OPEN_AREA / GROSS,
              FLOW_IN3_S * IN2_MM2 / OPEN_AREA / 12.0))
-    print("  annulus outside     : %.0f mm2 vs %.0f mm2 of 5/8 in line bore"
+    print("  annulus outside     : %.0f mm2 vs %.0f mm2 of 1/2 in line bore"
           % (ANNULUS, LINE_BORE))
     print("  ring flare          : n.z %.3f (gate flags below -0.72)" % _CONE_NZ)
     print("  bridged slot roofs  : %.1f mm2 over %d faces of %.3f mm2, each a "

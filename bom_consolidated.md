@@ -37,7 +37,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 2. Seaflo — pump fittings  *(🎒, NEW in v2)*
 
-- [ ] 🎒 **SEAFLO SFFN1-1220-01 — 1/2"-14 FNPT × 1/2" barb, 90° swivel elbow — 5-pack, $12.99**
+- [x] 🎒 **SEAFLO SFFN1-1220-01 — 1/2"-14 FNPT × 1/2" barb, 90° swivel elbow — 5-pack, $12.99 — BOUGHT**
   - https://seaflodirect.com/seaflo-plastic-pex-pipe-coupling-90-degree-fitting-swivel-adapter-1-2-14-fnpt-x-1-2-barb-elbow-fitting-compatible-with-pex-or-pe-rt-pipe-corrosion-resistant-5-pack/
   - SKU `SFFN1-1220-01-5`. Material **PA66 nylon**, potable-water rated. The 5-pack is
     exactly the quantity wanted: 4 fitted (2 per pump) + 1 spare for the fit test.
@@ -93,7 +93,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
     MNPT one end and **FNPT** the other, so a male-threaded tee leg screws straight
     into it and its MNPT end takes an SFFN1-1220-01 female barb, which §2 already
     buys a spare of;
-  - **1/2" or 5/8" barb** — the ⚠ below, unresolved, sets this too.
+  - **1/2" barb**, settled — the ✅ below. §2's pump fitting had already decided it
+    and the owner has now bought it, so this is no longer an open variable.
 
 - [ ] 🎒 **1/2" ID vinyl tubing — UPSIZE from 3/8"** (Ace ProLine or equivalent)
   - v1 ran 3/8" at **8.7 ft/s**; suction lines want 2–3 ft/s. 1/2" brings it to 4.9 ft/s
@@ -102,14 +103,26 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - **The green line stays 3/8"** where it enters the inner-pot tube — that diameter is
     fixed by the pot. Only the probe; the main run is 1/2". The printed filter housing is
     the transition (3/8" barb pot-side, 1/2" barb pump-side).
-  - ⚠️ **UNRESOLVED — 1/2" here vs 5/8" in DESIGN_V2.** §4 and §5 of DESIGN_V2 both
-    say 5/8" ("5/8 everywhere except the probe"); this line and the superseded-reducers
-    note below still say 1/2". §5 is the broader, later statement so 5/8" is probably
-    right, but **settle it before buying tubing, clamps, or the pump-side barb** — it
-    sets all three. `src/line_filter.py` deliberately does not pick: the screen's bore
-    is 1" either way, and only the unbuilt housing carries that barb.
-- [x] 🎒 **Hose clamps — 5574K13 — ALREADY OWNED, still correct** — McMaster, worm-drive,
-  smooth-band, 304 SS, 1/2"–3/4" ID. Centres nicely on 1/2" barb + tubing OD.
+  - ✅ **RESOLVED 2026-10-05 — 1/2", and this line was right all along.** This
+    carried a ⚠ UNRESOLVED against DESIGN_V2 §4/§5's "5/8 everywhere except the
+    probe", guessing §5 was "probably right" because it was the broader, later
+    statement. It was not settled by argument: **the owner has bought the pump-port
+    fitting**, SFFN1-1220-01 with a **1/2" barb**, and a 5/8" tube does not grip a
+    1/2" barb. So §2 of this list had already made the decision when it chose that
+    fitting, and DESIGN_V2 §5 never noticed. Both are reconciled now, and
+    `src/line_filter.py` — which deliberately did not pick — picks 1/2".
+    - The residual is named in DESIGN_V2 §5 rather than buried here: 1/2" runs at
+      **4.90 ft/s**, above the 2–3 ft/s a suction line wants, against 5/8"'s
+      3.14. It is accepted because the runs are short, the suction is flooded, and
+      the pump's own port bore is ~0.51" — so the ports are a 1/2" restriction
+      whatever the hose is.
+- [x] 🎒 **Hose clamps — 5574K13 — ALREADY OWNED, and now definitely correct** —
+  McMaster, worm-drive, smooth-band, 304 SS, **1/2"–3/4" ID**. Centres on 1/2" ID
+  vinyl's ~3/4" OD. ⚠ Worth recording that this was a near miss rather than a
+  comfortable fit: 5/8" ID vinyl is commonly 7/8" OD, which is **outside** this
+  range, so the 5/8" line the docs used to call for would have needed new clamps
+  as well as new pump fittings. The 1/2" decision (§3 above) keeps a part that is
+  already in the drawer.
 - [ ] 🎒 **Uniseal — size TBD once a Scepter panel is measured**
   - For the tank's low outlet (flooded suction). The Scepter's 44 mm opening is too
     small to get a hand inside, so a conventional bulkhead — which needs a nut held on
