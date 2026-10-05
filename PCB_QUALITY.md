@@ -362,7 +362,14 @@ spelling: write it as a qualifier after the value.)
 its design-rule file — are inside the fab's published minimums: narrowest track, smallest
 via hole and its ring, plated-hole annular ring, smallest non-plated hole, hole-to-hole
 spacing (via to via, and a pad hole to anything), hole edge to another net's track, SMD
-pad-to-pad gap, silk text height and stroke.
+pad-to-pad gap, silk text height and stroke. No via hole sits inside an SMD pad unless the
+order is for filled-and-capped vias (`quality.fab` `via_in_pad`).
+Excepted: an exposed pad (vias belong in it, **A8**), a pad with no paste (a test pad), and
+any land of 4 mm² or more — a 0.3 mm barrel through a 1.6 mm board holds about a quarter of
+the paste printed on 4 mm², and half of what a small crystal or 0603 pad gets. A large land
+is exempt only for as many barrels as it can feed: the open vias in it, added up, may hold
+no more than a quarter of the paste printed on it (area × 0.12 mm). Two 0.4 mm vias in a
+1.3 × 4.5 connector land are over half of it — put the vias beside the land instead.
 
 **Why.** The numbers a board is routed to are typed into its rule file by someone, and
 DRC then proves the board against *those*. On the first boards this was run on, the rule
@@ -555,7 +562,7 @@ access the bring-up will need.
   pad gaps and silk against the fab's table; this rule is the rest. The table's numbers
   are current (re-read the fab's capability page if its date is more than a few months
   old, and for the service actually being ordered: layer count, copper weight, finish).
-  No open via in or touching an SMD pad unless it is filled and capped. Small two-pad
+  Small two-pad
   parts have matching copper on both pads (thermal spokes on a pad that sits in a pour),
   or they tombstone.
 - **M30 — The assembly order has no surprises.** Every placed part is one the service can
