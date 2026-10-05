@@ -21,7 +21,7 @@ Dimensional origin: the dock was derived from the Wiseone V4 community mount
 (same family as the user's existing Wiseone Printables design) — we read off its
 dimensions and rebuilt parametrically so we can tune fits, extend the plate for
 backpack integration, and add the terminal pocket. Battery + terminal fit is now
-validated in the assembly build's collision report (``src.backpack_housing``).
+validated in the assembly build's collision report (``src.build``).
 """
 
 from __future__ import annotations
@@ -29,9 +29,7 @@ from __future__ import annotations
 import cadquery as cq
 
 from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE, DOCK_BACK_TRIM,
-                         DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
-                         DOVETAIL_X_OFF, DOVETAIL_END_STOP, DOVETAIL_CLR)
-from .helpers import dovetail_arrowhead
+)
 
 
 # ── Printability helper ──────────────────────────────────────────────────────
@@ -507,50 +505,12 @@ _slot = _plate
 #          .cut(_stem_cutter())
 _slot = _chamfer_slot(_slot)            # no-op while the battery slot is off
 
-# ── Dovetail mortise grooves (housing joinery) ──────────────────────────────
-# Two grooves in the FLAT BACK (z=0 face), running along the slide axis,
-# matching the backpack housing's vertical tenon rails (params shared via
-# dimensions.py). Open at the y=PLATE_Y end (that edge sits at the housing
-# bottom; the rail tip enters there as the dock slides down) and CLOSED at
-# y=DOVETAIL_END_STOP — the closed end hits the rail tip = seating stop.
-# Profile is undercut (wider deeper in) per dovetail; DOVETAIL_CLR per side.
-def _dovetail_ears() -> cq.Workplane:
-    """Side tabs that grow the dock's WIDTH at the dovetail x-positions so the
-    relocated mortises sit outboard of the battery rail (dock x∓32) and the
-    connector (±24). They run the groove's slide length and stand off the
-    (trimmed) back face. Unioned last, so the other cutters leave them clean."""
-    half_tip = DOVETAIL_TIP_W / 2 + DOVETAIL_CLR
-    x_in  = PLATE_X / 2 - 1.0                          # 35 — 1 mm into the plate
-    x_out = DOVETAIL_X_OFF + half_tip + 2.5            # 47.3 — 2.5 mm outboard wall
-    y0, y1 = 0.0, PLATE_Y                             # FULL dock length: the ear must
-                                                      # span PAST the closed groove end
-                                                      # (y=END_STOP) so the groove cut
-                                                      # leaves a ROOF there = the z-stop
-    z0, z1 = DOCK_BACK_TRIM, DOCK_BACK_TRIM + 9.0     # 3.2..12.2 (over arrowhead top)
-    ear = (cq.Workplane("XY").workplane(offset=z0)
-           .box(x_out - x_in, y1 - y0, z1 - z0, centered=(False, False, False))
-           .translate((x_in, y0, 0.0)))
-    return ear.union(ear.mirror("YZ"))
-
-
-def _dovetail_mortises() -> cq.Workplane:
-    # ARROWHEAD profile (shared with the housing tenon via dovetail_arrowhead so
-    # the two always match) — mortise is the void, so clr>0. Map (across, depth)
-    # -> (x, z): across = x, depth = +z into the dock from the back face zb.
-    zb  = DOCK_BACK_TRIM                               # opens at trimmed back (3.2)
-    pts = dovetail_arrowhead(DOVETAIL_ROOT_W / 2, DOVETAIL_TIP_W / 2,
-                             clr=DOVETAIL_CLR, open_ov=BOOL_OVERSHOOT)
-    profile = [(across, zb + depth) for across, depth in pts]
-    # Overshoot the OPEN (y=PLATE_Y, housing-bottom) end only; the closed end
-    # stays exactly at y=END_STOP so the roof bottom is flush with the rail tip.
-    length  = PLATE_Y - DOVETAIL_END_STOP + BOOL_OVERSHOOT
-    groove = (cq.Workplane("XZ")
-              .polyline(profile).close()
-              .extrude(-length)                  # XZ extrude(-L) lands at +Y
-              .translate((0.0, DOVETAIL_END_STOP, 0.0)))
-    return (groove.translate((-DOVETAIL_X_OFF, 0, 0))
-            .union(groove.translate((DOVETAIL_X_OFF, 0, 0))))
-
+# The dovetail ears and mortise grooves lived here. They existed to mate with
+# src/backpack_housing.py's tenon rails, and that model is deleted: v2 unions the
+# dock into the one printed housing, so there is no joint to cut. They were
+# already unreachable -- `battery_dock = dock()` takes joinery=False and nothing
+# ever passed True -- and the ONLY reason they were kept behind a flag was that
+# the v1 model still built the matching tenons. It no longer exists to mismatch.
 
 TERM_CLR = 0.2     # install clearance per face around the connector (X-Y)
 
@@ -772,11 +732,12 @@ def _dock_back_trim() -> cq.Workplane:
 # is the frame's 210 mm (see housing.py "WHY THE TWO BAYS SIT WHERE THEY DO"),
 # and the ears were spending an eighth of it on a joint that was deleted.
 #
-# Kept behind a flag rather than deleted outright, because src/backpack_housing
-# -- the v1 model -- still builds the matching tenons, and a dock whose mortises
-# silently vanished would have printed a housing it could not go on.
-def dock(joinery: bool = False) -> cq.Workplane:
-    """The dock. `joinery=True` adds v1's dovetail ears and mortises."""
+# They were kept behind a flag for exactly one reason -- src/backpack_housing, the
+# v1 model, still built the matching tenons, and a dock whose mortises silently
+# vanished would have printed a housing it could not go on. That model is now
+# deleted, so the flag guards nothing and the ears and grooves are gone with it.
+def dock() -> cq.Workplane:
+    """The dock, as v2 builds it: no joinery, because there is no joint."""
     d = (_slot
          .cut(_lightening_cutter())
          .cut(_front_pocket_cutter())
@@ -792,9 +753,6 @@ def dock(joinery: bool = False) -> cq.Workplane:
          .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
          .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
          .union(_ribs))
-    if joinery:
-        d = (d.union(_dovetail_ears())      # width tabs hosting the rails
-               .cut(_dovetail_mortises()))  # grooves, outboard of battery
     return (d.cut(_front_side_relief(+1))   # battery front-shoulder clearance
              .cut(_front_side_relief(-1))   # (after ears, so it clips them too)
              .cut(_catch_top_relief())      # clear battery above the catch

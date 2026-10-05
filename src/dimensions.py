@@ -67,42 +67,14 @@ REFERENCES_DIR = REPO_ROOT / "references"
 # viz/demo part inside the dock (the real OEM contact you'll glue in).
 # Imported as viz only; never a printed part.
 MAKITA_TERMINAL_STEP  = REFERENCES_DIR / "makita_643852_2.step"
-# Community STEP of the Makita 18V LXT battery (BL18xx) — viz reference, seated
-# on the dock for fit-checking. Never a printed part.
-MAKITA_BATTERY_STEP   = REFERENCES_DIR / "makita_battery.step"
+# (references/makita_battery.step is still on disk and tools/inspect_interface.py
+# opens it by name; nothing in the v2 build imports it as a constant any more.)
 
-# ── Dock ↔ housing dovetail joinery (shared contract) ────────────────────────
-# The battery dock mounts to the backpack housing with PLASTIC DOVETAILS, no
-# screws: the housing carries two vertical male rails (tenons), the dock's
-# flat back carries matching mortise grooves. The dock slides DOWN onto the
-# rails and bottoms out seated — battery-insertion force pushes it deeper
-# into the joint. Rails print as vertical prisms (no overhang); grooves print
-# into the dock's bed-side face (steep flanks + short ceiling bridge).
-# Sized to fit the dock's back land between the battery channel edge (±24)
-# and the plate edge (±36): tip half-width 4.5 + 0.2 clr at centre ±30 spans
-# x 25.3..34.7 — ≥1.3 mm wall to the channel AND to the edge. (A first cut at
-# 8/11/4 @ ±29 broke 0.7 mm into the battery channel walls and cost ~80 mm³
-# of battery contact surface.)
-DOVETAIL_ROOT_W   = 6.5    # arrowhead width at the opening (narrow root)
-DOVETAIL_TIP_W    = 9.0    # arrowhead width at its widest (the undercut). The
-                           # depth is DERIVED (45° flanks → 2·tip/2 − root/2),
-                           # not a separate constant — see helpers.dovetail_arrowhead.
-DOVETAIL_X_OFF    = 43.0   # groove centrelines at dock x = ±43 — moved further
-                           # outboard (was 40, orig 30): the battery body reaches
-                           # dock x=36 and the front-shoulder relief cuts to 36.5,
-                           # so the mortise inboard tip (X_OFF − tip/2 − clr) must
-                           # sit beyond that. At ±43 the tip is at x=38.2, ~1.7 mm
-                           # clear of the relief and of the battery. Sits in the
-                           # side ears the dock grows to host them (_dovetail_ears)
-DOVETAIL_END_STOP = 2.0    # mortise closes 2 mm short of the dock top so its
-                           # roof rests on the rail (tenon) TIP = the seating
-                           # z-stop (rail tip at z84). Was 0 (through-groove —
-                           # nothing set the seated z); 10 earlier (stop at z76).
-DOVETAIL_CLR      = 0.30   # per-side groove clearance — looser than KEY_CLR
-                           # (0.20): this is a long (76 mm) engagement on big
-                           # wall surfaces, so it needs the extra room to
-                           # slide without binding.
-
+# The dock-to-housing DOVETAIL JOINERY contract lived here, and it is gone with
+# the v1 housing it was a contract WITH. v2 unions the dock into the one printed
+# housing (src/housing.py), so there is no slide, no tenon and no mortise:
+# DOVETAIL_ROOT_W / TIP_W / X_OFF / END_STOP / CLR and helpers.dovetail_arrowhead
+# all went with src/backpack_housing.py. git has them.
 
 # ── Terminal (643852-2) seating ──────────────────────────────────────────────
 # Transform that drops the imported terminal STEP into the dock's central
