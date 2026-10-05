@@ -383,6 +383,41 @@ filled in to match.
 does not, and a board outside the table comes back as an engineering query or a scrap
 panel. If the order really is on a finer process, state that process's numbers in
 `quality.fab`; that is a declaration, not a waiver. **Soft:** silk height and stroke.
+
+### A13 — A signal's return does not have to go round a cut in the plane
+
+**Rule.** A signal track that runs over a ground pour on another layer does not straddle a
+cut in that pour longer than `return_slot` (default 5.0 mm). A cut is ground copper,
+then none, then ground copper again, measured along the track. A track that simply runs
+off the edge of the pour is not a cut and is not counted.
+
+**Why.** Return current does not take the shortest path; above a few tens of kHz it takes
+the path of least inductance, which is the copper directly under the signal. Every track
+routed on the plane layer cuts that copper for its whole length, so a plane layer that is
+also a routing layer is a plane with slots in it — and on a two-layer board it always is.
+Where a signal crosses a slot, its return has to travel to the end of the slot and back,
+and the loop that opens up is the area between the two paths. That loop radiates, and it
+receives; it is the usual reason a board passes on the bench and fails in a case next to
+a motor. None of it shows in DRC, in a netlist, or in a connectivity check: the copper is
+all where the schematic says it should be.
+
+The board this came from has one B.Cu ground pour and 455.89 mm of B.Cu signal copper cut
+through it. The plane under the power section turned out to be solid — which is the thing
+that mattered and had only ever been asserted — and the widest cut any signal straddles is
+3.03 mm, two tracks side by side. Both of those are now numbers instead of opinions.
+
+**How it is checked.** Every non-ground track longer than 1 mm is sampled every 0.25 mm
+and each sample tested against the filled ground polygons on every other copper layer.
+Only straddled gaps count. `quality.return_slot` sets the limit; `quality.return_slot_ok`
+lists nets exempted, and an entry is expected to say what carries that signal's return
+instead. A board with no ground pour gets a note saying so, and no claim.
+
+**How strict.** **Soft.** A long cut is usually a routing accident and reroutes cheaply,
+but there are honest reasons for one — a deliberately split plane between domains, a
+signal whose return is carried by its own pair rather than the plane. Those are written
+down, not waived silently. **A13 measures for every signal what M6 asks about by hand for
+fast buses**; M6 keeps the part A13 cannot measure, which is whether the edge rate makes
+the loop matter.
 *Break it when:* (a) the fab's own page for the service being ordered gives a smaller
 figure (put it in `quality.fab`); (b) the label has no site at the legible size anywhere
 in reach and the choice is a small label or none — `kicad_silk` then places it at 0.8 mm
@@ -441,8 +476,9 @@ access the bring-up will need.
 - **M6 — High-speed buses are matched and have an unbroken reference.** Clocked parallel
   buses and anything above ~50 MHz or with fast edges (ULPI, SDIO, RGMII, SPI at tens of
   MHz) are in `match` groups with a budget derived from the bit time. Each runs over a
-  continuous plane: no crossing a split, a slot, or a gap in the pour; a layer change has
-  a ground via beside it.
+  continuous plane: **A13** measures every signal's return for cuts in the pour, so what
+  is left here is the judgement it cannot make -- whether this bus's edge rate makes the
+  loop matter, and whether a layer change has a ground via beside it.
 - **M7 — Each IC's circuit matches its datasheet application.** Feedback dividers give the
   intended voltage, inductor and compensation values are in the recommended range, enable
   and mode pins are tied (not floating), crystals have the load capacitors their CL
@@ -661,4 +697,5 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-04 | (third survey: a community review FAQ for schematics, read by the owner and summarised here in our own words) | USB device inrush capacitance, unused inputs and outputs, gate over-voltage and series resistance, live tabs and heatsinks, connectors without a ground, values that cannot be bought, undebounced contacts | A10, M39–M41; M19, M25, M32 extended |
 | 2026-10-04 | (same community FAQ: its layout and bill-of-materials pages, summarised in our own words) | crystal traces changing layer and load capacitors on the wrong side of the crystal, protection parts placed after the capacitor instead of at the connector, hardware keep-out differing per face, unlabelled controls and connector pins, one value typed two ways, parts that are obsolete or single-sourced at order time | A11, M42; A9, M10, M11, M23, M24, M31 extended |
 | 2026-10-04 | (design review, before first order) | four classes of fault named as the ones to stop before a board is ordered: supply choke points, missing surge capacitance, unmatched high-speed traces, mirrored pinouts | A1, A2, A3, A4, M3, M4, M6 |
+| 2026-10-04 | the exported gerbers of a two-layer board, rendered layer by layer by a reader that is not KiCad | the ground pour was the return for every signal on the board and was also a routing layer, carrying 455.89 mm of signal copper cut through it; nothing measured whether a return had to go round a cut, and M6 only asks it of fast buses | **A13** (new, measured); M6 narrowed to the edge-rate judgement A13 cannot make |
 | 2026-10-04 | the fab's own capability page, read against the rule files of seven routed boards | the rule file is typed by a person and DRC only proves the board against it; five of its values were looser than the fab's, and all silk was under the fab's legible height | **A12** (new, measured); M29 narrowed to what A12 cannot measure; `kicad_silk` and the layout's reference text raised to 1.0 mm |
