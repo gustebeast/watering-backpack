@@ -1208,6 +1208,79 @@ def drop_redundant_pth_vias(board):
     return len(doomed)
 
 
+def drop_redundant_pad_vias(board, notes):
+    """Delete a router via drilled into a small soldered land when the net holds without it.
+
+    The through-hole case above is safe by construction: the barrel was already there.
+    A surface land has no barrel, so a via in it MAY be the only thing carrying the net
+    to another layer, and no geometric test says which. So ask the board the question
+    directly -- take the via off its net, rebuild connectivity, and count. If the count
+    of unconnected items did not rise, the via carried nothing its neighbours do not.
+
+    The usual origin is a layer change the router put under the pad and then duplicated
+    0.7 mm away with a second via and a stub back to the land: both are legal copper,
+    and the first one wicks the joint's paste down an open hole.
+
+    Only lands under 4 mm2 that print paste are looked at (a larger land is a thermal
+    or power pad and quality counts its barrels separately), and a via declared in the
+    board file is somebody's decision, not a leaving. A via that IS needed is left in
+    place for quality to report -- too strict here would trade a soldering fault for an
+    open net.
+
+    Nothing is removed until every test is done, and the removal re-finds each via by
+    UUID on a fresh walk (see tidy_router_vias for why).
+    """
+    import math
+    declared_xy = {(round(rv[1], 3), round(rv[2], 3))
+                   for rv in list(notes.get("repair_vias", [])) + list(notes.get("vias", []))}
+    lands = []
+    for fp in board.GetFootprints():
+        for pad in fp.Pads():
+            if pad.GetAttribute() != pcbnew.PAD_ATTRIB_SMD or not pad.GetNetCode():
+                continue
+            if not (pad.IsOnLayer(pcbnew.F_Paste) or pad.IsOnLayer(pcbnew.B_Paste)):
+                continue
+            sz = pad.GetSize()
+            if pcbnew.ToMM(sz.x) * pcbnew.ToMM(sz.y) >= 4.0:
+                continue
+            lands.append((pad, pad.GetNetCode(), "%s.%s" % (fp.GetReference(), pad.GetNumber())))
+    cand = []
+    for t in board.GetTracks():
+        if not isinstance(t, pcbnew.PCB_VIA):
+            continue
+        vp = t.GetPosition()
+        if (round(pcbnew.ToMM(vp.x) - 100.0, 3), round(100.0 - pcbnew.ToMM(vp.y), 3)) in declared_xy:
+            continue
+        for pad, nc, name in lands:
+            if nc == t.GetNetCode() and pad.HitTest(vp, int(t.GetDrillValue() / 2)):
+                cand.append((t, nc, "%s [%s]" % (name, t.GetNetname())))
+                break
+    if not cand:
+        return 0
+    conn = board.GetConnectivity()
+    board.BuildConnectivity()
+    base = conn.GetUnconnectedCount(False)
+    doomed = {}
+    for t, nc, why in cand:
+        t.SetNetCode(0)
+        board.BuildConnectivity()
+        if board.GetConnectivity().GetUnconnectedCount(False) > base:
+            t.SetNetCode(nc)                   # it was carrying the net: keep it
+        else:
+            doomed[t.m_Uuid.AsString()] = why  # stays off the net for the tests that follow
+    del cand, lands
+    for u in list(doomed):
+        for t in board.GetTracks():
+            if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() == u:
+                board.Remove(t)
+                break
+    board.BuildConnectivity()
+    if doomed:
+        print("  removed %d redundant via(s) drilled into a small soldered land: %s"
+              % (len(doomed), ", ".join(list(doomed.values())[:8])))
+    return len(doomed)
+
+
 def tidy_router_vias(board, notes, min_gap_mm=0.25):
     """Remove vias the router left carrying nothing, and merge ones drilled too close.
 
