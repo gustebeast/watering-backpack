@@ -208,6 +208,51 @@ assert VGATE_R_W < VGATE_R_W_MAX * 0.75, (
 CAP_100N  = "100n/50V"
 CAP_VGATE = "10u/25V"        # 2.5x a 10 V rail, same 0805 land as the 16 V part
 
+# ── What the board hands to a cable, and what limits it ────────────────────
+# ⚠ VBAT LEFT THIS BOARD UNFUSED, down the most exposed conductor in the whole
+# machine. J5 feeds the level sensor, and that lead leaves the sealed bay
+# through the chase and then climbs the OUTSIDE of the case to the tank -- so it
+# is the one wire that gets rubbed, pinched and walked past. Behind it is a
+# Makita 18 V LXT pack, which will put well over a hundred amps into a short,
+# and the killswitch at the dock is a SWITCH, not a fuse: it opens when someone
+# opens it, not when a chafed sensor lead decides to glow.
+#
+# PCB_QUALITY M36 asks for a current limit on any supply the board offers to a
+# cable, "so a short at the far end does not take the board's own rail down or
+# burn the cable", and the second half is the one that matters here.
+#
+# A RESETTABLE PTC, not a cartridge fuse, and for a reason about this machine:
+# it is carried into a garden, and a blown fuse out there is a walk home. A PPTC
+# recovers when the fault is removed. 0.2 A of hold current against a sensor
+# that draws about 10 mA is twenty times headroom -- no nuisance trips from
+# inrush into C18 -- while still being far below what damages the thin lead it
+# protects. 30 V is the common 1206 PPTC tier and clears a 20 V fresh pack.
+LVL_FUSE_V_MIN  = 30.0       # V, must clear a fresh pack
+LVL_FUSE_I_HOLD = 0.2        # A, hold current
+LVL_SENSOR_I_MA = 10.0       # the XKC-Y25's own draw, the number holds against
+LVL_FUSE_VALUE  = "PTC-%.0fV-%.0fmA" % (LVL_FUSE_V_MIN, LVL_FUSE_I_HOLD * 1000)
+assert LVL_FUSE_V_MIN > VBAT_MAX, (
+    "a %.0f V PTC on a %.0f V pack is not a rating" % (LVL_FUSE_V_MIN, VBAT_MAX))
+assert LVL_FUSE_I_HOLD * 1000 > LVL_SENSOR_I_MA * 5.0, (
+    "%.0f mA of hold current against a %.0f mA load leaves no room for inrush"
+    % (LVL_FUSE_I_HOLD * 1000, LVL_SENSOR_I_MA))
+
+# ⚠ AND ESP_RX CAN BACK-POWER A DEAD 3V3 RAIL THROUGH A GPIO. J6 pin 4 goes
+# straight to the module's U0RXD. An adapter can hold that pin at 3.3 V while
+# this board's own 3V3 is down -- the pack out of the dock, which is the
+# ordinary way someone programs it -- and the current then flows through the
+# pin's ESD diode into a 52 uF rail and whatever else is on it. J6 pin 1 is
+# +3V3, so the INTENDED use is for the adapter to power the board, which is why
+# this has never bitten; but M18 is about what can happen, and landing only
+# TX/RX/GND is a normal thing to do.
+#
+# M18 names the fix: "a series resistor, a powered-off-tolerant buffer or
+# guaranteed sequencing". 1k holds the diode current to about 2.7 mA, and at
+# 115200 baud it costs nothing -- 1k into the pin's 2 pF plus a little trace is
+# tens of nanoseconds against an 8.7 us bit. It is also a value already on this
+# board (R22, R24), so it adds no part number.
+PROG_RX_SERIES = "1k"
+
 # Joystick RC: the ONLY noise defence, since there is no joystick board to buffer
 # at the source. 1k + 100n = 1.6 kHz — far above a hand, far below switching.
 RC_R, RC_C = "1k", CAP_100N
@@ -301,6 +346,7 @@ def circuit():
     n_rt   = Net("RT")
     n_ss   = Net("SS")
     n_vg   = Net("VGATE")
+    n_lvlv = Net("VBAT_LVL")    # VBAT past F1, the only fused net on the board
     n_en   = Net("EN")
     n_io0  = Net("IO0")
     # ⚠ NAMED BY DIRECTION, BECAUSE "TXD" ON A HEADER IS A TRAP. PCB_QUALITY
@@ -317,6 +363,7 @@ def circuit():
     # kicad_silk prints next to the header.
     n_rx   = Net("ESP_RX_FROM_PROG")
     n_tx   = Net("ESP_TX_TO_PROG")
+    n_rxj  = Net("PROG_RX_IN")  # J6 side of R25; the module side is n_rx
 
     # ── Connectors — terminal blocks, not JST. Every one of these is landed once
     # at assembly, so JST's plug/unplug advantage goes unused, and a terminal is
@@ -344,7 +391,8 @@ def circuit():
     c_in2 = gen.part("C2", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
 
     gnd  += j_bat["GND"], d_tvs["A"], c_in1[2], c_in2[2]
-    vbat += j_bat["VBAT"], d_tvs["K"], c_in1[1], c_in2[1], j_pa["VBAT"], j_pb["VBAT"], j_lvl["VBAT"]
+    # j_lvl["VBAT"] is NOT on this list any more: it is behind F1, on VBAT_LVL.
+    vbat += j_bat["VBAT"], d_tvs["K"], c_in1[1], c_in2[1], j_pa["VBAT"], j_pb["VBAT"]
 
     # ── 18 V -> 3.3 V buck. >= 40 V in; 24 V-max parts are too close to a fresh
     # pack. ~1 A covers the ESP32's ~500 mA WiFi bursts.
@@ -434,7 +482,10 @@ def circuit():
     gnd  += u_mcu["GND"], c_m1[2], c_m2[2], c_en[2]
     n_en += u_mcu["EN"], r_en[2], c_en[1], j_prg["EN"]
     n_io0 += u_mcu["IO0"], j_prg["IO0"]
-    n_rx += u_mcu["RXD0"], j_prg["ESP_RX"]
+    r_rx = gen.part("R25", PROG_RX_SERIES, "Resistor_SMD:R_0603_1608Metric", 2,
+                    "ESP_RX series -- stops an adapter back-powering a dead 3V3")
+    n_rx += u_mcu["RXD0"], r_rx[1]
+    n_rxj += r_rx[2], j_prg["ESP_RX"]
     n_tx += u_mcu["TXD0"], j_prg["ESP_TX"]
     gnd  += j_prg["GND"]
 
@@ -560,6 +611,22 @@ def circuit():
                      "local charge at the joystick connector")
     c_lvl = gen.part("C17", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
                      "local charge at the level-sensor connector")
+    # The PTC, and the local charge that belongs on its FAR side. A2 gives a
+    # connector 25 mm to its nearest bypass, and what was answering for J5 was
+    # C15 -- the BUCK's input ceramic, 16.25 mm away, which is on VBAT by
+    # accident of placement and has a different job. Fusing the feed makes
+    # J5.1 a net of its own, so it needs its own charge, and that is the right
+    # side for it anyway: the fuse then sees the DC while the cable's inrush
+    # comes from C18. C17 cannot be moved up here to do it -- it is J1's
+    # bypass, 24.0 mm away, and the next nearest to J1 is 27.5.
+    f_lvl = gen.part("F1", LVL_FUSE_VALUE, "Fuse:Fuse_1206_3216Metric", 2,
+                     "level-sensor feed -- the only fused thing on the board")
+    c_lvl2 = gen.part("C18", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                      "local charge PAST the fuse, at J5")
+    vbat += f_lvl[1]
+    n_lvlv += f_lvl[2], c_lvl2[1], j_lvl["VBAT"]
+    gnd += c_lvl2[2]
+
     v3v3 += c_joy[1]
     vbat += c_lvl[1]
     gnd  += c_joy[2], c_lvl[2]
@@ -707,6 +774,16 @@ BOARD_NOTES = {
         # it is where VBAT climbs to D3's cathode tab without crossing anything.
         "J4": ( 22.0, -41.0, 0.0),  # +3V3 15.0, GND 18.5, JOY_RAW 22.0, GND, GND
         "J5": (-20.0,  41.0, 0.0), "J6": (12.0, 41.0, 90.0),
+        # -- what the two +Y connectors need beside them ----------------------
+        # F1 sits in line with J5's own VBAT pad (x -25.25) so the fused run is
+        # a straight 9 mm drop, and C18 beside it so the charge is past the
+        # fuse. J5's courtyard measures x -27.55..-12.45, y 35.95..44.65, so
+        # y 33.0 clears L1 (whose courtyard reaches y 31.2) by 0.605.
+        "F1": (-25.25, 33.0, 0.0),      # the level-sensor feed's PTC
+        "C18": (-20.0, 33.0, 0.0),      # local charge past it: 9.76 mm to J5.1
+        # R25 goes at the CONNECTOR end, where the hazard enters, so the whole
+        # long run back to the module sits behind the 1k.
+        "R25": (10.0, 36.5, 0.0),       # ESP_RX series
         # -- 3 and 4: the switch row ------------------------------------------
         # Q at 270 puts the tab toward -Y, at its terminal, and the three
         # gull-wing leads (gate, drain, source) toward +Y at dy +3.938 -- clear
@@ -927,11 +1004,20 @@ BOARD_NOTES = {
              # recirculating current returns to the rail.
              "to": ["J2.1", "J3.1", "C1.1", "C2.1", "D2.2", "D3.2"],
              "amps": 7.5, "max_drop_mv": 300},
-            {"net": "VBAT", "from": "J1.1", "to": ["U1.2", "J5.1"],
+            {"net": "VBAT", "from": "J1.1", "to": ["U1.2", "F1.1"],
              # the buck's input (~0.16 A at the flat end of the pack) and the
              # level sensor's feed (milliamps). 0.3 A is the rounded-up total,
              # and these two are the only VBAT loads that are not the pumps.
+             # F1.1, NOT J5.1: the sensor's feed is fused now, so VBAT stops at
+             # the PTC and the connector is on its own net below.
              "amps": 0.3},
+            # The only fused net on the board. 50 mA declared against a sensor
+            # that draws about 10, which is also what F1's 200 mA hold current
+            # is sized against -- see the LVL_FUSE block. Three pads: the PTC's
+            # far side, the connector, and the local charge that belongs past
+            # the fuse rather than before it.
+            {"net": "VBAT_LVL", "from": "F1.2", "to": ["J5.1", "C18.1"],
+             "amps": 0.05},
             {"net": "+3V3", "from": "L1.2",
              "to": ["U2.2", "J4.1", "J6.1"], "amps": 0.6},
             {"net": "PUMP_A_LO", "from": "J2.2", "to": ["Q1.2", "D2.1"], "amps": 7.5,
