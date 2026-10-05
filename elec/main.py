@@ -372,7 +372,97 @@ assert VGATE_V < PUMP_FET_VGS_MAX * 0.75, (
 # Neither part is sourced. The value carries the REQUIREMENT so that whoever
 # sources it has to satisfy it, and elec/fab.py counts both as open.
 PUMP_FET_VALUE  = "NFET-%.0fV-%.0fmR" % (PUMP_FET_VDS_MIN, PUMP_FET_RDSON_MAX)
-FREEWHEEL_VALUE = "SCHOTTKY-%.0fV-%.0fA" % (FREEWHEEL_VR_MIN, FREEWHEEL_IF_MIN)
+# ── What the pack sees at the instant it is docked (M16) ───────────────────
+# ⚠ THE INRUSH HALF OF M16 WAS LEFT OPEN FOR A NUMBER THAT IS NOT NEEDED. The
+# note said the surge "has not been computed against their rating, because the
+# dock is not part of this repo and its contact rating has not been read" --
+# true of the rating, and the wrong conclusion, because the ENERGY does not
+# depend on any resistance at all and the I2t can be bounded over every
+# resistance that is physically possible.
+#
+# The pack is docked live, so at the moment of contact it charges every
+# capacitor on VBAT from 0 to the pack voltage. C18 is behind F1 and its inrush
+# is limited by the PTC rather than by the contacts, but it is counted anyway
+# because counting it is the conservative direction.
+VBAT_BULK_F = (100e-6      # C1, electrolytic
+               + 100e-6    # C2, electrolytic
+               + 10e-6     # C17, J1's bypass
+               + 4.7e-6    # C15, the buck's input ceramic
+               + 10e-6)    # C18, behind F1
+VBAT_INRUSH_J = 0.5 * VBAT_BULK_F * VBAT_MAX ** 2        # 0.045 J
+# I2t over an RC charge is V^2*C/(2R), so the LOWEST plausible loop resistance
+# is the worst case. 60 mOhm is already below what two electrolytics' ESR, the
+# harness and a pair of blade contacts can be between them; the figure is a
+# deliberate floor rather than an estimate.
+VBAT_LOOP_R_MIN = 0.06                                    # ohm, a floor
+VBAT_INRUSH_I2T = VBAT_MAX ** 2 * VBAT_BULK_F / (2 * VBAT_LOOP_R_MIN)
+# ⚠ AND THE COMPARISON NEEDS NO DATASHEET EITHER. An I2t expressed as the
+# protection's OWN rated current tells you how long that current would have to
+# flow to do the same heating -- and a 10 A fuse carries 10 A indefinitely, so
+# anything that comes out in milliseconds is unconditionally inside it.
+FUSE_ATC_A = 10.0                       # the off-board ATC fuse in the + lead
+VBAT_INRUSH_EQ_MS = 1000.0 * VBAT_INRUSH_I2T / FUSE_ATC_A ** 2
+assert VBAT_INRUSH_EQ_MS < 100.0, (
+    "the dock inrush is %.1f ms of the fuse's own rated current: that is no "
+    "longer self-evidently inside it, and the fuse's I2t has to be read"
+    % VBAT_INRUSH_EQ_MS)
+assert VBAT_INRUSH_J < 0.5, (
+    "%.3f J of make-arc at the dock contacts is past what a bounding argument "
+    "covers; read the contact's make rating" % VBAT_INRUSH_J)
+
+
+# ── What the freewheel diode has to survive THERMALLY, which is what chooses it ──
+# ⚠ THE VOLTS AND AMPS WERE NEVER THE BINDING SPEC. "60 V, 15 A, D2PAK" is met by
+# a wide, cheap field of parts; what separates them is Vf, and Vf is the only
+# term in this diode's power. D2/D3 are the largest heat on this board -- more
+# than the buck, more than the FETs -- and nothing here had computed how hot.
+#
+# THE DUTY IS NOT THE USER'S. firmware/src/main.cpp sets ONE run duty and says
+# so in as many words: "NO INTERMEDIATE DUTY. The stick is used hard-forward or
+# hard-back, so engaged means RUN_DUTY and nothing else." RUN_DUTY synthesises
+# the pump's 12 V nameplate from whatever the pack is, so D = 12 / V_pack and
+# the diode conducts the other (1 - D) of every cycle. That inverts the usual
+# intuition about which battery state is worst: a DRAINED pack at 15 V runs
+# D = 0.80 and the diode carries 20 % of the time; a FRESH pack at 20 V runs
+# D = 0.60 and it carries 40 %. The hot case is a full battery.
+#
+# CIRCUIT.md still says "at 50 % duty it carries ~3.75 A average". That was a
+# round number from before the duty was derived; the real worst case is 3.0 A,
+# and it is lower because the firmware will not run the pump at 50 %.
+PUMP_I            = 7.5          # A, the pump's running current (CIRCUIT.md 1)
+PUMP_V_NOM        = 12.0         # V, pump nameplate -- firmware's PUMP_V_NOM
+FREEWHEEL_DUTY    = 1.0 - PUMP_V_NOM / VBAT_MAX      # 0.40 at a fresh 20 V pack
+FREEWHEEL_I_AVG   = FREEWHEEL_DUTY * PUMP_I          # 3.00 A
+# ⚠ THE BOARD SIDE OF THE THERMAL PATH IS MEASURED; THE PART SIDE IS NOT, AND
+# THAT ASYMMETRY IS THE WHOLE POINT. D2's tab is the CATHODE and sits on the
+# VBAT pour, which fills as ONE island of 687.0 mm2 (M3's measurement, off the
+# filled board). D2 and D3 share it and never conduct together -- direction is
+# chosen by WHICH pump is energised, so one is always off -- so each sees the
+# whole pour. 687 mm2 of 1 oz copper puts a D2PAK at roughly 42 C/W junction to
+# ambient by the standard pad-area curves; that figure is a STATED ASSUMPTION,
+# not a reading, and it is the number to replace first when a part is chosen.
+# Ambient is the SEALED bay, not the garden: 35 C outside plus the bay's own
+# rise gives 50 C to work from.
+FREEWHEEL_RTH_JA  = 42.0         # C/W, D2PAK on 687 mm2 of 1 oz -- ASSUMED
+FREEWHEEL_TA      = 50.0         # C, inside the sealed bay on a hot day
+FREEWHEEL_TJ_MAX  = 125.0        # C, the floor of this class's rating
+FREEWHEEL_P_MAX   = (FREEWHEEL_TJ_MAX - FREEWHEEL_TA) / FREEWHEEL_RTH_JA   # 1.786 W
+FREEWHEEL_VF_MAX  = FREEWHEEL_P_MAX / FREEWHEEL_I_AVG                      # 0.595 V
+assert 0.30 < FREEWHEEL_VF_MAX < 0.90, (
+    "the Vf ceiling came out at %.3f V, which is outside what a 60 V Schottky "
+    "can be: check the duty, the pour area or the ambient" % FREEWHEEL_VF_MAX)
+# ⚠ AND THE VALUE STRING CARRIES IT, because a requirement that lives only in a
+# comment is a requirement the person doing the sourcing never sees. The same
+# reasoning put the saturation current into L1's "10uH/4A6sat": the BOM line is
+# the last place the number can still change the part that gets bought.
+# ⚠ FLOORED, NOT ROUNDED, AND _house WOULD HAVE ROUNDED. _house(0.595, "V")
+# gives "0V6" -- it rounds to the nearest tenth, which is right for a nominal
+# value like 4A6 and wrong for a CEILING: it would print a limit 0.005 V looser
+# than the one the arithmetic produced, and a part sourced against the printed
+# string would be out of spec against the computed one. Two places, floored.
+FREEWHEEL_VALUE = "SCHOTTKY-%.0fV-%.0fA-vf%dV%02d" % (
+    FREEWHEEL_VR_MIN, FREEWHEEL_IF_MIN,
+    int(FREEWHEEL_VF_MAX), int(FREEWHEEL_VF_MAX * 100) % 100)
 
 
 def circuit():
@@ -1142,7 +1232,7 @@ BOARD_NOTES = {
             "NFET-60V-10mR": "TO-252-3_TabPin2: KiCad's own land numbers the "
                              "37.1 mm2 tab pad 2, and a DPAK N-FET's tab is the "
                              "DRAIN, so 1 G / 2 D / 3 S",
-            "SCHOTTKY-60V-15A": "TO-263-2: measured off KiCad's land -- pad 2 "
+            FREEWHEEL_VALUE: "TO-263-2: measured off KiCad's land -- pad 2 "
                                 "is the 101.5 mm2 tab and a single D2PAK "
                                 "Schottky's tab is the CATHODE, so 1 A / 2 K. "
                                 "Pad 3 is the second outer lead and is tied to "

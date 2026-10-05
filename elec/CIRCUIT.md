@@ -79,11 +79,37 @@ change that deletes the BTS7960.
   **It needs 4.5–18 V, so it runs off VGATE, not 3V3** — and it is the reason
   VGATE exists at all. This bullet and "There is no 5 V rail" above stood side
   by side for the life of the board without either noticing the other.
-- **Schottky freewheel diode** — ≥60 V, ≥15 A, low V<sub>f</sub>, D2PAK.
+- **Schottky freewheel diode** — `SCHOTTKY-60V-15A-vf0V59`, D2PAK.
   Plain, not synchronous: it conducts only during off-time, and usage is mostly
   full-on, so the complexity of a second FET and a half-bridge driver buys little.
-  Size it for the full 7.5 A anyway — at 50 % duty it carries ~3.75 A average and
-  dissipates ~1.5 W, which is the board's largest single heat source.
+  ⚠ **The volts and amps were never the binding spec; V<sub>f</sub> is**, and it
+  is in the value string now for the same reason the saturation current is in
+  L1's `10uH/4A6sat` — the BOM line is the last place a number can still change
+  the part that gets bought. "60 V, 15 A, D2PAK" is met by a wide cheap field;
+  what separates them is the only term in this diode's power.
+  **The duty is not the user's, and the worst case is a FULL battery.**
+  `firmware/src/main.cpp` says it outright: "NO INTERMEDIATE DUTY. The stick is
+  used hard-forward or hard-back, so engaged means RUN_DUTY and nothing else."
+  RUN_DUTY synthesises the pump's 12 V nameplate from whatever the pack is, so
+  D = 12 / V<sub>pack</sub> and the diode carries the other (1 − D). A drained
+  15 V pack runs D = 0.80 and the diode conducts **20 %** of the time; a fresh
+  20 V pack runs D = 0.60 and it conducts **40 %**. This line used to say "at
+  50 % duty it carries ~3.75 A average and dissipates ~1.5 W" — a round number
+  from before the duty was derived. The real worst case is **3.00 A average**,
+  and it is *lower* than the old guess because the firmware will not run the
+  pump at 50 %.
+  **How hot, and what that demands of the part.** D2's tab is the cathode and
+  sits on the VBAT pour, which fills as one island of 687.0 mm² (M3, measured on
+  the filled board). D2 and D3 share it and never conduct together — direction
+  is chosen by *which* pump is energised — so each sees the whole pour. 687 mm²
+  of 1 oz copper puts a D2PAK at roughly **42 °C/W** junction-to-ambient by the
+  standard pad-area curves; that figure is a **stated assumption, not a
+  reading**, and it is the first number to replace when a part is chosen.
+  Ambient is the sealed bay, not the garden: 35 °C outside plus the bay's own
+  rise gives 50 °C. Holding T<sub>j</sub> ≤ 125 °C then allows **1.79 W**, and
+  at 3.00 A average that is **V<sub>f</sub> ≤ 0.59 V at 7.5 A**. All of it is
+  arithmetic in `elec/main.py` with an assert, so it cannot drift from this
+  paragraph.
 - **Bulk electrolytic** close to each FET. Two pumps PWMing at 20 kHz pull real
   ripple current, and the loop that matters is battery → FET → pump → diode.
 
