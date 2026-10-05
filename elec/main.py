@@ -400,7 +400,12 @@ PUMP_FET_VALUE  = "NFET-%.0fV-%.0fmR" % (PUMP_FET_VDS_MIN, PUMP_FET_RDSON_MAX)
 # because counting it is the conservative direction.
 VBAT_BULK_F = (100e-6      # C1, electrolytic
                + 100e-6    # C2, electrolytic
-               + 10e-6     # C17, J1's bypass
+               + 10e-6     # C17, J1's and J2's bypass
+               + 10e-6     # C20, J3's bypass
+               + 10e-6     # C21, at the pack pad and in FRONT of the fuse --
+                           #      the one piece of this sum the fuse cannot
+                           #      protect, and the only reason that matters
+                           #      here is that it is still charged by the dock
                + 4.7e-6    # C15, the buck's input ceramic
                + 10e-6)    # C18, behind F1
 VBAT_INRUSH_J = 0.5 * VBAT_BULK_F * VBAT_MAX ** 2        # 0.045 J
@@ -414,7 +419,7 @@ VBAT_INRUSH_I2T = VBAT_MAX ** 2 * VBAT_BULK_F / (2 * VBAT_LOOP_R_MIN)
 # protection's OWN rated current tells you how long that current would have to
 # flow to do the same heating -- and a 10 A fuse carries 10 A indefinitely, so
 # anything that comes out in milliseconds is unconditionally inside it.
-FUSE_ATC_A = 10.0                       # the off-board ATC fuse in the + lead
+FUSE_ATC_A = 10.0                       # F2, the ATC blade in the + lead
 VBAT_INRUSH_EQ_MS = 1000.0 * VBAT_INRUSH_I2T / FUSE_ATC_A ** 2
 assert VBAT_INRUSH_EQ_MS < 100.0, (
     "the dock inrush is %.1f ms of the fuse's own rated current: that is no "
@@ -567,7 +572,18 @@ def circuit():
     n_rt   = Net("RT")
     n_ss   = Net("SS")
     n_vg   = Net("VGATE")
-    n_lvlv = Net("VBAT_LVL")    # VBAT past F1, the only fused net on the board
+    n_lvlv = Net("VBAT_LVL")    # VBAT past F1, the sensor feed's own PTC
+    # ⚠ THE PACK PAD IS NOT VBAT ANY MORE. Everything on this board that the
+    # word VBAT is used for -- the pumps, the bulk, the TVS, the buck -- is
+    # BEHIND the blade fuse now. VBAT_RAW is the stub in front of it: J1.1 to
+    # F2 pin 1 and nothing else, 9.3 mm of pour under the holder.
+    #
+    # It has to be a separate net rather than a nicety, because the whole of
+    # the reverse-polarity argument is that the fuse is IN SERIES with D1. On
+    # one net the router is free to join J1.1 straight to the TVS and the
+    # pour would do it in a straight line; the fuse would then be a part the
+    # board carries and not a thing in the current path.
+    n_vraw = Net("VBAT_RAW")    # the pack pad, in FRONT of the blade fuse
     n_en   = Net("EN")
     n_io0  = Net("IO0")
     # ⚠ NAMED BY DIRECTION, BECAUSE "TXD" ON A HEADER IS A TRAP. PCB_QUALITY
@@ -615,9 +631,32 @@ def circuit():
     c_in1 = gen.part("C1", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
     c_in2 = gen.part("C2", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
 
+    # ⚠ THE FUSE IS ON THE BOARD, AND IT IS THE FUSE THE OWNER ALREADY HAS.
+    # Littelfuse FLR holder for a standard ATO/ATC blade, which is what McMaster
+    # 7460K45 is -- a 10 A 32 V ATC, five of them already in a drawer. The holder
+    # is 178.6165.0002: 20 x 6 mm, 80 V, 30 A, four solder pins PER TERMINAL
+    # (the datasheet's own words), and a 2.4 mm locking spigot between them.
+    #
+    # It did not fit the 95 x 100 board and the board grew to 112 for it -- see
+    # outline note, which works out why the band between the terminal row and the
+    # switch row costs twice what it looks like.
+    #
+    # ⚠ ONE THING DID NOT SURVIVE THE MOVE AND IS WORTH SAYING OUT LOUD: an
+    # off-board fuse in the pack lead protects the HARNESS as well as the board,
+    # and this one does not. What is left unprotected is the dock-to-board run,
+    # which on this machine is short and inside the sealed bay; the long exposed
+    # run is the pack's own, upstream of the dock, and no fuse of ours was ever
+    # going to cover that. The trade was made deliberately: a fuse you have to
+    # remember to put in a lead is a fuse that is not there on the day.
+    f_bat = gen.part("F2", "178.6165.0002",
+                     "Fuse:FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165", ["1", "2"],
+                     "ATO blade fuse holder -- the 10 A in the pack's + lead")
     gnd  += j_bat["GND"], d_tvs["A"], c_in1[2], c_in2[2]
+    n_vraw += j_bat["VBAT"], f_bat["1"]
     # j_lvl["VBAT"] is NOT on this list any more: it is behind F1, on VBAT_LVL.
-    vbat += j_bat["VBAT"], d_tvs["K"], c_in1[1], c_in2[1], j_pa["VBAT"], j_pb["VBAT"]
+    # j_bat["VBAT"] is not here either, for the bigger reason above: VBAT now
+    # STARTS at the fuse's far pin.
+    vbat += f_bat["2"], d_tvs["K"], c_in1[1], c_in2[1], j_pa["VBAT"], j_pb["VBAT"]
 
     # ── 18 V -> 3.3 V buck. >= 40 V in; 24 V-max parts are too close to a fresh
     # pack. ~1 A covers the ESP32's ~500 mA WiFi bursts.
@@ -849,6 +888,32 @@ def circuit():
                      "local charge at the joystick connector")
     c_lvl = gen.part("C17", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
                      "local charge at the level-sensor connector")
+    # ⚠ AND ONE MORE, BECAUSE THE BAND MOVED EVERY BYPASS 8 mm AWAY FROM THE
+    # TERMINALS. Opening 9.29 mm between the terminal row and the switch row
+    # pushes the switch row and everything above it that much further from the
+    # connectors, and A2 (a supply pin wants charge within 25 mm) went from
+    # green to four failures on the same parts that had passed: J1 at 32.0 mm,
+    # J2 and J3 at 32.9, J4 at 31.4. Nothing about the circuit changed; the
+    # distance did. The band is also the cure, since it is empty board 10 mm
+    # from the terminals: C17 and C16 move down into it, and J3 -- which had
+    # been leaning on C2, an electrolytic too tall for a 9.29 mm band -- gets
+    # one of its own. Measured from the placements below, pad to pad:
+    # C17 10.6 mm to J2.1 and 17.4 to J1.1, C20 17.4 to J3.1, C16 11.6 to J4.1.
+    c_pb = gen.part("C20", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                    "local charge at pump B's terminal")
+    # ⚠ AND ONE IN FRONT OF THE FUSE, WHICH IS THE ONLY CAPACITOR ON THIS BOARD
+    # A BLOWN FUSE DOES NOT ISOLATE. It is there because VBAT_RAW is a supply net
+    # with a connector on it and A2 rule 4 does not let that be waived -- but the
+    # part earns its place twice over. The pack arrives down a metre of lead into
+    # a dock, and the lead's inductance ends AT J1.1; everything that used to
+    # answer for it (C1, C2, C17, 200 uF of it) is now on the far side of a blade
+    # fuse and its holder's four-pin spring contacts. 10 uF of ceramic at the pad
+    # is what carries the first microsecond of a pump step and what the dock's
+    # hot-plug arc charges. Non-polarised on purpose: on a REVERSED pack this one
+    # capacitor sees the reversal with no diode in front of it (M10), and a
+    # ceramic does not care which way round it is insulted.
+    c_raw = gen.part("C21", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                     "charge at the pack pad, in FRONT of the fuse")
     # The PTC, and the local charge that belongs on its FAR side. A2 gives a
     # connector 25 mm to its nearest bypass, and what was answering for J5 was
     # C15 -- the BUCK's input ceramic, 16.25 mm away, which is on VBAT by
@@ -866,8 +931,9 @@ def circuit():
     gnd += c_lvl2[2]
 
     v3v3 += c_joy[1]
-    vbat += c_lvl[1]
-    gnd  += c_joy[2], c_lvl[2]
+    vbat += c_lvl[1], c_pb[1]
+    n_vraw += c_raw[1]
+    gnd  += c_joy[2], c_lvl[2], c_pb[2], c_raw[2]
     gnd += j_lvl["GND"], j_lvl["MODE"]
 
     # ── Tank-full buzzer. Active (needs DC, not a waveform); ~30 mA is past a GPIO.
@@ -922,7 +988,7 @@ def circuit():
 # board lies flat on the frame's +X outer face, which is FRAME_D x DECK_Z =
 # 210 x 164. 140 x 100 leaves ~35 mm of margin all round for the shroud wall and
 # its cable anchor.
-BOARD_W, BOARD_L = 95.0, 100.0
+BOARD_W, BOARD_L = 95.0, 112.0
 HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
 # ⚠ 43, NOT 41, AND THE REASON IS UNDER THE BOARD. A mounting hole is also a
 # STANDOFF BOSS in the housing (src/housing.py derives one per hole from the
@@ -933,7 +999,7 @@ HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
 # board it is a connector that holds the laminate off its own screws.
 # 43 leaves 2.25 mm of laminate round the hole (the assert below wants 1.5) and
 # clears that tail by 2.4 mm.
-HOLES = [(-43.0, -44.0), (43.0, -44.0), (-43.0, 44.0), (43.0, 44.0)]
+HOLES = [(-43.0, -50.0), (43.0, -50.0), (-43.0, 50.0), (43.0, 50.0)]
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
@@ -973,12 +1039,13 @@ BOARD_NOTES = {
                    "terminals and a buzzer are hand-soldered afterwards.",
         "mask":    "Green, white silk. Highest contrast for the test-pad and "
                    "connector labels, which exist to be read during bring-up.",
-        "tier":    "Whichever of Economic / Standard lists all 11 sourced SMT "
-                   "parts -- the DESIGN constrains neither. 56 placements, all "
-                   "on top (single-sided, no second-side setup); 95 x 100 mm, "
-                   "inside the cheapest size tier and far above the minimum; "
-                   "the 5 through-hole lines (BZ1, J1-J6) are hand-soldered, "
-                   "so no THT assembly is ordered at all.",
+        "tier":    "Whichever of Economic / Standard lists all 12 sourced SMT "
+                   "parts -- the DESIGN constrains neither. 59 placements, all "
+                   "on top (single-sided, no second-side setup); 95 x 112 mm, "
+                   "which is OUT of the <=100 x 100 tier deliberately and for "
+                   "F2 (see the outline note), and still far above any "
+                   "assembly minimum; the 6 through-hole lines (BZ1, J1-J6, "
+                   "F2) are hand-soldered, so no THT assembly is ordered.",
     },
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
     "layers": 2,
@@ -1050,30 +1117,58 @@ BOARD_NOTES = {
         # -5.605) comes inside 0.3 mm of the (-41,-44) mounting hole, which DRC
         # calls silk_edge_clearance and a person calls a screw you cannot reach
         # because the terminal body is over it.
-        "J2": (-32.8, -41.0, 0.0),  # pump A   VBAT -35.34, PUMP_A_LO -30.26
-        "J1": (-20.3, -41.0, 0.0),  # the pack VBAT -22.84, GND      -17.76
-        "J3": ( -7.8, -41.0, 0.0),  # pump B   VBAT -10.34, PUMP_B_LO -5.26
+        "J2": (-32.8, -47, 0.0),  # pump A   VBAT -35.34, PUMP_A_LO -30.26
+        "J1": (-20.3, -47, 0.0),  # the pack VBAT -22.84, GND      -17.76
+        "J3": (-7.8, -47, 0.0),  # pump B   VBAT -10.34, PUMP_B_LO -5.26
         # The joystick sits 15 mm clear to the right, and that gap is not waste:
         # it is where VBAT climbs to D3's cathode tab without crossing anything.
-        "J4": ( 22.0, -41.0, 0.0),  # +3V3 15.0, GND 18.5, JOY_RAW 22.0, GND, GND
-        "J5": (-20.0,  41.0, 0.0), "J6": (12.0, 41.0, 90.0),
+        "J4": (22.0, -47, 0.0),  # +3V3 15.0, GND 18.5, JOY_RAW 22.0, GND, GND
+        # ⚠ F2's COORDINATE IS THE PAD CENTROID AND THE CENTROID IS NOT THE
+        # BODY CENTRE -- except here it is, which is worth saying because it is
+        # luck and not design. The FLR holder has NINE pads: eight 1.4 mm plated
+        # pins, four per terminal, and one unnamed 2.4 mm NPTH for the locking
+        # spigot. The spigot sits dead between the two groups, so the centroid
+        # lands on it at (6.40, 1.25) in footprint coordinates and the 21.0 x
+        # 7.00 courtyard is symmetric about it both ways. The placement is
+        # therefore also the courtyard centre, which no other part on this board
+        # can be relied on for.
+        #
+        # x = -19.5 is NOT the obvious -22.84 (J1.1's own x). It is pushed 3.3 mm
+        # right so the leftmost pin-1 pad clears the PUMP_A_LO pour: that column
+        # crosses the band at x -31.96..-28.56, and VBAT_RAW is a DIFFERENT net
+        # from it, so the 1.36 mm this buys is clearance and not decoration. At
+        # the other end it is a gift: pin 2 is VBAT and the rightmost pin-2 pad
+        # lands 1.1 mm from VBAT riser A, so the fused side needs no run at all.
+        # J1.1 is at x -22.84 and pin 1's near pad at -22.4 -- the unfused stub
+        # is 9.3 mm, straight up, and the only copper on the board in front of
+        # the fuse.
+        # y -33.2 puts the courtyard at -36.7..-29.7: 0.39 mm under Q1/Q2
+        # and 3.9 mm of band left below it, which is what C21 is placed in.
+        "F2": (-19.5, -33.2, 0.0),
+        # ⚠ C21 IS THE PART THE FUSE MADE NECESSARY. Splitting the net left
+        # J1.1 alone on VBAT_RAW with no charge on it at all, and A2 rule 4
+        # (power in from a cable) does not allow that to be exempted. It sits
+        # directly over the pad, inside the VBAT_RAW pour, 8.5 mm pad to pad --
+        # better than the 32.0 mm J1 was passing at before the fuse existed.
+        "C21": (-21.4, -38.65, 0.0),   # same rule: VBAT_RAW pad in, GND pad out
+        "J5": (-20.0, 45, 0.0), "J6": (12.0, 45, 90.0),
         # -- what the two +Y connectors need beside them ----------------------
         # F1 sits in line with J5's own VBAT pad (x -25.25) so the fused run is
         # a straight 9 mm drop, and C18 beside it so the charge is past the
         # fuse. J5's courtyard measures x -27.55..-12.45, y 35.95..44.65, so
         # y 33.0 clears L1 (whose courtyard reaches y 31.2) by 0.605.
-        "F1": (-25.25, 33.0, 0.0),      # the level-sensor feed's PTC
-        "C18": (-20.0, 33.0, 0.0),      # local charge past it: 9.76 mm to J5.1
+        "F1": (-25.25, 37, 0.0),      # the level-sensor feed's PTC
+        "C18": (-20.0, 37, 0.0),      # local charge past it: 9.76 mm to J5.1
         # R25 goes at the CONNECTOR end, where the hazard enters, so the whole
         # long run back to the module sits behind the 1k.
-        "R25": (10.0, 36.5, 0.0),       # ESP_RX series
+        "R25": (10.0, 40.5, 0.0),       # ESP_RX series
         # -- 3 and 4: the switch row ------------------------------------------
         # Q at 270 puts the tab toward -Y, at its terminal, and the three
         # gull-wing leads (gate, drain, source) toward +Y at dy +3.938 -- clear
         # of the power corridor, so a pour can own the whole tab without coming
         # near the gate. D at 0 puts the anode leads at -X, facing that tab.
-        "Q1": (-30.26, -27.5, 270.0), "D2": (-17.0, -27.5, 0.0),
-        "Q2": ( -5.26, -27.5, 270.0), "D3": (  7.5, -27.5, 0.0),
+        "Q1": (-30.26, -23.5, 270.0), "D2": (-17.0, -23.5, 0.0),
+        "Q2": (-5.26, -23.5, 270.0), "D3": (7.5, -23.5, 0.0),
         # -- bulk and local charge, each ABOVE the terminal it answers for -----
         # A2 gives a connector 25 mm to its nearest bypass, and the switch row
         # is 11.4 mm of DPAK and D2PAK between the terminals and the first space
@@ -1083,9 +1178,31 @@ BOARD_NOTES = {
         #   C1  -> J2, pad to pad 24.91 mm
         #   C17 -> J1, 24.0 mm        (a 1206 ceramic, which is why it fits lower)
         #   C2  -> J3, 24.94 mm
-        "C1": (-33.5, -16.2, 0.0), "C2": (-8.8, -16.2, 0.0),
-        "C17": (-22.0, -17.0, 0.0),
-        "D1": (-37.0, -7.0, 0.0),       # TVS, on the VBAT column beside C1
+        "C1": (-33.5, -12.2, 0.0), "C2": (-8.8, -12.2, 0.0),
+        # C17 and C20 live in the fuse band now, 10.5 mm above the terminal
+        # row, which is the only empty board within A2's 25 mm of the
+        # connectors. C17 sits ON the VBAT pour's left column (x -38.0..-35.5)
+        # and C20 on riser B (x 4.3..7.7), so each lands on its own copper
+        # without the pour needing a lobe to reach it.
+        # ⚠ AND THE LIVE PAD HAS TO BE THE ONE IN THE POUR, WHICH TOOK A ROUTING
+        # RUN TO NOTICE. A 1206 is 2.95 mm pad to pad and the pour edges here are
+        # 2.5 mm (the VBAT column) and 3.4 mm (riser B) wide, so a capacitor
+        # centred on a pour has BOTH pads in it and one of them is GND. Placed by
+        # eye the first time, C17 had its VBAT pad 0.23 mm OUTSIDE the column and
+        # C20 had the pair exactly backwards -- GND in riser B, VBAT in open
+        # board -- and close_last duly ran 48.11 mm of 0.2 mm track across the
+        # board to reach it. That track crossed PUMP_B_LO's column and split the
+        # pour in two: one unconnected item, 20 mm from anything that looked
+        # like a cause.
+        #
+        # So each of these is placed on its PAD, not its body. C17 moves 0.85 mm
+        # right so the pour's edge (-35.5) lands in the 1.34 mm gap BETWEEN the
+        # pads; C20 turns 180 deg, which costs nothing on a symmetric two-pad
+        # chip (M12) and puts VBAT at x 4.97 inside riser B with GND at 2.03,
+        # 1.47 mm clear of it.
+        "C17": (-35.9, -34.5, 0.0),
+        "C20": (3.5, -34.5, 180.0),
+        "D1": (-37.0, -3, 0.0),       # TVS, on the VBAT column beside C1
         # -- gate drive: driver, series resistor, pulldown, bypass ------------
         # R4/R6 are pump A's (R4 GATE_A->N$2, R6 N$2->GND); R5/R7 are pump B's.
         # A naming that READS as a pair and is not one: R5 belongs with Q2, and
@@ -1095,14 +1212,14 @@ BOARD_NOTES = {
         # route.py sites a bring-up pad against the finished copper, and a net
         # whose entire run is a 5 mm hop between two courtyards 1.4 mm apart
         # offers it nowhere. Four pads came back unconnected before this.
-        "U3": (-30.0, -8.0, 0.0), "R4": (-23.0, -8.0, 0.0),
-        "R6": (-23.0, -5.0, 0.0), "C9": (-30.0, -4.0, 0.0),
-        "U4": ( -4.0, -8.0, 0.0), "R5": (  3.0, -8.0, 0.0),
-        "R7": (  3.0, -5.0, 0.0), "C10": (-4.0, -4.0, 0.0),
+        "U3": (-30.0, -4, 0.0), "R4": (-23.0, -4, 0.0),
+        "R6": (-23.0, -1, 0.0), "C9": (-30.0, 0, 0.0),
+        "U4": (-4.0, -4, 0.0), "R5": (3.0, -4, 0.0),
+        "R7": (3.0, -1, 0.0), "C10": (-4.0, 0, 0.0),
         # -- VGATE shunt. 10 mA, so the run is long and does not care; what it
         # must not do is sit in a power corridor.
-        "R9": (-21.0, -12.5, 0.0), "D5": (-17.0, -8.0, 0.0),
-        "C13": (-17.0, -4.0, 0.0),
+        "R9": (-21.0, -8.5, 0.0), "D5": (-17.0, -4, 0.0),
+        "C13": (-17.0, 0, 0.0),
         # -- buck: RE-LAID AGAINST SNVSAA5B 7.4, which it did not obey ------
         # The old cluster was never re-laid and it showed, measured on the
         # routed board: 11.61 mm of switch node, the feedback divider 10.93 mm
@@ -1153,14 +1270,14 @@ BOARD_NOTES = {
         # not a loop-area one. So D6 sits between pins 7 and 8, which are
         # adjacent, with both its legs balanced at 3.60 and 3.79 mm, and L1
         # takes the next place out: 7.05 mm of switch node instead of 11.61.
-        "U1": (-36.0, 26.0, 0.0),
-        "C15": (-36.0, 30.3, 0.0),      # CIN: the hot loop, 3.80 mm each leg
-        "C3": (-36.0, 32.5, 0.0),       # BOOT, above CIN -- also a left-to-
+        "U1": (-36.0, 30, 0.0),
+        "C15": (-36.0, 34.3, 0.0),      # CIN: the hot loop, 3.80 mm each leg
+        "C3": (-36.0, 36.5, 0.0),       # BOOT, above CIN -- also a left-to-
                                         # right bridge (BOOT pin 1, SW pin 8)
-        "D6": (-30.1, 27.0, 270.0),     # catch: K up to SW, A down to GND
-        "L1": (-24.4, 27.905, 0.0),     # SW pad on pin 8's own y
-        "C4": (-18.0, 27.905, 0.0),     # COUT, at L1's output pad
-        "C19": (-18.0, 24.3, 0.0),      # COUT's other half, 4.60 mm from L1.2
+        "D6": (-30.1, 31, 270.0),     # catch: K up to SW, A down to GND
+        "L1": (-24.4, 31.91, 0.0),     # SW pad on pin 8's own y
+        "C4": (-18.0, 31.91, 0.0),     # COUT, at L1's output pad
+        "C19": (-18.0, 28.3, 0.0),      # COUT's other half, 4.60 mm from L1.2
         # ⚠ C5 IS NOT AT THE BUCK, AND IT NEVER REALLY WAS. It sat at (-8, 26)
         # with a comment calling it "3V3 out", and what it was actually doing
         # there was being J6's bypass: A2 gives a connector 25 mm to its
@@ -1170,22 +1287,22 @@ BOARD_NOTES = {
         # placed for the job it has: the local charge for the 3V3 that LEAVES
         # the board down the programmer's cable, exactly as C16 is for J4.
         # C4 is the output capacitor and does the high-frequency work alone.
-        "C5": (-6.0, 30.0, 0.0),        # +3V3 at J6: pad to pad 16.7 mm
-        "R2": (-33.525, 21.5, 270.0),   # FB -> GND, 1.77 mm below pin 5
-        "R1": (-35.6, 21.5, 90.0),      # +3V3 -> FB, its tap pad beside R2's
-        "C14": (-30.3, 21.8, 0.0),      # SS, under D6
-        "R8": (-41.6, 24.095, 180.0),   # RT, left of the package at pin 4's y
+        "C5": (-6.0, 34, 0.0),        # +3V3 at J6: pad to pad 16.7 mm
+        "R2": (-33.525, 25.5, 270.0),   # FB -> GND, 1.77 mm below pin 5
+        "R1": (-35.6, 25.5, 90.0),      # +3V3 -> FB, its tap pad beside R2's
+        "C14": (-30.3, 25.8, 0.0),      # SS, under D6
+        "R8": (-41.6, 28.09, 180.0),   # RT, left of the package at pin 4's y
         # -- MCU cluster, UNCHANGED ------------------------------------------
         # 270, not 90: at rot 90 the antenna fan points -X, straight back over
         # the board. At 270 it leaves the laminate at x=47.5 and the only thing
         # it still covers is a corner mounting hole -- a cutout, which the
         # keepout does not forbid.
-        "U2": (34.4, 19.5, 270.0),
+        "U2": (34.4, 23.5, 270.0),
         # C6 moved up 1.5 mm to free the band the ADC filters needed; it is the
         # MCU's BULK, and A2's 5 mm belongs to C7, which bypasses U2.2 at
         # 3.86 mm. Bulk at 8.97 mm behind an unbroken plane is what bulk is for.
-        "C6": (36.5, 33.0, 0.0), "C7": (42.8, 31.5, 0.0),
-        "R3": (2.0, 32.0, 0.0),  "C8": (2.0, 26.0, 0.0),
+        "C6": (36.5, 37, 0.0), "C7": (42.8, 35.5, 0.0),
+        "R3": (2.0, 36, 0.0),  "C8": (2.0, 30, 0.0),
         # -- sensing and the buzzer, right of the switch row ------------------
         # R20's top leg is on VBAT and a long way from the pour, which is right
         # rather than sloppy: the divider passes 170 uA. What must be short is
@@ -1218,31 +1335,31 @@ BOARD_NOTES = {
         # y 28.71, and an 0603's half-height is 0.775: 29.9 leaves 0.415.
         # Placing these at 29.3 cost three courtyards_overlap against U2, which
         # is how the real outline got measured instead of assumed.
-        "R20": (22.0, 6.0, 0.0),
-        "R21": (31.2, 29.9, 180.0),     # divider bottom, at the tap it sets
-        "C11": (34.8, 29.9, 180.0),     # VBAT_SENSE filter, 2.35 mm from IO35
-        "C12": (38.4, 29.9, 0.0),       # JOY_FILT filter, 2.19 mm from IO34
+        "R20": (22.0, 10, 0.0),
+        "R21": (31.2, 33.9, 180.0),     # divider bottom, at the tap it sets
+        "C11": (34.8, 33.9, 180.0),     # VBAT_SENSE filter, 2.35 mm from IO35
+        "C12": (38.4, 33.9, 0.0),       # JOY_FILT filter, 2.19 mm from IO34
         # R22 stays at the CONNECTOR end on purpose, and that is the half of an
         # RC that belongs there: with the resistor at J4 and the capacitor at
         # the pin, the whole board run sits INSIDE the filter and its pickup is
         # shunted by C12. Swapping them would put 1k at the pin and leave the
         # run outside the pole, which is the one arrangement that buys nothing.
-        "R22": (20.0, -22.0, 0.0),
-        "R23": (20.0, -30.0, 0.0),
-        "BZ1": (33.0, -24.0, 0.0), "Q3": (26.0, -14.0, 0.0),
-        "R24": (28.0, -8.0, 0.0),  "D4": (28.0, -3.0, 0.0),
-        "C16": (18.0, -18.0, 0.0),      # +3V3 at J4: pad to pad 23.2 mm
+        "R22": (20.0, -18, 0.0),
+        "R23": (20.0, -26, 0.0),
+        "BZ1": (33.0, -20, 0.0), "Q3": (26.0, -10, 0.0),
+        "R24": (28.0, -4, 0.0),  "D4": (28.0, 1, 0.0),
+        "C16": (20.0, -34.5, 0.0),    # +3V3 at J4: pad to pad 11.6 mm
         # -- bring-up pads. PREFERENCES, not sites: route.py re-searches each
         # against the finished copper and nudges it, so a pad that starts on a
         # neighbour's courtyard costs a nudge rather than a board.
         # Each sits ON the run it probes, in the gap its cluster leaves for it:
         # TP6 and TP7 between driver and series resistor, TP4 in the VGATE lane,
         # TP5 on the switch node between U1.8 and L1.
-        "TP1": (10.0, -16.0, 0.0),  "TP2": (-18.0, -12.0, 0.0),
-        "TP3": (0.0, 31.0, 0.0),    "TP4": (-14.0, -8.0, 0.0),
-        "TP5": (-30.1, 32.2, 0.0),  "TP6": (-26.2, -8.0, 0.0),
-        "TP7": (-0.2, -8.0, 0.0),   "TP8": (27.0, 3.0, 0.0),
-        "TP9": (24.0, -20.0, 0.0),  "TP10": (24.0, -32.0, 0.0),
+        "TP1": (10.0, -12, 0.0),  "TP2": (-18.0, -8, 0.0),
+        "TP3": (0.0, 35, 0.0),    "TP4": (-14.0, -4, 0.0),
+        "TP5": (-30.1, 36.2, 0.0),  "TP6": (-26.2, -4, 0.0),
+        "TP7": (-0.2, -4, 0.0),   "TP8": (27.0, 7, 0.0),
+        "TP9": (24.0, -16, 0.0),  "TP10": (24.0, -28, 0.0),
     },
     # Placed AFTER routing, on copper that is already there -- see the
     # bring-up-pad block in circuit().
@@ -1281,14 +1398,20 @@ BOARD_NOTES = {
         # physically accept the 3.18 mm the claim demands. The claim was
         # unmeetable because it was wrong, and A1 was right to fail it.
         "power_paths": [
-            {"net": "VBAT", "from": "J1.1",
+            # ⚠ VBAT NO LONGER STARTS AT THE PACK. It starts at F2 pin 2, and the
+            # 9.3 mm in front of the fuse is a path of its own -- same 7.5 A,
+            # same 3.18 mm of copper owed, and the ONLY stretch of this board a
+            # blown fuse does not protect.
+            {"net": "VBAT_RAW", "from": "J1.1", "to": ["F2.1"],
+             "amps": 7.5, "max_drop_mv": 300},
+            {"net": "VBAT", "from": "F2.2",
              # NOT Q1.2/Q2.2: those are the FET drains, and a drain is on the
              # pump leg, not on VBAT. The motor is the thing between them.
              # D2.2/D3.2 ARE here -- the freewheel cathodes are where the
              # recirculating current returns to the rail.
              "to": ["J2.1", "J3.1", "C1.1", "C2.1", "D2.2", "D3.2"],
              "amps": 7.5, "max_drop_mv": 300},
-            {"net": "VBAT", "from": "J1.1", "to": ["U1.2", "F1.1"],
+            {"net": "VBAT", "from": "F2.2", "to": ["U1.2", "F1.1"],
              # the buck's input (~0.16 A at the flat end of the pack) and the
              # level sensor's feed (milliamps). 0.3 A is the rounded-up total,
              # and these two are the only VBAT loads that are not the pumps.
@@ -1316,7 +1439,7 @@ BOARD_NOTES = {
         # all, so the check falls back to a flat 50 mV. 50 mV at 7.5 A is a
         # 6.7 milliohm budget end to end -- less than the terminal blocks'
         # own contact resistance, and not a number any amount of copper on a
-        # 95 x 100 board reaches.
+        # 95 x 112 board reaches.
         #
         # 300 mV is 2% of the pack at its flat-discharge 15 V, which is the
         # figure the percentage would have given if the net had been called
@@ -1451,9 +1574,13 @@ BOARD_NOTES = {
     # THE SHAPE, as the rectangles it is the union of -- check these against the
     # measured pad deltas in the placement block, then check the corner list:
     #
-    #   bus      x[-38.0,  8.0] y[-46.5,-39.6]  under J2.1, J1.1 and J3.1
-    #   column   x[-38.0,-35.5] y[-39.6, -6.0]  up the left to C1 and the TVS
-    #   riser A  x[-12.0, -9.7] y[-39.6,-32.0]  into D2's cathode tab
+    #   bus      x[-38.0,  8.0] y[-54.0,-45.6]  under J2.1 and J3.1 -- NOT
+    #                                              J1.1 any more, which is
+    #                                              VBAT_RAW and takes its own
+    #                                              zone at a higher priority
+    #   column   x[-38.0,-35.5] y[-45.6, -6.0]  up the left to C1 and the TVS
+    #   riser A  x[-12.0, -9.7] y[-45.6,-32.0]  into D2's cathode tab, with the
+    #                                              lobe to F2's fused pins
     #   tab A    x[-19.5, -9.7] y[-33.0,-22.0]  D2's cathode tab itself
     #   to C2    x[-15.5, -9.7] y[-22.0,-14.0]
     #   to C17   x[-19.5,-17.0] y[-22.0,-11.5] + x[-24.5,-17.0] y[-19.0,-14.5]
@@ -1468,33 +1595,60 @@ BOARD_NOTES = {
     # across it and the fill came back as NINETEEN islands.
     "zones": [
         ("GND", "B.Cu", 0.3),
+        # ⚠ VBAT_RAW IS FIRST, AND IT IS HIGHER PRIORITY THAN VBAT. KiCad fills
+        # the higher priority and holds the lower one off it; VBAT's bus runs the
+        # whole terminal row and would otherwise fill straight over J1.1, which
+        # is the one pad on this board that must NOT be on VBAT. Making the stub
+        # win and the bus yield is what puts the fuse in series rather than
+        # beside the path.
+        #
+        # The shape is a rectangle from J1.1's pad up to F2's two pin-1 pads:
+        #   x[-27.2, -21.0]  y[-46.8, -32.0]       6.2 x 14.8 mm
+        # 6.2 mm of 1 oz copper against the 3.18 mm IPC-2221 asks for at 7.5 A.
+        # The three edges all answer to something: -27.2 leaves 1.36 mm to the
+        # PUMP_A_LO column, -21.0 leaves 0.3 mm to the holder's 2.4 mm NPTH
+        # spigot and 1.54 mm to J1's GND pad, and -46.8 is as low as it can go
+        # while leaving VBAT's bus 5.0 mm of height to pass underneath.
+        {"net": "VBAT_RAW", "layer": "F.Cu", "priority": 20, "poly": [
+            (-27.2, -48.8), (-21.0, -48.8), (-21.0, -30.5), (-27.2, -30.5)]},
+        # ⚠ AND THE BUS DROPPED 1.5 mm TO MAKE ROOM TO PASS UNDER IT. It used to
+        # stop at -50.5; the pour now has to squeeze between the board edge and
+        # VBAT_RAW's -46.8 at x -27.2..-21.0, and -50.5 would have left 3.5 mm
+        # against the 3.18 the net is sized for -- true but with nothing in hand.
+        # -52.0 leaves 5.0 mm there and 2.0 mm to the outline at y -54.
         {"net": "VBAT", "layer": "F.Cu", "priority": 0, "poly": [
-            (-38.0, -46.5), (8.0, -46.5), (8.0, -39.6),
+            (-38.0, -54.0), (8.0, -54.0), (8.0, -45.6),
             # riser B, carrying on into D3's cathode tab
-            (7.7, -39.6), (7.7, -33.0), (12.3, -33.0), (12.3, -22.0),
-            (3.7, -22.0), (3.7, -33.0), (4.3, -33.0), (4.3, -39.6),
+            (7.7, -45.6), (7.7, -29), (12.3, -29), (12.3, -18),
+            (3.7, -18), (3.7, -29), (4.3, -29), (4.3, -45.6),
             # riser A, into D2's cathode tab, with the two stubs off its top
             # edge that reach C2, C17 and R9
-            (-9.7, -39.6), (-9.7, -14.0), (-15.5, -14.0), (-15.5, -22.0),
-            (-17.0, -22.0), (-17.0, -11.5), (-20.6, -11.5), (-20.6, -14.5),
-            (-24.5, -14.5), (-24.5, -19.0), (-19.5, -19.0), (-19.5, -33.0),
-            (-12.0, -33.0), (-12.0, -39.6),
+            (-9.7, -45.6), (-9.7, -10), (-15.5, -10), (-15.5, -18),
+            (-17.0, -18), (-17.0, -7.5), (-20.6, -7.5), (-20.6, -10.5),
+            (-24.5, -10.5), (-24.5, -15), (-19.5, -15), (-19.5, -29),
+            # a lobe off riser A's left side, into F2's two pin-2 pads. The
+            # fused side of the holder is VBAT, and this is the whole of what
+            # it takes to reach it: x[-17.9, -12.0] y[-37.5, -31.0], which
+            # covers the pad at x -15.6 outright and shares the one at -12.1
+            # with the riser itself. -17.9 is 0.4 mm off the locking spigot.
+            (-12.0, -29), (-12.0, -30.5), (-17.9, -30.5),
+            (-17.9, -38.0), (-12.0, -38.0), (-12.0, -45.6),
             # the left column, up to C1's positive pad and the TVS
-            (-35.5, -39.6), (-35.5, -6.0), (-38.0, -6.0),
+            (-35.5, -45.6), (-35.5, -2), (-38.0, -2),
         ]},
         # -- PUMP_A_LO: up from J2.2 into Q1's tab and D2's anodes ------------
         # The top edge is -24.6, not -24.0, because Q1's gull-wing leads sit at
         # dy +3.938: the gate pad's lower edge is -24.162, and a 7.5 A pour
         # 0.16 mm from a gate is not a clearance, it is a coupling.
         {"net": "PUMP_A_LO", "layer": "F.Cu", "priority": 10,
-         "poly": [(-31.96, -42.4), (-28.56, -42.4), (-28.56, -33.0),
-                  (-20.8, -33.0), (-20.8, -24.6), (-33.7, -24.6),
-                  (-33.7, -33.0), (-31.96, -33.0)]},
+         "poly": [(-31.96, -48.4), (-28.56, -48.4), (-28.56, -29),
+                  (-20.8, -29), (-20.8, -20.6), (-33.7, -20.6),
+                  (-33.7, -29), (-31.96, -29)]},
         # -- PUMP_B_LO: the same shape on J3.2 / Q2 / D3 ---------------------
         {"net": "PUMP_B_LO", "layer": "F.Cu", "priority": 10,
-         "poly": [(-6.96, -42.4), (-3.56, -42.4), (-3.56, -33.0),
-                  (2.4, -33.0), (2.4, -24.6), (-9.3, -24.6),
-                  (-9.3, -33.0), (-6.96, -33.0)]},
+         "poly": [(-6.96, -48.4), (-3.56, -48.4), (-3.56, -29),
+                  (2.4, -29), (2.4, -20.6), (-9.3, -20.6),
+                  (-9.3, -29), (-6.96, -29)]},
     ],
     "stitch_nets": ("GND",),
     "single_sided": True,              # every part on the front: one assembly setup
@@ -1522,8 +1676,48 @@ _DOCK_W, _WALLS = 72.0, 13.0
 assert BOARD_W <= 210.0 - _DOCK_W - _WALLS, (
     "board is %.1f wide; only %.1f fits beside the battery in a 210 deep frame"
     % (BOARD_W, 210.0 - _DOCK_W - _WALLS))
-# ... and staying inside 100 x 100 keeps it in JLCPCB's cheapest 2-layer tier.
-assert BOARD_W <= 100.0 and BOARD_L <= 100.0, "board leaves the <=100x100 price tier"
+# ⚠ THE <=100x100 PRICE TIER IS DELIBERATELY GIVEN UP, and it is the only thing
+# this board has ever spent rather than saved, so it is recorded as a price and
+# not as a limit. The board is 95 x 108.
+#
+# WHAT BOUGHT IT: F2, the ATO fuse holder. Reverse polarity on this board is a
+# CROWBAR -- D1 deliberately shorts a reversed pack (M10) -- and a crowbar does
+# not end a fault, it holds one. Something has to open the circuit, and the
+# fuse was off-board, which made it a system requirement rather than a board
+# property. On the board it is a property.
+#
+# WHY IT COST A WHOLE TIER FOR ONE PART: the board is CENTRE-REFERENCED, so it
+# spans +-L/2 and an edge cannot move without every placement moving. The
+# terminals hold 9 mm off the -Y edge and everything above holds its distance
+# to the +Y edge, which makes the band between the terminal row and the switch
+# row
+#       band = 1.29 + 2d,   d = (L - 100)/2
+# -- the band is twice as expensive as it looks. The holder's courtyard is
+# 7.00 mm and wants 0.4 either side, so 7.80 needs L >= 106.51. There was no
+# cheaper placement: a free-space sweep of the ROUTED board (courtyards only,
+# since a pour is copper under a part and not an obstacle to it) found the
+# nearest 21 x 7 opening 42 mm from J1.1, which would have meant two parallel
+# 7.5 A pours up the board.
+#
+# ⚠ AND 108 WAS NOT ENOUGH, FOR A REASON THE HOLDER'S OWN SIZE DOES NOT SHOW.
+# Splitting VBAT at the fuse makes J1.1 a net of its own, and A2 wants a
+# capacitor to ground within 25 mm OF THAT NET -- every bypass on this board is
+# behind the fuse, so the pack pin went from "C17 at 32.0 mm" to "the net has
+# none at all". The cure is a capacitor beside J1.1 on VBAT_RAW, and at 108 the
+# band held the holder and nothing else: 9.29 mm, of which 7.00 is courtyard.
+# 112 takes the band to 11.29 and fits C21 under the holder's -Y side, 8.4 mm
+# from the pad it serves. A2 rule 4 is explicit that "no room" is not a reason
+# to exempt a power connector -- it is a placement problem to solve here.
+#
+# ⚠ THE LAST 4 mm ARE ASYMMETRIC, AND THAT IS DELIBERATE. The 100 -> 108 step
+# moved the terminals -4 and everything else +4, because both edges mattered.
+# This one moves ONLY the terminals, -2: the band grows by 2 and the +Y edge
+# simply gains 2 mm of clearance it does not need, which costs nothing and
+# spares 60-odd placements and 40-odd zone vertices a second transform. The
+# arithmetic above still describes the 108 step; it is left as written because
+# it is the reasoning that bought the band, not a formula to re-apply.
+assert BOARD_W <= 100.0, "board leaves the <=100 mm width tier"
+assert BOARD_L <= 120.0, "board is longer than the growth that was agreed"
 
 
 if __name__ == "__main__":

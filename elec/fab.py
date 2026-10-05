@@ -167,6 +167,19 @@ LCSC = {
     #   height   14.07 mm above board, which is now the measured number in both
     #            component-height tables and is what sets the housing bay depth.
     "TB-5.08-2":       "C8465",     # WJ500V-5.08-2P, 260480, $0.1337. J1/J2/J3.
+    # ⚠ THE ONE PART ON THIS BOM THAT WAS CHOSEN BY WHAT IS ALREADY IN A DRAWER.
+    # F2 takes a standard ATO/ATC blade, which is what McMaster 7460K45 is -- a
+    # 10 A 32 V ATC, bought in a pack of five long before this board existed. The
+    # holder was then picked to suit the fuse rather than the other way round, so
+    # the fuse itself is NOT a BOM line and never will be: it is the owner's.
+    #
+    # 178.6165.0002 and 178.6165.0001 are the same holder in different boxes (500
+    # and 100); LCSC sells either by the piece, and .0002 is the one in stock --
+    # 571 pcs at $3.2949 against .0001's zero (C207060, read 2026-10-05). KiCad's
+    # footprint is named for 178.6165 and the datasheet's "4 pins each" matches
+    # its eight plated holes, which is how the land was confirmed rather than
+    # assumed. Hand-soldered with the five terminal blocks, not reflowed.
+    "178.6165.0002":   "C207061",   # Littelfuse FLR ATO holder, 571, $3.2949. F2.
     "TB-5.08-4":       "C42377749", # WJ500V-5.08-04P-14-00A, 6376, $0.3252. J5.
     "TB-5.08-5":       "C42377750", # WJ500V-5.08-05P-14-00A, 2142, $0.4162. J4.
                                     # ⚠ J4 USED TO BE A 3.5 mm PUSH-IN PT-1,5 and
