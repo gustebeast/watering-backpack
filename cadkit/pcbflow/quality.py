@@ -75,6 +75,10 @@ HINT = {
            "a stitching via beside the crossing only helps if the plane is whole on the "
            "other side. If the gap is deliberate, say in quality.return_slot_ok which "
            "signal crosses what and what carries its return instead",
+    "A14": "cadkit/pcbflow/unwick.py moves what it can; past that, move the PART to open "
+           "room beside it, or order the board with the vias filled and capped and say so "
+           "in quality.via_in_land_ok -- tenting the via does not help, because the pad's "
+           "own mask aperture is already open over it",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
@@ -87,6 +91,7 @@ HINT = {
 # SOFT: the default is to fix, and PCB_QUALITY.md says, rule by rule, the only cases in
 # which a waiver is honest. Matched against the finding's text; "" = every finding.
 HARD = {
+    "A14": ("can take the whole",),
     "A1": ("is not a pad on", "no copper joins", "declares no power_paths"),
     "A3": ("",),
     "A4": ("",),
@@ -1231,6 +1236,63 @@ def return_path_slots(ctx):
              "widest cut a signal straddles: %.2f mm, by %s at (%.2f, %.2f); %d crossing(s) "
              "on %d track(s), limit %.2f mm" % (g[0], g[1], g[2], g[3], len(gaps), checked,
                                                 limit))]
+
+
+# A stencil foil and a board thickness, for the volume A14 compares. Both are what the
+# fab's default service gives unless an order says otherwise; override in quality.
+STENCIL_FOIL = 0.12
+BOARD_THICK = 1.6
+
+
+@rule("A14")
+def via_in_land(ctx):
+    """A via open inside a solder land drinks the joint. Measured as VOLUME: the barrel
+    against the paste printed over it, not the barrel against the pad's area."""
+    import math
+    b = ctx.board
+    foil = float(ctx.q.get("stencil_foil", STENCIL_FOIL))
+    thick = float(ctx.q.get("board_thickness", BOARD_THICK))
+    allowed = set(ctx.q.get("via_in_land_ok", {}) or {})
+
+    lands = []
+    for ref, fp in ctx.fps.items():
+        for p in fp.Pads():
+            if p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
+                continue
+            if not (p.IsOnLayer(pcbnew.F_Paste) or p.IsOnLayer(pcbnew.B_Paste)):
+                continue          # no paste, no joint to starve: a bare test pad
+            lands.append((p, "%s.%s" % (ref, p.GetNumber())))
+    if not lands:
+        return [("via in land", None, "no pasted SMD land on this board")]
+
+    found = []
+    for t in b.GetTracks():
+        if t.GetClass() != "PCB_VIA":
+            continue
+        for p, name in lands:
+            if name in allowed or not p.GetBoundingBox().Contains(t.GetPosition()):
+                continue
+            sz = p.GetSize()
+            paste = MM(sz.x) * MM(sz.y) * foil
+            barrel = math.pi * (MM(t.GetDrillValue()) / 2.0) ** 2 * thick
+            found.append((barrel / paste, name, barrel, paste))
+
+    if not found:
+        return [("via in land", True, "no via sits in a pasted land, %d land(s) checked"
+                 % len(lands))]
+    found.sort(reverse=True)
+    r, name, barrel, paste = found[0]
+    bad = [f for f in found if f[0] >= 0.5]
+    if bad:
+        return [("via in land", False,
+                 "the via in %s can take the whole joint: its barrel holds %.3f mm3 and "
+                 "only %.3f mm3 of paste is printed over it (%.0f %%). %d of %d via(s) in "
+                 "a land are over half the deposit"
+                 % (name, barrel, paste, 100 * r, len(bad), len(found)))]
+    return [("via in land", True,
+             "%d via(s) sit in a pasted land and the thirstiest, %s, can take %.0f %% of "
+             "the paste printed over it -- under half, so the joint still forms"
+             % (len(found), name, 100 * r))]
 
 
 # ── which manual rules a board cannot need ───────────────────────────────────────────
