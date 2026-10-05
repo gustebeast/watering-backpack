@@ -1115,8 +1115,14 @@ def add_missing_vias(board, eps_mm=0.05, via_d=0.6, via_drill=0.3, clr=0.14):
                 xj, yj, lj, tj = items[j]
                 if li == lj or math.hypot(xi - xj, yi - yj) > eps:
                     continue
-                # already carried across? then there is nothing missing
-                if any(onet == net and math.hypot(xi - vx2, yi - vy2) <= vr
+                # already carried across? then there is nothing missing.
+                # ⚠ "ACROSS" INCLUDES A VIA THE TWO TRACKS BOTH COVER (pi_cap, 2026-10-04).
+                # Two declared 2.2 mm patches, one per layer, shared an endpoint with eight
+                # declared vias under them, the nearest 0.55 mm from that point: the test
+                # was "a via exactly here", so a ninth was dropped in -- and the tidy pass
+                # then removed four of the DECLARED ones for crowding it.
+                _reach = min(ti.GetWidth(), tj.GetWidth()) / 2.0
+                if any(onet == net and math.hypot(xi - vx2, yi - vy2) <= vr + _reach
                        for vx2, vy2, vr, onet in vias):
                     continue
                 if not clear(xi, yi, net):
@@ -1293,8 +1299,10 @@ def tidy_router_vias(board, notes, min_gap_mm=0.25):
     # whatever they look like to a dangling test.
     # NOT "keep" -- the merge loop below binds that name to the surviving VIA, and this
     # closure then tested membership in a PCB_VIA.
+    # (and so is one laid BEFORE routing, in "vias": a declared via field lost four of its
+    # eight to this pass, each "crowding" a router via that had been dropped beside it)
     declared_xy = {(round(rv[1], 3), round(rv[2], 3))
-                   for rv in notes.get("repair_vias", [])}
+                   for rv in list(notes.get("repair_vias", [])) + list(notes.get("vias", []))}
 
     def _declared(v):
         p = v.GetPosition()
@@ -1606,6 +1614,33 @@ def repair_plane_orphans(board, notes, probe_mm=12.0, max_items=24):
     return laid
 
 
+def via_plane_contact(via, poly):
+    """How much of a via's annular ring sits in a filled pour: 0.0 .. 1.0.
+
+    ⚠ THE CENTRE OF A VIA IS A HOLE, AND TESTING IT ANSWERS THE WRONG QUESTION. A
+    neighbouring via's antipad is a circle of (its radius + the plane's clearance), and
+    with a 0.5 mm plane clearance that circle reaches 0.8 mm -- past the CENTRE of a
+    stitch via 0.76 mm away, while half of that via's ring still sits in solid plane.
+    The centre test called five such vias "landed where the plane is not" and the
+    quality pass called their pins unfed, on boards KiCad's own connectivity (which
+    asks whether copper overlaps copper) correctly reported as joined. What matters is
+    how much of the ring the plane touches, so measure that: sixteen points round the
+    middle of the ring, between the drill wall and the land's edge.
+    """
+    import math
+    c = via.GetPosition()
+    r = (via.GetDrillValue() / 2.0 + via.GetWidth(pcbnew.F_Cu) / 2.0) / 2.0
+    hit = sum(1 for k in range(16) if poly.Collide(pcbnew.VECTOR2I(
+        int(c.x + r * math.cos(k * math.pi / 8.0)),
+        int(c.y + r * math.sin(k * math.pi / 8.0)))))
+    return hit / 16.0
+
+
+# a stitch counts as landed with a quarter of its ring in the plane: at 0.6 / 0.3 that is
+# 0.35 mm of copper into a barrel whose own wall is the narrower conductor
+VIA_CONTACT_MIN = 0.25
+
+
 def _check_stitches_landed(board, notes):
     """Did every stitch via actually land IN the plane it was aiming at?
 
@@ -1650,7 +1685,8 @@ def _check_stitches_landed(board, notes):
         zs = planes.get(t.GetNetname())
         if not zs:
             continue
-        if not any(z.GetFilledPolysList(z.GetLayer()).Collide(t.GetPosition()) for z in zs):
+        if not any(via_plane_contact(t, z.GetFilledPolysList(z.GetLayer())) >= VIA_CONTACT_MIN
+                   for z in zs):
             stray.append((t.GetNetname(), pcbnew.ToMM(t.GetPosition().x),
                           pcbnew.ToMM(t.GetPosition().y)) + _plane_gap(t.GetPosition(), zs))
     if stray:
@@ -1945,10 +1981,19 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
                     def _thru(q):
                         return (isinstance(q, pcbnew.PAD) and q.IsOnLayer(pcbnew.F_Cu)
                                 and q.IsOnLayer(pcbnew.B_Cu))
+                    # ⚠ AND AN SMD PAD'S LAYER IS THE ONE IT IS ON, NOT GetLayer(). A pad on
+                    # a back-side part answered F.Cu, so two back-side capacitors were
+                    # "joined" to their rail with F.Cu copper ending over pads on the other
+                    # face: six dangling tracks, net still open, and the closing step then
+                    # drilled into a pad to finish what this had started (pi_cap).
+                    def _lay(q):
+                        if isinstance(q, pcbnew.PAD) and not _thru(q):
+                            return pcbnew.B_Cu if q.IsOnLayer(pcbnew.B_Cu) else pcbnew.F_Cu
+                        return q.GetLayer()
                     if _thru(a) and not _thru(b):
-                        lay = b.GetLayer()
-                    elif _thru(b) or a.GetLayer() == b.GetLayer():
-                        lay = a.GetLayer()
+                        lay = _lay(b)
+                    elif _thru(b) or _lay(a) == _lay(b):
+                        lay = _lay(a)
                     else:
                         continue
                     for q0, q1 in zip(way, way[1:]):
@@ -3336,7 +3381,7 @@ def _inside(outline, x, y, margin):
 
 def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
                        clr=0.2, max_reach=3.0, allow=(), keepouts=(),
-                       escape_pins=(), escape_runs=None):
+                       escape_pins=(), escape_runs=None, declared=(), declared_vias=()):
     """Give every pad on a plane net its own via down to the plane layers.
 
     ⚠ WITHOUT THIS, A GROUND PAD'S CONNECTION DEPENDS ON THE POUR'S ISLAND TOPOLOGY,
@@ -3398,6 +3443,21 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
     segs += [((t.GetPosition().x, t.GetPosition().y),
               (t.GetPosition().x, t.GetPosition().y), _via_r(t),
               t.GetNetname(), None) for t in board.GetTracks() if t.GetClass() == "PCB_VIA"]
+    # ⚠ AND THE DECLARED COPPER, WHICH IS NOT ON THE BOARD YET. Stitching runs before
+    # notes["tracks"] / notes["vias"] are laid (see the ordering note in layout()), so the
+    # search could not see them: a capacitor's ground stitch went 1.4 mm north into a
+    # declared 2 mm +5 V bar and the first anyone knew was two shorting_items on the
+    # routed board. A declared rail is a decision already made; it is an obstacle here
+    # exactly as if it had been drawn, and the order of laying stays what it was.
+    for _dn, _dl, _dw, _dpts in declared:
+        _lid = board.GetLayerID(_dl)
+        _q = [_to_board(px_, py_) for px_, py_ in _dpts]
+        segs += [((a_.x, a_.y), (b_.x, b_.y), pcbnew.FromMM(_dw) / 2.0, _dn, _lid)
+                 for a_, b_ in zip(_q, _q[1:])]
+    for _dv in declared_vias:
+        _c = _to_board(_dv[1], _dv[2])
+        segs.append(((_c.x, _c.y), (_c.x, _c.y),
+                     pcbnew.FromMM(_dv[4] if len(_dv) > 4 else 0.6) / 2.0, _dv[0], None))
 
     # ⚠ HOLE-VS-HOLE ON EVERY NET WAS TRIED HERE AND REVERTED -- IT BROKE THE BUILD.
     # The idea is sound: copper on one net may touch, two DRILLS may never, and
@@ -3418,6 +3478,33 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
     # making holes obstacles, and re-measure all three boards. Left undone rather than
     # half-done, because the remaining co-located drills are warnings and a broken layout
     # is not.
+    # ⚠ A DRILL IN A SMALL LAND IS NOT A SAME-NET NICETY. _clear_of skips copper on the
+    # stitch's own net, which is right for copper and wrong for the HOLE: an open barrel
+    # in a pasted 0402 or SOT land wicks the joint's solder down the hole. Two cases
+    # reached a finished board -- a pin's own stitch via overlapping the edge of its own
+    # land, and one part's stitch landing in the ground land of the capacitor beside it.
+    # So every small pasted SMD land is a keep-out for the hole on EVERY net, its own
+    # included. Large lands (thermal tabs) are left to the quality pass, which weighs the
+    # barrel volume against the paste.
+    small_lands = []
+    for _fp in board.GetFootprints():
+        for _p in _fp.Pads():
+            if _p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
+                continue
+            _bb = _p.GetBoundingBox()
+            if pcbnew.ToMM(_bb.GetWidth()) * pcbnew.ToMM(_bb.GetHeight()) >= 4.0:
+                continue
+            small_lands.append(_bb)
+
+    def _hole_off_lands(x, y):
+        lim = pcbnew.FromMM(via_drill / 2.0 + 0.05)
+        for bb in small_lands:
+            dx = max(bb.GetLeft() - x, 0, x - bb.GetRight())
+            dy = max(bb.GetTop() - y, 0, y - bb.GetBottom())
+            if math.hypot(dx, dy) < lim:
+                return False
+        return True
+
     def _clear_of(x, y, netname, margin, layer=None):
         """True if (x, y) keeps `margin` from every pad or track NOT on `netname`.
 
@@ -3531,7 +3618,13 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
         # the first time, each drew a stitch via, and the re-plan cost a TIA net.)
         if "%s.%s" % (fp.GetReference(), pad.GetNumber()) in allow:
             continue
-        if (not _is_pth
+        # ⚠ AND THE LAND HAS TO BE BIG ENOUGH TO LOSE THE PASTE (quality A12, 2026-10-04).
+        # Width alone let a 1.4 x 1.2 crystal ground pad take a via: its barrel holds half
+        # the paste that pad is printed with. 4 mm2 is where the barrel is a quarter of it.
+        # A pad with no paste (a test pad) has nothing to lose and keeps the old test.
+        _area_ok = (pcbnew.ToMM(pad.GetSize().x) * pcbnew.ToMM(pad.GetSize().y) >= 4.0
+                    or not (pad.IsOnLayer(pcbnew.F_Paste) or pad.IsOnLayer(pcbnew.B_Paste)))
+        if (not _is_pth and _area_ok
                 and min(pad.GetSize().x, pad.GetSize().y) >= pcbnew.FromMM(via_d + 0.6)):
             v = pcbnew.PCB_VIA(board)
             v.SetPosition(pc)
@@ -3603,6 +3696,8 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
             via_lim = pcbnew.FromMM(via_d / 2.0 + clr)
             trk_lim = pcbnew.FromMM(0.25 / 2.0 + 0.127)
             if not _clear_of(x_, y_, pad_.GetNetname(), via_lim):
+                return False
+            if not _hole_off_lands(x_, y_):
                 return False
             if not all(_clear_of(px, py, pad_.GetNetname(), trk_lim, pad_.GetLayer())
                        for px, py in samples[1:]):
@@ -4350,7 +4445,9 @@ def build(stem):
                                allow=set(notes.get("stitch_exceptions", ())),
                                keepouts=notes.get("via_keepouts", ()),
                                escape_pins=set(notes.get("pin_escapes", ())),
-                               escape_runs=notes.get("escape_runs"))
+                               escape_runs=notes.get("escape_runs"),
+                               declared=notes.get("tracks", ()),
+                               declared_vias=notes.get("vias", ()))
         print("  stitched %d pad(s) on %s straight to the plane"
               % (n, "/".join(sorted(stitch))))
 
@@ -4501,6 +4598,33 @@ def build(stem):
         _edge_rect(board, *notes["outline_mm"])
     for h in notes.get("cutouts", ()):
         _cutout(board, h["xy"][0], h["xy"][1], h["d"])
+        # "head_d": the screw HEAD (or washer, or standoff) that bears on the board round
+        # this hole. Tracks and vias are kept out from under it -- solder mask is not
+        # insulation against a steel head torqued down on a live track -- on the face it
+        # bears on: "head_side" is "front" (default), "back" or "both". "head_margin"
+        # (default 0.2) is added to the head's radius for the screw's play in its hole.
+        if h.get("head_d"):
+            _r = float(h["head_d"]) / 2.0 + float(h.get("head_margin", 0.2))
+            _side = h.get("head_side", "front")
+            _ls = pcbnew.LSET()
+            if _side in ("front", "both"):
+                _ls.AddLayer(pcbnew.F_Cu)
+            if _side in ("back", "both"):
+                _ls.AddLayer(pcbnew.B_Cu)
+            _poly = pcbnew.SHAPE_LINE_CHAIN()
+            for _i in range(32):
+                _a = 2.0 * math.pi * _i / 32.0
+                _poly.Append(_to_board(h["xy"][0] + _r * math.cos(_a), h["xy"][1] + _r * math.sin(_a)))
+            _poly.SetClosed(True)
+            _z = pcbnew.ZONE(board)
+            _z.SetIsRuleArea(True)
+            _z.SetDoNotAllowTracks(True)
+            _z.SetDoNotAllowVias(True)
+            _z.SetDoNotAllowZoneFills(True)
+            _z.SetDoNotAllowPads(False)
+            _z.SetLayerSet(_ls)
+            _z.AddPolygon(_poly)
+            board.Add(_z)
     for r in notes.get("outline_holes", ()):
         _edge_hole(board, *r)
     for sl in notes.get("outline_slots", ()):

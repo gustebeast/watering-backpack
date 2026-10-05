@@ -383,6 +383,58 @@ check(not os.path.exists(hb + ".busy"), "and clears it afterwards")
 print("the two code stamps agree")
 sys.path.insert(0, os.path.dirname(_HERE))
 import freecad_view as L                                            # noqa: E402
+# ── the stamp must not depend on the checkout's line endings ─────────────────────
+# Canonical cadkit holds these files LF, every vendored copy CRLF. Hashing raw bytes made
+# identical code look "stale" across checkouts, and a stale hub gets its macro re-run.
+_LF, _CRLF = bytes([10]), bytes([13, 10])
+_eol = os.path.join(TMP, "eol")
+for _kind, _nl in (("lf", _LF), ("crlf", _CRLF)):
+    os.makedirs(os.path.join(_eol, _kind))
+    for _n in ("freecad_viewer.py", "view.FCMacro"):
+        _raw = open(os.path.join(_HERE, _n), "rb").read().replace(_CRLF, _LF)
+        with open(os.path.join(_eol, _kind, _n), "wb") as _f:
+            _f.write(_raw.replace(_LF, _nl))
+_keep = L._HERE
+_stamps = []
+for _kind in ("lf", "crlf"):
+    L._HERE = os.path.join(_eol, _kind)
+    _stamps.append(L._code_stamp())
+L._HERE = _keep
+check(_stamps[0] == _stamps[1], "code stamp is the same for LF and CRLF copies of the code")
+check(_stamps[0] == L._code_stamp(), "normalised stamp equals this checkout's stamp")
+
+# ── claims are exclusive, and expire ────────────────────────────────────────────
+_khb = L._HEARTBEAT
+L._HEARTBEAT = os.path.join(TMP, "claim.heartbeat")
+check(L._claim("launching", 60.0), "first launcher gets the launch claim")
+check(not L._claim("launching", 60.0), "second launcher is refused while the claim is fresh")
+os.utime(L._HEARTBEAT + ".launching", (1.0, 1.0))
+check(L._claim("launching", 60.0), "a stale claim is taken over")
+
+# ── a refresh is never fired at a hub that is mid-load ──────────────────────────
+_fired = []
+_saved = (L._refresh_hub, L._freecad_count, L._code_is_stale, L._freecad_exe,
+          L._compat_marker, L._INBOX)
+L._refresh_hub = lambda exe, step: _fired.append(step) or True
+L._freecad_count = lambda: 1
+L._code_is_stale = lambda: True
+L._freecad_exe = lambda e=None: sys.executable
+L._compat_marker = lambda: None
+L._INBOX = os.path.join(TMP, "claim_inbox")
+_s = make_step("busyproj")
+with open(L._HEARTBEAT, "w") as _f:
+    _f.write("x")
+with open(L._HEARTBEAT + ".busy", "w") as _f:
+    _f.write("open something")
+check(L.show(_s) is True and not _fired, "stale code + BUSY hub: request queued, no refresh")
+check(len(os.listdir(L._INBOX)) == 1, "the request waits in the inbox")
+os.remove(L._HEARTBEAT + ".busy")
+check(L.show(_s) is True and len(_fired) == 1, "stale code + idle hub: one refresh")
+check(L.show(_s) is True and len(_fired) == 1, "a second build inside the window does not fire another")
+(L._refresh_hub, L._freecad_count, L._code_is_stale, L._freecad_exe,
+ L._compat_marker, L._INBOX) = _saved
+L._HEARTBEAT = _khb
+
 check(L._code_stamp() == V.code_stamp(),
       "launcher and hub hash the same bytes (a mismatch = a reload on every build)")
 

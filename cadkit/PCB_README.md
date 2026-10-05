@@ -95,7 +95,7 @@ Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to 
 | `back_refs` | refs mounted on the back. `single_sided: True` records that all parts share one face (one assembly setup) |
 | `zones` | `[(net, layer, inset)]` copper pours, pulled `inset` in from the edge |
 | `plane_layers` | inner layers that are planes: the router is kept off them |
-| `stitch_nets` | nets whose pads get a via straight down to their pour (usually `("GND",)`) |
+| `stitch_nets` | nets whose pads get a via straight down to their pour (usually `("GND",)`). A stitch via is kept clear of declared `tracks`/`vias`, its hole never lands in a small soldered pad, the router may not drop a via close enough to cut it off its plane, and after the route it must keep at least a quarter of its ring in the pour or the board is refused |
 | `track_mm`, `via_mm` | default track width (0.25) and via `(diameter, drill)` (0.6, 0.3) |
 | `net_widths` | `{net pattern: width}` for supply nets — sized from current, not left at the default |
 | `tracks`, `vias` | copper laid **before** routing: `(net, layer, width, [(x, y), …])`, `(net, x, y)`. A last resort (§4) |

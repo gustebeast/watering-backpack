@@ -190,6 +190,16 @@ def required_width_mm(amps, layer, q):
     return area_mil2 / (oz * 1.378) * 0.0254
 
 
+def _layout():
+    """pcbflow's layout module, for the geometry it already owns (imported late: it is
+    heavy, and most rules never need it)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import layout
+    return layout
+
+
 class _Net:
     """One net's copper as a graph: nodes are (layer, x, y) points and pads; an edge
     carries the WIDTH of what joins its ends. A pour joins everything it touches on its
@@ -205,12 +215,13 @@ class _Net:
         self.q = ctx.q
         layers = [b.GetLayerName(l) for l in b.GetEnabledLayers().CuStack()]
         R = lambda v: (round(MM(v.x), 3), round(MM(v.y), 3))        # noqa: E731
-        segs = []
+        segs, vias_at = [], {}
         for t in b.GetTracks():
             if t.GetNetname() != net:
                 continue
             if t.GetClass() == "PCB_VIA":
                 p = R(t.GetPosition())
+                vias_at[p] = t
                 # a via's barrel as an equivalent track width: its circumference, derated
                 # for plating (~25 um) against 35 um foil. Parallel vias are NOT summed.
                 w = math.pi * MM(t.GetDrillValue()) * 25.0 / 35.0
@@ -258,9 +269,19 @@ class _Net:
                 zk = ("POUR", L, len(self.pours))
                 self.pours.append(zk)
                 for n in list(self.g):
-                    if n[0] == L and poly.Contains(pcbnew.VECTOR2I(
+                    if n[0] != L:
+                        continue
+                    if poly.Contains(pcbnew.VECTOR2I(
                             pcbnew.FromMM(n[1]), pcbnew.FromMM(n[2]))):
                         self._edge(zk, n, self.POUR, "pour", L, (n[1], n[2]))
+                    elif (n[1], n[2]) in vias_at:
+                        # a via whose CENTRE a neighbour's antipad has voided can still
+                        # have its ring in the pour: joined, by the arc that touches
+                        v = vias_at[(n[1], n[2])]
+                        f = _layout().via_plane_contact(v, poly)
+                        if f > 0:
+                            ring = math.pi * (MM(v.GetDrillValue()) + MM(v.GetWidth(pcbnew.F_Cu))) / 2.0
+                            self._edge(zk, n, f * ring, "pour contact", L, (n[1], n[2]))
                 # ⚠ AND THE PADS, BY SHAPE RATHER THAN BY THEIR CENTRE POINT.
                 # The loop above reaches a pad only through the position node
                 # at its CENTRE, and a pour that connects a pad perfectly well
@@ -1113,6 +1134,77 @@ def fab_capability(ctx):
     except Exception as e:              # noqa: BLE001 -- shape API differs by KiCad version
         out.append(("pad gap", None, "SMD pad gaps not measured on this KiCad (%s): check the "
                     "finest-pitch part by hand" % type(e).__name__))
+
+    # an open via in an SMD pad wicks the paste down the barrel and starves the joint
+    if smd and vias and not fab.get("via_in_pad"):
+        inpad, touch, thermal, drained = [], [], 0, []
+        _thick = MM(b.GetDesignSettings().GetBoardThickness()) or 1.6
+        try:
+            for xy, layer, pad, name in smd:
+                # Where a via in a pad is harmless or wanted: a pad with NO PASTE (a test
+                # pad: nothing is soldered), an exposed pad or its unnumbered paste
+                # sub-pads (A8 asks for vias there), and any land of 4 mm2 or more -- a
+                # 0.3 mm barrel through 1.6 mm holds 0.11 mm3, a quarter of what a 0.12 mm
+                # stencil prints on 4 mm2; on a 1.4 x 1.2 crystal pad it is half.
+                if not (pad.IsOnLayer(pcbnew.F_Paste) or pad.IsOnLayer(pcbnew.B_Paste)):
+                    continue
+                _sz = _pad_size(pad)
+                _fp = pad.GetParentFootprint()
+                _ep = bool(_fp is not None and re.search(
+                    r"\dEP|_EP\d|-EP", _fp.GetFPIDAsString().split(":")[-1]))
+                _big = 0.0
+                if _ep:
+                    _big = max(_pad_size(q)[0] * _pad_size(q)[1] for q in _fp.Pads()
+                               if q.GetAttribute() == pcbnew.PAD_ATTRIB_SMD)
+                _is_ep = _ep and (not pad.GetNumber() or _sz[0] * _sz[1] >= _big - 1e-6)
+                is_thermal = _sz[0] * _sz[1] >= 4.0 or _is_ep
+                _barrels = 0.0
+                for t in b.GetTracks():
+                    if t.GetClass() != "PCB_VIA":
+                        continue
+                    pos = t.GetPosition()
+                    if abs(MM(pos.x) - xy[0]) > 6.0 or abs(MM(pos.y) - xy[1]) > 6.0:
+                        continue
+                    if pad.HitTest(pos, int(t.GetDrillValue() / 2)):
+                        if is_thermal:
+                            thermal += 1
+                            _barrels += math.pi * (MM(t.GetDrillValue()) / 2.0) ** 2 * _thick
+                        else:
+                            inpad.append(name)
+                    elif pad.HitTest(pos, int(pcbnew.FromMM(_via_dia(t) / 2.0))):
+                        touch.append(name)
+                # ...AND A BIG LAND IS ONLY EXEMPT FOR AS MANY BARRELS AS IT CAN FEED. The
+                # 4 mm2 line is one 0.3 mm via; two 0.4 mm vias in a 5.9 mm2 connector land
+                # are 0.40 mm3 out of 0.70 printed, and four are more than all of it. An
+                # exposed pad is not counted: its datasheet asks for the vias and the
+                # joint that matters there is thermal.
+                _paste = _sz[0] * _sz[1] * 0.12
+                if _barrels > 0.25 * _paste + 1e-9 and not _is_ep:
+                    drained.append((name, _barrels, _paste))
+            if drained:
+                _n, _v, _p = max(drained, key=lambda d: d[1] / d[2])
+                out.append(("via in pad volume", False, "open vias in SMD land %s hold %.2f mm3 "
+                            "of the %.2f mm3 of paste printed on it (%d land(s) over a "
+                            "quarter): move the vias beside the land, or order them filled "
+                            "(quality.fab via_in_pad)" % (_n, _v, _p, len(drained))))
+            if inpad:
+                out.append(("via in pad", False, "open via hole inside SMD pad %s (%d place(s)): "
+                            "solder wicks down it -- move the via off the pad, or order "
+                            "filled-and-capped vias and say so (quality.fab via_in_pad)"
+                            % (inpad[0], len(inpad))))
+            else:
+                out.append(("via in pad", True, "no via hole inside an SMD pad, %d via(s) checked"
+                            % len(vias)))
+            if thermal:
+                out.append(("thermal vias", None, "%d via(s) in large or thermal pads (4 mm2 "
+                            "or more, or an exposed pad): expected there" % thermal))
+            if touch:
+                out.append(("via at pad", None, "%d via ring(s) touch an SMD pad (first: %s): fine "
+                            "if the via is tented, which the fab does by default"
+                            % (len(touch), touch[0])))
+        except Exception as e:          # noqa: BLE001
+            out.append(("via in pad", None, "vias in pads not checked on this KiCad (%s)"
+                        % type(e).__name__))
 
     # silk text that will be printed
     silk = (pcbnew.F_SilkS, pcbnew.B_SilkS)

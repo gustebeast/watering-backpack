@@ -22,8 +22,8 @@ pack before any switching spike. **Everything on the battery rail is specified
 
 | rail | source | feeds |
 |---|---|---|
-| **VBAT** 15–20 V | pack, after fuse + reverse-polarity FET + TVS | pump FETs, level sensor, VGATE |
-| **3V3** | synchronous buck from VBAT | ESP32, joystick, buzzer, logic |
+| **VBAT** 15–20 V | pack, after the off-board ATC fuse + TVS. **No reverse-polarity FET — see §6** | pump FETs, level sensor (fused), VGATE |
+| **3V3** | **non-synchronous** buck from VBAT (LMR14020, catch diode D6) | ESP32, joystick, buzzer, logic |
 | **VGATE** 10 V | 1k5 dropper + Zener shunt off VBAT | the two gate drivers, and nothing else |
 
 There is no 5 V rail. The level sensor takes 5–24 V, so it runs **straight off
@@ -186,11 +186,35 @@ check in this repo would pass.
 
 - **Inline ATC fuse** (10 A, existing 8110K3 + 7460K45) in the battery **+** lead,
   off-board.
-- **Reverse-polarity P-FET** on VBAT — the Makita terminal is keyed, so this is
-  insurance rather than necessity, but it is cheap and a miswire kills everything
-  downstream.
-- **TVS on VBAT** — standoff above 20 V, clamping well below the FETs' 60 V.
-  SMBJ24A class (24 V standoff, ~39 V clamp) fits that window.
+- ⚠ **THE REVERSE-POLARITY P-FET IS NOT ON THE BOARD, AND THE ARGUMENT THAT MADE IT
+  OPTIONAL DIED IN §7 OF THIS SAME DOCUMENT.** This section used to read "the Makita
+  terminal is keyed, so this is insurance rather than necessity". That was true of a
+  **keyed** battery inlet. §7 then replaced the keyed XT30 with **J1, a 5.08 mm screw
+  terminal carrying two identical wires** — the single easiest thing in the machine to
+  land the wrong way round — and nobody came back to this paragraph. The board was built
+  from the connector decision and the protection decision was never revisited; the rail
+  table above said "after fuse + reverse-polarity FET + TVS" and the BOM has no such
+  part, which is the kind of divergence no gate on this project can see, because every
+  gate reads the board and the claim lives in prose.
+  What a reversed pack actually does, since "kills everything downstream" is not a
+  measurement: D1 (SMBJ24A, **unidirectional**) forward-conducts at about 1 V and the
+  pack sources whatever it likes into it; C1/C2 sit reverse-biased at that clamp; and
+  current runs backwards through each pump winding via D2/D3 and the FETs' body diodes,
+  so the pumps briefly suck on the pressure line. The backstop is the **off-board 10 A
+  ATC fuse**, which is real and is why this is a defect rather than a catastrophe — but
+  it is the only thing standing there, and it is off this board.
+  **This is an open decision, not a closed one.** Adding the part means putting a series
+  element into the 7.5 A pour, which is a re-layout of the board's highest-current path
+  and a thermal and cost question; the alternative is restoring a keyed inlet, which
+  contradicts §7's own argument. Neither is a change to make quietly. Recorded in
+  WORK_V2_PUNCHLIST.md.
+- **Inline ATC fuse** (10 A, off-board) in the battery **+** lead, and **F1**, a 30 V
+  200 mA resettable PTC, in series with J5.1 so the level sensor's cable cannot take the
+  rail down or glow when it chafes (M36).
+- **TVS on VBAT** — standoff above 20 V, clamping well below the FETs' 60 V. D1 is an
+  **SMBJ24A**: 24 V standoff, 26.7 V minimum breakdown, **VC = 38.9 V max** at 15.5 A,
+  600 W — read off the table rather than rounded, because it is the single number every
+  part on the rail is judged against (M5).
 - **ESD on every connector a cable reaches** (joystick, level sensor) per
   PCB_README §5.
 

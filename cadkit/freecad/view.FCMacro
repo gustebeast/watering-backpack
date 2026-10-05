@@ -53,6 +53,73 @@ import FreeCAD as App
 _DEFAULT_INBOX = os.path.join(tempfile.gettempdir(), "freecad_viewer_inbox")
 _step = os.environ.get("FREECAD_VIEW_STEP", "").strip()
 _inbox = os.environ.get("FREECAD_VIEW_INBOX", "").strip() or _DEFAULT_INBOX
+_HB = os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat")
+
+
+def _other_freecads():
+    """How many FreeCAD processes exist besides this one. None when it cannot be told."""
+    try:
+        import subprocess
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq freecad.exe", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=0x08000000).stdout.lower()          # CREATE_NO_WINDOW
+            return max(0, out.count("freecad.exe") - 1)
+        r = subprocess.run(["pgrep", "-f", "[Ff]reeCAD"],
+                           capture_output=True, text=True, timeout=10)
+        return max(0, len([ln for ln in r.stdout.split() if ln.strip()]) - 1)
+    except Exception:
+        return None
+
+
+def _is_failed_handoff():
+    """True if this macro is running in a FreeCAD that should never have opened.
+
+    ⚠ THIS IS WHY A SECOND FreeCAD WINDOW APPEARED (user, 2026-10-04). The launcher
+    refreshes a live hub with `freecad.exe --single-instance <this macro>`. That call only
+    FORWARDS to the running FreeCAD if it answers its local socket inside FreeCAD's own
+    short connect timeout. A hub whose main thread is inside a STEP import -- or is wedged,
+    which is exactly when a refresh is asked for -- does not answer, and FreeCAD's fallback
+    is to carry on starting as a NORMAL NEW INSTANCE and run the macro there. So the
+    "non-destructive refresh" silently became a second hub: same heartbeat, same inbox,
+    two windows racing for every tab.
+
+    The launcher cannot see which of the two happened; this process can. FREECAD_VIEW_REFRESH
+    is set only in the environment of the process the refresh spawned -- a forwarded macro
+    runs in the OLD process, whose environment does not have it. So: the variable is set,
+    no viewer is loaded here yet, and another FreeCAD exists => the hand-off failed and
+    this process is the duplicate. It must close, not become a hub.
+
+    "Cannot tell" counts as a duplicate: a refresh is only ever attempted when the launcher
+    saw a FreeCAD running, and if that one has since exited the next build launches a hub
+    the normal way."""
+    if not os.environ.get("FREECAD_VIEW_REFRESH", "").strip():
+        return False
+    if "freecad_viewer" in sys.modules:
+        return False                    # a hub born from a refresh, being refreshed again
+    others = _other_freecads()
+    return others is None or others > 0
+
+
+def _close_duplicate():
+    """Close this FreeCAD without opening anything, and leave a note the launcher prints."""
+    import time
+    try:
+        with open(_HB + ".duplicate", "w", encoding="utf-8") as f:
+            f.write("%r refresh did not reach the running FreeCAD (it was busy or "
+                    "unresponsive); the extra FreeCAD closed itself instead of becoming "
+                    "a second window\n" % time.time())
+    except OSError:
+        pass
+    App.Console.PrintWarning("[viewer] another FreeCAD is the hub; closing this one\n")
+    try:
+        import FreeCADGui as Gui
+        from PySide import QtCore
+        QtCore.QTimer.singleShot(0, Gui.getMainWindow().close)
+        QtCore.QTimer.singleShot(5000, lambda: os._exit(0))   # nothing here to lose
+    except Exception:
+        os._exit(0)
 
 
 def _compiles(path):
@@ -103,18 +170,21 @@ def _viewer():
 # one outcome that must not be possible. Write it beside the heartbeat instead; the file is
 # removed on success, so its presence always means the last run failed.
 _ERR = os.path.join(tempfile.gettempdir(), "freecad_viewer_hub.heartbeat") + ".error"
-try:
-    _viewer().start_hub(inbox_dir=_inbox, initial_step=_step or None)
-except Exception:
-    import traceback
-    try:
-        with open(_ERR, "w", encoding="utf-8") as _f:
-            _f.write(traceback.format_exc())
-    except OSError:
-        pass
-    raise
+if _is_failed_handoff():
+    _close_duplicate()
 else:
     try:
-        os.remove(_ERR)
-    except OSError:
-        pass
+        _viewer().start_hub(inbox_dir=_inbox, initial_step=_step or None)
+    except Exception:
+        import traceback
+        try:
+            with open(_ERR, "w", encoding="utf-8") as _f:
+                _f.write(traceback.format_exc())
+        except OSError:
+            pass
+        raise
+    else:
+        try:
+            os.remove(_ERR)
+        except OSError:
+            pass
