@@ -281,8 +281,9 @@ prose, where no gate can reach it.
 | # | item | state |
 |---|------|-------|
 | 12 | **§1's "the idle pump's internal check valves seal its branch" does not cover the case that matters.** | **OPEN** — built without a check valve, deliberately; the test is written down below |
-| 13 | **The printed line filter vs the two strainers that came with the pumps.** | **OPEN** — topology and threads settled; blocked on the 1/2" vs 5/8" question |
-| 14 | **The two tees §1 has always needed are not on the BOM at all.** | **OPEN** — blocked on the same purchase decision as 13 |
+| 13 | **The printed line filter vs the two strainers that came with the pumps.** | **OPEN** — fully specified now; one purchase decision left, and it is the owner's |
+| 14 | **The two tees §1 has always needed are not on the BOM at all.** | **OPEN** — size settled at 1/2"; the thread depends on 13 |
+| 15 | **DESIGN_V2 §5 called for 5/8" tubing that §2 of the BOM had already decided against.** | **RESOLVED** — 1/2", settled by the fitting the owner bought |
 
 ### 12 — the idle pump sees a FORWARD differential, not a reverse one
 
@@ -356,20 +357,28 @@ MNPT one end, 1/2"-14 FNPT the other**, 50 mesh, PA, removable clear top. So:
   that family: SEAFLO SFFN1-1220-01 is 1/2"-14 FNPT × 1/2" barb, O-ring sealed,
   nylon — bought for the pump ports, and the 5-pack already has a spare.
 
-**Three things still block it, and none of them is the strainer.**
+**All three of the things that used to block this are answered.** They were the
+tubing size, the 3/8" transition, and the mesh.
 
-1. **The tubing size is not settled** — `bom_consolidated.md` §3 carries its own
-   ⚠ about this: §4 and §5 of DESIGN_V2 say 5/8", the BOM line says 1/2". It sets
-   the barb on the tee, so the tee cannot be bought before it is.
-2. **The printed filter is also the 3/8" → 1/2" transition** at the pot end, and
-   nothing has said where that goes if the housing does. The green line is 3/8"
-   where it enters the inner-pot tube, which is fixed by the pot.
-3. **Mesh:** §4's screen is 0.25 mm (≈60 mesh) and the strainer is 50, so the
-   change is slightly COARSER — §4 should be made to say that rather than leave
-   it to be inferred.
+1. ~~The tubing size is not settled~~ — **1/2"**, finding 15 below. So the tee is
+   a **1/2" barb × 1/2" barb × 1/2"-14 MNPT** tee, and nothing about the size is
+   open any more.
+2. ~~The printed filter is also the 3/8" → 1/2" transition~~ — it is, and the
+   answer is a **single 1/2" × 3/8" barb reducer at the probe end of the green
+   line**. That is *not* the v1 mistake: v1's sin was four reducers necking the
+   whole system to its narrowest element (DESIGN_V2 §4), and this is one, at the
+   end, on the section the pot fixes at 3/8" anyway.
+3. **Mesh, accepted and named rather than resolved away:** §4's screen is 0.25 mm
+   (≈60 mesh) and the strainer is 50, so the change is **slightly coarser**. §4's
+   own sizing is driven by face velocity and open area, not by particle size — the
+   number it argues for is 0.96 in² of open area at ≤1 ft/s — and 50 mesh is still
+   finer than anything a pumice pot sheds that a diaphragm pump would mind.
 
-Until all three are answered `src/line_filter.py` still builds the printed screen
-and `check_plumbing.py` still routes around it. Nothing is half-changed.
+**So what is left is a purchase, and it is the owner's call, not a blocker:** buy
+two barb × barb × MNPT tees and one reducer and the printed housing is never
+built; or buy two plain barbed tees and build it. Until that is said,
+`src/line_filter.py` still builds the printed screen and `check_plumbing.py` still
+routes around it. Nothing is half-changed.
 
 ### 14 — the two tees have never been on the BOM
 
@@ -381,7 +390,37 @@ struck through, not deferred, not open: absent. The CAD gates cannot catch it
 because a tee is a bought fitting and they measure printed geometry.
 
 It is cheap to fix and is deliberately **not** being fixed in the same breath as
-13, because 13 may change what the tee IS — plain barb × barb × barb if the
-printed filter stays, barb × barb × MNPT if the strainers go in. The size is
-blocked on the same 1/2" vs 5/8" question. One purchase decision settles all
-three, and it is the owner's.
+13, because 13 decides what the tee IS — plain barb × barb × barb if the printed
+filter stays, barb × barb × **1/2"-14 MNPT** if the strainers go in. The **size**
+is no longer open: 1/2", by finding 15.
+
+### 15 — §5 asked for 5/8" tubing that §2 of the BOM had already decided against
+
+**RESOLVED**, and not by argument. DESIGN_V2 §5 was titled *"Tubing — 5/8"
+everywhere except the probe"*; `bom_consolidated.md` §3 bought 1/2" and carried a
+⚠ guessing that §5 was "probably right because it is the broader, later
+statement". Neither traced to the owner, whose only size instruction was *"the
+green line has to stay 3/8 but all the other lines can change"* — which pins the
+probe and frees everything else.
+
+What settled it is that **§2 had already chosen, with reasons, and §5 never
+noticed**: the pump-port fitting is SEAFLO SFFN1-1220-01, 1/2"-14 FNPT × **1/2"
+barb**, and the owner has now bought five of them. A 5/8" tube does not grip a
+1/2" barb. The main run is 1/2".
+
+Two things fall out that were not written down anywhere:
+
+- **§5's headline claim was backwards.** It justified 5/8" as *"one reducer
+  instead of four"*. With 1/2" barb swivels on both ports of both pumps, going
+  5/8" needs a step at **all four** — it would have reinstated exactly the thing
+  it claimed to remove.
+- **The owned hose clamps would not have fitted.** McMaster 5574K13 is 1/2"–3/4"
+  ID; 5/8" ID vinyl is commonly 7/8" OD, outside that range. The 5/8" line would
+  have cost new clamps as well as new pump fittings.
+
+The residual is real and is recorded in DESIGN_V2 §5 rather than buried: at
+3.0 GPM, 1/2" runs **4.90 ft/s** against the 2–3 ft/s a suction line wants, where
+5/8" would have made 3.14. Accepted because the runs are short, the suction is
+flooded (§2), and the pump's own port bore is ~0.51" — so the ports are a 1/2"
+restriction whatever the hose is. Friction goes as roughly d⁻⁴⋅⁷⁵, so the
+3/8" → 1/2" step already won 3.9× of the 11.3× that 3/8" → 5/8" would have.

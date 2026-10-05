@@ -188,13 +188,42 @@ of the things that forced mouth-priming in v1. The housing is a cheap printed
 consumable: if backflushing ever fails to clear it, print another. This is a bet that
 backflushing works — and the cycle backflushes it on every fill.
 
-Barbs: **3/8" on the pot side** (fixed by the inner-pot tube), **5/8" on the pump
-side**. The housing is the transition.
+Barbs: **3/8" on the pot side** (fixed by the inner-pot tube), **1/2" on the pump
+side**. The housing is the transition. (This said 5/8" until 2026-10-05; see §5.)
 
-### 5. Tubing — 5/8" everywhere except the probe
+### 5. Tubing — 1/2" everywhere except the probe
 
-The 3/8" constraint is only the probe that goes down the inner-pot channel. The main
-run goes to 5/8", cutting ~6 psi of friction and one reducer instead of four.
+The 3/8" constraint is only the probe that goes down the inner-pot channel, and that
+one is the owner's: *"the green line has to stay 3/8 but all the other lines can
+change."* The main run is **1/2"**.
+
+⚠ **This section used to read "5/8" everywhere except the probe" and it was wrong
+by the time anyone read it.** The 5/8" was an inference from the friction argument
+— nobody ever asked for it — and §2 of `bom_consolidated.md` had already decided
+the other way, with reasons, when it chose the pump-port fitting. **The owner has
+now bought that fitting**: SEAFLO SFFN1-1220-01, 1/2"-14 FNPT × **1/2" barb**,
+five of them, four fitted and one spare. A 5/8" tube does not grip a 1/2" barb, so
+the main run is 1/2" and the question is closed by a purchase rather than by an
+argument. The contradiction had been sitting in three files, flagged in two of them.
+
+**The numbers, so the trade is on the record rather than implied.** At 3.0 GPM:
+
+| ID | velocity | friction vs 3/8" |
+|---|---|---|
+| 3/8" (v1) | 8.71 ft/s | — |
+| **1/2" (v2)** | **4.90 ft/s** | **3.9× lower** |
+| 5/8" (not taken) | 3.14 ft/s | 11.3× lower |
+
+So 1/2" captures the large majority of the available improvement — friction goes
+as roughly d⁻⁴⋅⁷⁵, so most of it is won in the first step up. **The residual, named:**
+4.90 ft/s is still above the 2–3 ft/s a suction line wants, which 5/8" would have
+reached. What makes that acceptable here is that v2's runs are short, the tank sits
+*above* the pumps so the suction is flooded (§2), and the pump's own port bore is
+~13 mm ≈ 0.51" — the ports are a 1/2" restriction whatever the hose is, so 5/8"
+tubing would have bought its margin everywhere except at the four places the flow
+actually has to squeeze through. "One reducer instead of four" — the old §5's
+headline claim — was exactly backwards: with 1/2" barb swivels on both ports of
+both pumps, going 5/8" needs a step at **all four**.
 
 ### 6. Electronics — one PCBA
 
