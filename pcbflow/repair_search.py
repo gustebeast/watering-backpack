@@ -404,6 +404,10 @@ class Board:
         self.zone_clear = _zone_clearance(stem)
 
     def via_ok(self, x, y, r=VIA_D / 2.0):
+        # the caller's own small soldered lands: a hole there takes the joint's paste
+        for cx, cy, hx, hy in getattr(self, "own_lands", ()):
+            if abs(x - cx) < hx + VIA_DRILL / 2.0 + 0.05 and abs(y - cy) < hy + VIA_DRILL / 2.0 + 0.05:
+                return False
         for s in self.segs:
             if s["net"] == self.net:
                 continue
