@@ -250,8 +250,8 @@ check in this repo would pass.
 |---|---|---|---|
 | battery in | 2-pos terminal | 5.08 mm | permanent — killswitch is at the Makita dock |
 | pump A / pump B | 2-pos terminal each | 5.08 mm | 7.5 A each |
-| joystick | 5-pos terminal | 3.5 mm | to the existing KY-023 |
-| level sensor | 4-pos terminal | 3.5 mm | VBAT, GND, OUT, MODE |
+| joystick | 5-pos terminal | 5.08 mm | to the existing KY-023 |
+| level sensor | 4-pos terminal | 5.08 mm | VBAT, GND, OUT, MODE |
 | programming | 6-pin 2.54 mm header | | 3V3/GND/ESP_TX/ESP_RX/EN/IO0 — named from the **board's** end, so cross them to the adapter |
 
 **Why terminals over JST here.** JST earns its place where a joint is plugged and
@@ -264,12 +264,44 @@ before comparing anything else... a joint where you supply both halves is the ca
 the catalogue is worst at."* A JST joint is a header, a housing, crimp contacts
 and a 2 mm crimp tool. **A terminal block is one part with no mating half.**
 
-**Prefer push-in (spring-cage) over screw.** Two motors are bolted to the same
-frame as this board; screw clamps back off under vibration and spring-cage does
-not. It is also faster to land a wire with no screwdriver and no torque question.
+**~~Prefer push-in (spring-cage) over screw.~~ WITHDRAWN.** It said screw clamps
+back off under vibration and spring-cage does not. The user's requirement is
+narrower than that argument assumed — *any* no-solder wire attachment will do —
+and the preference was buying one property at the cost of a second connector
+family. A screw clamp torqued to the WJ500V's specified 0.4 N·m is not the
+vibration risk a spring cage is usually sold against, and the tie rib below
+(**Terminals provide NO strain relief**) is what actually carries cable load.
+
+**ONE FAMILY, ALL FIVE.** Every field terminal is now Ningbo Kangnex
+`WJ500V-5.08-NP` — 2P for J1/J2/J3, 5P for J4, 4P for J5. One pitch, one
+screwdriver, one wire range, one entry-face rule, one drawing to be wrong about.
+J4 and J5 were 3.5 mm Phoenix PT-1,5 push-ins and the change cost them nothing:
+they carry milliamps to a joystick and a level sensor.
 
 **5.08 mm for the pump legs.** 3.5 mm parts are typically rated 8-10 A, which is
-too close to 7.5 A to be comfortable. Signal connections are fine at 3.5 mm.
+too close to 7.5 A to be comfortable.
+
+**What 7.5 A actually does to the terminal.** Read off the customer drawing
+(LCSC C8465, rev A), not the listing — the two disagree and the listing is the
+optimistic one. The drawing: **UL 10 A / IEC 24 A**, 22–12 AWG, PA66 UL94V-0,
+−40…**+105 °C**, contact resistance ≤ 20 mΩ, M2.5 at 0.4 N·m. The listing says
+18 A for the 2P and 15 A for the 4P/5P. Three numbers, so design against the
+lowest certified one: UL 10 A.
+
+The limit that binds is not the current, it is the **insulation temperature**,
+and I²R rise scales with the square of current:
+
+- rise at 7.5 A = 30 K × (7.5 / 10)² = **16.9 K** (UL rates at a 30 K rise)
+- in the sealed housing at 50 °C ambient → **66.9 °C**, against 105 °C
+- **38 K of margin.** J1 is easier still: it carries one pump chopped at
+  D = 0.60–0.80, so 6.7 A RMS worst case, a 13.5 K rise, 63.5 °C.
+
+J1 never sees both pumps — `tools/check_pump_dirs.py` is the gate that holds it.
+
+The 20 mΩ figure is an acceptance *limit*, not a working value: at 20 mΩ a
+contact dissipates 7.5² × 0.020 = **1.13 W**, which is the number that matters
+if a screw is left loose. A properly torqued joint is ~1 mΩ and 0.06 W. That
+asymmetry is the argument for the torque spec being written down.
 
 **Terminals provide NO strain relief** — a tugged cable pulls out of the clamp or
 snaps at it, so the anchor is in the housing: `src/housing.py` puts a buttress rib
@@ -289,9 +321,11 @@ first 1.5 mm behind each long face (the hollow face is the opening):
 
 | part | behind local +Y | behind local −Y | verdict |
 |---|---|---|---|
-| PT-1,5-5-3.5-H (J4) | 54 mm3 | 232 mm3 | entry at **+Y** |
-| PT-1,5-4-3.5-H (J5) | 43 mm3 | 185 mm3 | entry at **+Y** |
 | MKDS-3-2-5.08 (J1–J3) | 140 mm3 | 149 mm3 | **indeterminate** |
+| MKDS-3-5-5.08 (J4) | — | — | same simplified block, **indeterminate** |
+| MKDS-3-4-5.08 (J5) | — | — | same simplified block, **indeterminate** |
+| ~~PT-1,5-5-3.5-H (J4)~~ | ~~54 mm3~~ | ~~232 mm3~~ | withdrawn — part replaced |
+| ~~PT-1,5-4-3.5-H (J5)~~ | ~~43 mm3~~ | ~~185 mm3~~ | withdrawn — part replaced |
 
 **Local +Y is the board's −Y.** `cadkit/PCB_README.md` §0: BOARD_NOTES is
 millimetres, board-centred, **+Y up**, and `layout.py` flips to KiCad's +Y-down
@@ -311,13 +345,31 @@ wrong in both halves: it had the entry face right but dropped the board/KiCad Y
 flip above. It is withdrawn, and so is the note before it that claimed the
 opposite.
 
-**MKDS (J1–J3) is NOT measured.** Its STEP model is a simplified block — no
-Y-axis bores, and material symmetric within 6% at every depth — so the openings
-simply are not in it. What it has going for it is convention: all three
-footprints put Reference on −Y and Value plus the pin-1 marker on +Y, and for
-the two parts that ARE measured the entry is that same +Y side. That is a
-generator convention, not a measurement. Check it against a part in hand before
-trusting it; if it holds, J1–J3 are correct too.
+**⚠ THE ENTRY FACE IS NOW CONVENTION FOR ALL FIVE, AND THAT IS A REGRESSION THE
+ONE-FAMILY CHANGE CAUSED.** It has to be said plainly, because the change was
+otherwise an improvement and it would be easy to let this ride under it.
+
+Before: J4 and J5 were Phoenix PT-1,5, whose STEP models have real Y-axis bores,
+so their entry face was *measured* (54 mm³ of material behind local +Y against
+232 for J4; 43 against 185 for J5) — and J1–J3's face rested on the fact that
+the two measured parts agreed with the generator's convention. After: all five
+are MKDS-3 footprints, whose STEP model is a simplified block with no bores and
+material symmetric within 6 % at every depth. **The two parts that carried the
+measurement are gone.** Five of five now rest on convention where three did.
+
+What is gained in exchange is not nothing: all five are the *identical part at
+the identical rotation*, so whatever the entry face is, it is the same face on
+all five and they cannot disagree with each other. The user's requirement — every
+field wire leaving one edge — is now satisfied by construction rather than by two
+STEP models happening to agree.
+
+What settles it, and what the WJ500V drawing adds: the pin row is **4.50 mm from
+one long face and 5.50 mm from the other** (body 10.00 mm deep). That asymmetry
+is visible on a part in hand with a ruler, which is a better acceptance test than
+any model — measure which face the wire bore opens on, and it is decided for all
+five at once. **Do this before ordering a second board.** The drawing's own views
+do not name the face: the side view is a closed silhouette, and reading it off
+third-angle projection convention would be a guess, not a measurement.
 
 **They are through-hole**, so either a THT assembly surcharge at JLCPCB or hand
 soldering. Terminal blocks are large forgiving parts, so hand soldering is trivial

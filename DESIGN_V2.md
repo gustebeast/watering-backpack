@@ -220,10 +220,16 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
   path outdoors, and OTA covers everything after bring-up. Its silk reads
   `3V3 / GND / ESP_TX / ESP_RX / EN / IO0`: the old `TXD`/`RXD` matched every adapter's
   own labels, so wiring like-to-like wired output into output.
-- Connectors — **Phoenix terminal blocks, not XT30 or JST** (the reasoning is
-  `elec/CIRCUIT.md` §7): J1/J2/J3 are MKDS-3 5.08 mm 2-pin (pack, pump A, pump B), J4 is
-  PT-1,5 3.5 mm 5-pin (joystick), J5 is PT-1,5 3.5 mm 4-pin (level sensor). J1-J4 all
-  leave the board's -Y edge, which faces down in the housing; J5 and J6 are on +Y.
+- Connectors — **screw terminal blocks, not XT30 or JST** (the reasoning is
+  `elec/CIRCUIT.md` §7). ONE family across all five: Ningbo Kangnex WJ500V-5.08,
+  5.08 mm throughout — 2-pin for J1/J2/J3 (pack, pump A, pump B), 5-pin for J4
+  (joystick), 4-pin for J5 (level sensor), on Phoenix MKDS-3 footprints whose
+  F.Fab outline is a strict superset of the WJ500V body. J1-J4 all leave the
+  board's -Y edge, which faces down in the housing; J5 and J6 are on +Y.
+  The earlier split (MKDS-3 screw for power, PT-1,5 3.5 mm push-in for signals)
+  is gone: the user's requirement is any no-solder wire attachment, and two
+  families bought one vibration property at the cost of a second drawing, a
+  second wire range and a second entry-face rule.
 - Optional: low-side shunt per pump -> ADC (would have diagnosed the v1 slowdown
   immediately)
 

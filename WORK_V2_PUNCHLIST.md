@@ -229,8 +229,15 @@ The two ways out, with their costs, because the trade is the decision:
   contradicts `CIRCUIT.md` §7's own argument for terminal blocks ("one part with
   no mating half").
 
-**11** is the same decision wearing different clothes, and the two should be
-taken together: whatever lands on J1 decides both. Note the asymmetry as built —
-the three terminals that carry 7.5 A beside two running motors are the **screw**
-ones (MKDS-3), and the two that carry signals are the **push-in** ones (PT-1,5).
-If only one family changes, it is the wrong one that is currently screw.
+**11 is RESOLVED.** The user's requirement is narrower than the punchlist
+assumed: *any* way to land a wire without soldering, with no preference between
+screw and spring cage (a JST crimp was specifically rejected as more hassle than
+either). So the clamp style stopped being a constraint, and the board went the
+other way from what this item proposed — to **one family, all screw**: Ningbo
+Kangnex WJ500V-5.08, 2P/4P/5P. The asymmetry this item complained about is gone
+because the split is gone. See `elec/CIRCUIT.md` §7 for the withdrawn preference
+and for the 16.9 K rise that replaces "31 % of contact rating".
+
+**10 is still open and no longer has 11 to hide behind.** The two were tied
+together only through the connector choice; that is now settled and J1 is a
+screw terminal, so the keyed-inlet route in 10 is a live decision on its own.

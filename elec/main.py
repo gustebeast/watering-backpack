@@ -511,15 +511,19 @@ def circuit():
     # at assembly, so JST's plug/unplug advantage goes unused, and a terminal is
     # ONE part with no mating half to stock (PCB_README §3).
     j_bat = gen.part("J1", "TB-5.08-2", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal",
-                     ["VBAT", "GND"], "battery in, 15-20 V, 15 A — MKDS-3 screw: Phoenix has no push-in at 5.08/2-pos, and 7.5 A wants the heavier series")
+                     ["VBAT", "GND"], "battery in, 15-20 V, 7.5 A — ONE pump at a time, held by tools/check_pump_dirs.py, so this never carries both; "
+                     "WJ500V-5.08-2P, UL 10 A / IEC 24 A")
     j_pa  = gen.part("J2", "TB-5.08-2", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal",
                      ["VBAT", "LO"], "pump A, 7.5 A")
     j_pb  = gen.part("J3", "TB-5.08-2", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal",
                      ["VBAT", "LO"], "pump B, 7.5 A")
-    j_joy = gen.part("J4", "TB-3.5-5", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal",
-                     ["3V3", "GND", "VRY", "VRX", "SW"], "KY-023 joystick, 3V3 NOT 5 V — PT = push-in, no screw to vibrate loose")
-    j_lvl = gen.part("J5", "TB-3.5-4", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal",
-                     ["VBAT", "GND", "OUT", "MODE"], "XKC-Y25 level, open-collector out")
+    j_joy = gen.part("J4", "TB-5.08-5", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal",
+                     ["3V3", "GND", "VRY", "VRX", "SW"],
+                     "KY-023 joystick, 3V3 NOT 5 V. 5.08 mm, not the old "
+                     "3.5 mm PT: ONE connector family on the whole board")
+    j_lvl = gen.part("J5", "TB-5.08-4", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal",
+                     ["VBAT", "GND", "OUT", "MODE"],
+                     "XKC-Y25 level, open-collector out; same 5.08 family")
     j_prg = gen.part("J6", "PROG", "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical",
                      ["3V3", "GND", "ESP_TX", "ESP_RX", "EN", "IO0"],
                      "programming; no USB-C — a connector is a water path "
@@ -875,8 +879,10 @@ BOARD_NOTES = {
     # attempts at deriving it here produced three wrong courtyard gaps in a row.
     # The deltas each number below is built from, all at the rotation used:
     #
-    #   MKDS-3 (J1/J2/J3)  crt dx +-5.63   pad1 dx -2.54   pad2 dx +2.54
-    #   PT-1,5-5 (J4)      crt dx +-9.295  pads dx -7, -3.5, 0, +3.5, +7
+    #   MKDS-3-2 (J1/J2/J3) crt dx +-5.63   pad1 dx -2.54   pad2 dx +2.54
+    #   MKDS-3-5 (J4)      crt dx -16.24..+10.16  pads dx +-10.16, +-5.08, 0
+    #   MKDS-3-4 (J5)      crt dx -13.70..+ 7.62  pads dx -7.62, -2.54,
+    #                                             +2.54, +7.62
     #   DPAK rot270 (Q)    crt dx +-3.545  TAB d(0,-2.363) 6.40x5.80
     #                                      leads dy +3.938, dx 0 and +-2.28
     #   D2PAK rot0 (D)     crt dx -9.131..+7.609
@@ -1242,11 +1248,10 @@ BOARD_NOTES = {
                          "entry face; pin 1 is the pad the footprint marks, and "
                          "elec/CIRCUIT.md section 7 records the entry face as "
                          "local +Y for all five terminals",
-            "TB-3.5-5": "Phoenix PT 1,5/5-3,5-H drawing, same face and the same "
-                        "measurement (CIRCUIT.md section 7: 43 mm3 behind +Y "
-                        "against 185 behind -Y, so +Y is the opening)",
-            "TB-3.5-4": "Phoenix PT 1,5/4-3,5-H drawing, same face; measured "
-                        "54 mm3 behind +Y against 232 behind -Y",
+            "TB-5.08-5": "MKDS 3/5-5,08, the 5-way member of the SAME family "
+                         "as J1/J2/J3, so one pinout rule covers all five "
+                         "terminals and the entry face is read the same way",
+            "TB-5.08-4": "MKDS 3/4-5,08, the 4-way member of that family",
             "PROG": "a 1x06 2.54 header has no maker pinout: the order is this "
                     "board's own, printed on the back silk by kicad_silk and "
                     "listed in elec/CIRCUIT.md -- 3V3, GND, ESP_TX, ESP_RX, "
