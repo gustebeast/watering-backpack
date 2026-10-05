@@ -35,7 +35,6 @@ import cadquery as cq
 # Shared STEP exporter (vendored cadkit) — names each product after its file.
 from cadkit.step_export import export_step
 
-from . import line_filter as LF
 from .dimensions import (BOOL_OVERSHOOT, DOVETAIL_ROOT_W, DOVETAIL_TIP_W,
                          DOVETAIL_CLR)
 from .helpers import dovetail_arrowhead
@@ -124,23 +123,13 @@ def test_house_elec():
     return bh.elec_housing_part.intersect(_join_region())
 
 
-def test_screen_slice():
-    """Green-line filter screen, ONE slot band instead of two — the real
-    geometry (src.line_filter.screen, same slot width, same rib, same wall),
-    just shortened so the makeability question costs a 20 mm print.
-
-    WHAT IT ANSWERS. DESIGN_V2 section 4 bets that a 0.2 mm nozzle will render
-    0.25 mm slots. Hold this up to a light: if the slots are not open, the whole
-    filter geometry changes, and no gate in this repo can tell you that — the
-    overhang gate checks angles, not minimum feature size.
-
-    IF IT FAILS, sweep the width rather than re-modelling: screen(bands=1,
-    slot_w=0.30) and up. Widening costs open area, so re-run src.line_filter
-    afterwards — its face-velocity assert is what says whether the wider slot
-    still filters 3 GPM.
-
-    Prints axis-vertical as modelled, no supports."""
-    return LF.screen(bands=1)
+# test_screen_slice retired 2026-10-05, with the part it was a coupon for.
+# It existed to answer one question -- whether a 0.2 mm nozzle renders the
+# printed screen's 0.25 mm slots -- and the owner decided the green-line
+# filter is two BOUGHT Seaflo 51S01 strainers at the tees instead, so the
+# question is no longer asked. A coupon for a part nobody prints is worse
+# than no coupon: it invites someone to print it and conclude something.
+# DESIGN_V2 section 4; WORK_V2_PUNCHLIST 13/13a. git has both.
 
 
 PARTS = {
@@ -148,7 +137,6 @@ PARTS = {
     "test_dovetail_mortise": test_dovetail_mortise,
     "test_house_pump":       test_house_pump,
     "test_house_elec":       test_house_elec,
-    "test_screen_slice":     test_screen_slice,
 }
 
 

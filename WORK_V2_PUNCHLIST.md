@@ -320,6 +320,10 @@ pump's branch, which the firmware already knows which one is idle.
 
 ### 13 — the strainers that came with the pumps, at the tees
 
+> ✅ **CLOSED 2026-10-05 — the owner decided: "Let's go with the two MNPT tees,
+> skip the printed screen."** What that changed in the repo is listed at the end
+> of this finding.
+
 §4 designs a printed 1" wedge-wire screen on the green line and says the pumps'
 own 50-mesh inlet strainers are redundant. The owner has since tested one:
 *"I tested the one that came with the pump and it cleaned itself when run
@@ -376,6 +380,9 @@ tubing size, the 3/8" transition, and the mesh.
 
 ### 13a — the strainer is DIRECTIONAL, and that decides which fitting goes where
 
+> ✅ **CLOSED 2026-10-05** with 13, which it was the sourcing half of. The
+> orientation conclusion below is now what DESIGN_V2 §4 says, not a proposal.
+
 The owner, 2026-10-05: *"The stock filter has a female thread on one side and male
 on the other. The filtering direction goes from male to female, with female to male
 working as a cleaning cycle."* And, correcting a first telling of it: *"the fitting
@@ -429,12 +436,38 @@ thread, which is the gentler direction of the same mismatch but still not plasti
 plastic. Tape it and stop at hand-tight plus a little — the strainer body is the
 cheap part, but it is also the part that cracks.
 
-**Still the owner's call, still not a blocker:** buy the two MNPT tees and the
-printed housing is never built; or buy two plain barbed tees and build it. Until
-that is said, `src/line_filter.py` still builds the printed screen and
-`check_plumbing.py` still routes around it. Nothing is half-changed.
+**What the decision changed, so nothing is half-changed:**
+
+- `src/line_filter.py` — **deleted.** With it, `src.test_pieces.test_screen_slice`,
+  the coupon that existed only to answer whether a 0.2 mm nozzle renders its 0.25 mm
+  slots. A coupon for a part nobody prints invites someone to print it and conclude
+  something. git has both.
+- `src/build.py` — `line_filter_screen` is out of `printed_parts()`, with the reason
+  in place of the part.
+- `DESIGN_V2.md` §4 — retitled *"two bought strainers at the tees,
+  self-backflushing"* and rewritten. The backflushing argument is unchanged, because
+  it was never the thing that was wrong; what it now applies to is the stock part the
+  owner actually tested. The four costs are named there, including the one that is a
+  genuine loss — see below.
+- `bom_consolidated.md` — §3 carries the two tees (finding 14); the 5346K56 is
+  un-dropped and moved up to §3 as the 1/2" → 3/8" step; §7b lost the screen row and
+  its two paragraphs; the filament figure fell 299 g → 294 g and `check_bom.py` is
+  what noticed; the screen is recorded in *Dropped* with why it was a good part.
+- **The cost that is a real loss, named rather than lumped:** §4's printed housing was
+  deliberately **unopenable**, because a threaded joint on a suction line is an
+  air-leak path and priming is this project's headline problem. Two strainers at the
+  tees add **four** threaded joints on suction lines. Accepted — they are taped
+  tapered pipe threads, not the twist-off cap the argument was aimed at, and the
+  system re-primes every cycle by design — but if priming regresses, these are the
+  first joints to suspect.
+- Still open, and now geometric rather than a purchase: **finding 16**.
 
 ### 14 — the two tees have never been on the BOM
+
+> ✅ **CLOSED 2026-10-05.** 13 decided what the tee IS, so this could be fixed:
+> `bom_consolidated.md` §3 now carries **two tees, barb × barb × 1/2"-14 MNPT,
+> 1/2" barbs**, unticked because they are not bought yet. The absence was the
+> finding; the purchase is just a purchase.
 
 Found while sourcing 13, and it is older than 13: §1 has needed two tees since the
 anti-parallel arrangement was chosen, `src/plumbing.py` models both of them
@@ -478,3 +511,31 @@ The residual is real and is recorded in DESIGN_V2 §5 rather than buried: at
 flooded (§2), and the pump's own port bore is ~0.51" — so the ports are a 1/2"
 restriction whatever the hose is. Friction goes as roughly d⁻⁴⋅⁷⁵, so the
 3/8" → 1/2" step already won 3.9× of the 11.3× that 3/8" → 5/8" would have.
+
+### 16 — the strainers have a LENGTH, and it has never been measured
+
+Opened by 13 closing. While the filter was printed and unplaced, its size was
+nobody's problem: `src/build.py` exported it, `components()` did not carry it, and
+§4 gave it no position on purpose. Two bought strainers at the tees do have a
+position — inline on each tee's third leg — and therefore a length that has to fit.
+
+**What the model says is available**, from `src/plumbing.py`:
+
+| leg | run | straight available |
+|---|---|---|
+| green tee → wand | `GREEN_TEE` (−73, 262, **84**) straight down to `GREEN_EXIT` (−73, 262, **−40**), no bends | **124 mm**, and it leaves the pack, so a strainer can also hang below it |
+| tank tee → Uniseal | `TANK_TEE` (+73, 262, **84**) up to **z 234**, with one corner at the top at `BEND_R` = 50 | **≈100 mm** |
+
+**What is not known is the 51S01's length.** It is a tape-measure job on a part that
+is already in the drawer, which is why this is a finding and not a blocker. The tank
+leg is the tight one at ≈100 mm, and it is tight in a way the green leg is not: the
+green leg's strainer can hang outside the pack, the tank leg's is boxed in between the
+tee and the Uniseal, and `UNISEAL_Z` is set by *"seal needs wall either side of the
+bore"*, so it is not free to move up.
+
+**This is a gate-shaped hole, not just an unknown.** `check_plumbing.py` routes six
+hoses and measures clearances, and it has no concept of an inline fitting occupying
+length on a run — so it will keep passing whatever the measurement turns out to be.
+If the number comes back near 100 mm, the fix is to teach the checker about inline
+fittings rather than to eyeball it; if it comes back at 60 or 70, the honest thing is
+still to record the figure here so the next person does not re-derive it.
