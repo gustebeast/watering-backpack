@@ -313,7 +313,35 @@ def _edges(board_txt):
         if st and en:
             out.append((float(st.group(1)), float(st.group(2)),
                         float(en.group(1)), float(en.group(2))))
+    # A ROUND CUT-OUT IS OUTLINE TOO (a mounting hole drawn on Edge.Cuts): as a 24-gon,
+    # whose flats sit under 0.9 % of the radius inside the true circle.
+    for b in re.findall(r"\(gr_circle\b(.*?)\n\t\)", board_txt, re.S):
+        if "Edge.Cuts" not in b:
+            continue
+        c = re.search(r"\(center ([-\d.]+) ([-\d.]+)\)", b)
+        en = re.search(r"\(end ([-\d.]+) ([-\d.]+)\)", b)
+        if c and en:
+            cx, cy = float(c.group(1)), float(c.group(2))
+            r = math.hypot(float(en.group(1)) - cx, float(en.group(2)) - cy)
+            ring = [(cx + r * math.cos(math.radians(15.0 * i)),
+                     cy + r * math.sin(math.radians(15.0 * i))) for i in range(25)]
+            out += [(p0[0], p0[1], p1[0], p1[1]) for p0, p1 in zip(ring, ring[1:])]
     return out
+
+
+def _edge_clearance(stem):
+    """The board's copper-to-outline rule, which is NOT the netclass clearance.
+
+    ⚠ THE OUTLINE WAS HELD OFF BY THE TRACK-TO-TRACK RULE (optical SAI_SD4, 2026-10-04).
+    The fab wants 0.3 mm of laminate between copper and a routed edge; copper to copper
+    is 0.127. The search modelled an edge as a zero-width foreign track, so it ran a
+    path 0.13 mm from the outline and DRC called it copper_edge_clearance.
+    """
+    try:
+        pro = json.load(open(stem + ".kicad_pro", encoding="utf-8"))
+        return float(pro["board"]["design_settings"]["rules"]["min_copper_edge_clearance"])
+    except (OSError, KeyError, ValueError, TypeError):
+        return 0.3
 
 
 def _d_pt_seg(px, py, x1, y1, x2, y2):
@@ -399,6 +427,7 @@ class Board:
         self.vias = _vias(txt)
         self.pads = _pads(txt)
         self.edges = _edges(txt)
+        self.edge_clear = _edge_clearance(stem)
         # ⚠ AND THE POURS, which this class did not model at all until 2026-09-30.
         self.zones = _zones(txt)
         self.zone_clear = _zone_clearance(stem)
@@ -423,8 +452,8 @@ class Board:
                 continue
             if _d_seg_pad(x, y, x, y, p) < r + MARGIN:
                 return False
-        for e in self.edges:                      # and the outline
-            if _d_pt_seg(x, y, *e) < r + MARGIN:
+        for e in self.edges:                      # and the outline, at ITS rule
+            if _d_pt_seg(x, y, *e) < r + max(MARGIN, getattr(self, "edge_clear", 0.3)):
                 return False
         return True
 
@@ -579,9 +608,13 @@ class _Index:
             _ys = [q[1] for q in pd["poly"]] if pd.get("poly") else [pd["y1"], pd["y2"]]
             self._put(min(_xs) - pd["r"], min(_ys) - pd["r"],
                       max(_xs) + pd["r"], max(_ys) + pd["r"], ("pad", pd))
+        # the outline carries the EXTRA its own rule asks over the netclass clearance the
+        # caller inflates by, as if it were a track that wide (see _edge_clearance)
+        _eh = max(0.0, getattr(board, "edge_clear", 0.3) - RULE_CLEAR)
         for e in board.edges:
-            self._put(min(e[0], e[2]), min(e[1], e[3]), max(e[0], e[2]), max(e[1], e[3]),
-                      ("seg", e[0], e[1], e[2], e[3], 0.0))
+            self._put(min(e[0], e[2]) - _eh, min(e[1], e[3]) - _eh,
+                      max(e[0], e[2]) + _eh, max(e[1], e[3]) + _eh,
+                      ("seg", e[0], e[1], e[2], e[3], _eh))
 
     def _put(self, x0, y0, x1, y1, item):
         c = self.CELL

@@ -157,7 +157,15 @@ def main(stem):
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
     layer_id = {L: board.GetLayerID(L) for L in LAYERS}
     have = {L for L in LAYERS if board.IsLayerEnabled(layer_id[L])}
-    plane = set(json.load(open(stem + ".board.json", encoding="utf-8")).get("plane_layers", ()))
+    _notes = json.load(open(stem + ".board.json", encoding="utf-8"))
+    plane = set(_notes.get("plane_layers", ()))
+    # ⚠ A RAIL IS NOT CLOSED AT SIGNAL WIDTH IF THE BOARD SAYS HOW WIDE IT WANTS IT
+    # (optical +3V3A, 2026-10-04). The net left open was the only feed from an LDO to
+    # fifteen analog parts, and this file joined it with 23 mm of 0.2 mm track: connected,
+    # DRC-clean, and the whole rail through a hair. BOARD_NOTES["close_widths"] =
+    # {net: mm} asks for a width; if no path exists at it the search falls back to WIDTH
+    # and SAYS SO, because an open net is still worse than a thin one.
+    close_w = _notes.get("close_widths", {}) or {}
     layers = [L for L in LAYERS if L in have and L not in plane]
     made = 0
     for net, la, pa, ta, lb, pb, tb in todo:
@@ -211,10 +219,18 @@ def main(stem):
                  + [(named[0], y, RS.MAZE_STEP) for y in via_b]
                  + [(named[0], named[1], RS.MAZE_STEP), (named[0], named[1], 0.05)])
         res = None
-        for (la, pa), (lb, pb), step in tries:
-            res = RS.maze3d(model, layers, pa, la, pb, lb, w=WIDTH, step=step, reach=REACH)
+        want_w = max(WIDTH, float(close_w.get(net, WIDTH)))
+        for width in ([want_w, WIDTH] if want_w > WIDTH else [WIDTH]):
+            for (la, pa), (lb, pb), step in tries:
+                res = RS.maze3d(model, layers, pa, la, pb, lb, w=width, step=step,
+                                reach=REACH)
+                if res is not None:
+                    break
             if res is not None:
                 break
+            if width > WIDTH:
+                print("close_last: %s -- no path at the %.2f mm it asks for, trying %.2f"
+                      % (net, width, WIDTH))
         if res is None:
             print("close_last: %s -- no path between (%.2f, %.2f) and (%.2f, %.2f)"
                   % (net, pa[0], pa[1], pb[0], pb[1]))
@@ -229,11 +245,34 @@ def main(stem):
                 t = pcbnew.PCB_TRACK(board)
                 t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(q0[0]), pcbnew.FromMM(q0[1])))
                 t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(q1[0]), pcbnew.FromMM(q1[1])))
-                t.SetWidth(pcbnew.FromMM(WIDTH))
+                t.SetWidth(pcbnew.FromMM(width))
                 t.SetLayer(layer_id[L])
                 t.SetNetCode(code)
                 board.Add(t)
                 length += ((q1[0] - q0[0]) ** 2 + (q1[1] - q0[1]) ** 2) ** 0.5
+        # ⚠ FINISH AT THE VIA'S CENTRE, NOT AT ITS RIM (optical +3V3A, 2026-10-04). Own-net
+        # copper is free ground to the search, so a path aimed at a via stops at the first
+        # cell that touches its ring: the track ended 0.30 mm from the centre of a 0.60 mm
+        # via, joined by the 0.1 mm its round end overlaps the ring. DRC calls that
+        # connected; it is a sliver, and the quality pass's own walk (which joins a track
+        # to a via at the via's centre) read the rail as cut in two.
+        _own_vias = [(pcbnew.ToMM(t.GetPosition().x), pcbnew.ToMM(t.GetPosition().y),
+                      pcbnew.ToMM(t.GetWidth(pcbnew.F_Cu)) / 2.0)
+                     for t in board.GetTracks()
+                     if t.GetClass() == "PCB_VIA" and t.GetNetname() == net]
+        _flat = [(L, q) for L, pts in runs for q in pts]
+        for L, q in (_flat[0], _flat[-1]) if _flat else ():
+            for vx, vy, vr in _own_vias:
+                d = ((q[0] - vx) ** 2 + (q[1] - vy) ** 2) ** 0.5
+                if 0.005 < d <= vr + width / 2.0:
+                    t = pcbnew.PCB_TRACK(board)
+                    t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(q[0]), pcbnew.FromMM(q[1])))
+                    t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(vx), pcbnew.FromMM(vy)))
+                    t.SetWidth(pcbnew.FromMM(width))
+                    t.SetLayer(layer_id[L])
+                    t.SetNetCode(code)
+                    board.Add(t)
+                    break
         # ⚠ NO VIA IN A THROUGH-HOLE PAD OF THE SAME NET (pi_cap, 2026-10-04). The search
         # is told which layer each end is on, and a DRC "PTH pad" item names F.Cu whatever
         # layer the route arrives on -- so a path that came in on B.Cu changed layer AT the
@@ -250,9 +289,33 @@ def main(stem):
         barrels += [(pcbnew.ToMM(t.GetPosition().x), pcbnew.ToMM(t.GetPosition().y),
                      RS.VIA_D) for t in board.GetTracks()
                     if t.GetClass() == "PCB_VIA" and t.GetNetname() == net]
-        vias = [(vx, vy) for vx, vy in vias
-                if not any((vx - bx) ** 2 + (vy - by) ** 2 <= br * br
-                           for bx, by, br in barrels)]
+        # ⚠ ...AND A LAYER CHANGE THAT BORROWS A BARREL HAS TO REACH IT ON BOTH LAYERS
+        # (optical +3V3A, 2026-10-04). The path left an escape via on In2, stepped 0.30 mm
+        # and changed to B.Cu; its own via was dropped as above, which left the B.Cu run
+        # starting 0.30 mm from the barrel that was now carrying it -- joined by overlap
+        # with the ring, a sliver DRC accepts. Each run that turned at a dropped via gets
+        # a stub to the centre of the barrel that replaced it.
+        kept = []
+        for vx, vy in vias:
+            hit = [(bx, by) for bx, by, br in barrels
+                   if (vx - bx) ** 2 + (vy - by) ** 2 <= br * br]
+            if not hit:
+                kept.append((vx, vy))
+                continue
+            bx, by = min(hit, key=lambda c: (vx - c[0]) ** 2 + (vy - c[1]) ** 2)
+            for L, pts in runs:
+                near = lambda q, x, y: abs(q[0] - x) < 0.003 and abs(q[1] - y) < 0.003
+                if (any(near(q, vx, vy) for q in pts)
+                        and not any(near(q, bx, by) for q in pts)
+                        and (vx - bx) ** 2 + (vy - by) ** 2 > 1e-6):
+                    t = pcbnew.PCB_TRACK(board)
+                    t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(vx), pcbnew.FromMM(vy)))
+                    t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(bx), pcbnew.FromMM(by)))
+                    t.SetWidth(pcbnew.FromMM(width))
+                    t.SetLayer(layer_id[L])
+                    t.SetNetCode(code)
+                    board.Add(t)
+        vias = kept
         for vx, vy in vias:
             v = pcbnew.PCB_VIA(board)
             v.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(vx), pcbnew.FromMM(vy)))
