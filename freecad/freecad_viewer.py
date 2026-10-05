@@ -583,14 +583,17 @@ def code_stamp():
 
     Hashes CONTENT, never mtime: propagating cadkit rewrites every vendored file, so
     identical bytes get a fresh mtime. Comparing timestamps once read as "stale" and killed
-    a healthy hub, taking every open tab with it (user, 2026-09-07)."""
+    a healthy hub, taking every open tab with it (user, 2026-09-07).
+
+    Line endings are normalised first, exactly as freecad_view._code_stamp does: the same
+    code is LF in the canonical checkout and CRLF in a vendored one."""
     import hashlib
     h = hashlib.sha1()
     here = os.path.dirname(os.path.abspath(__file__))
     for name in ("freecad_viewer.py", "view.FCMacro"):
         try:
             with open(os.path.join(here, name), "rb") as f:
-                h.update(f.read())
+                h.update(f.read().replace(b"\r\n", b"\n"))
         except OSError:
             pass
     return h.hexdigest()

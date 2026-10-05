@@ -300,7 +300,11 @@ def silk(stem, rev=REV, dark=(), labels=None, short=None):
                 pins[int(pad.GetNumber())] = _net(pad)
         if not pins or len(pins) > LEGEND_MAX_PINS:
             continue
-        legend = ref + "\n" + "\n".join("%d %s" % kv for kv in sorted(pins.items()))
+        # `silk_labels` may give a NET a shorter word too ({"+24V_LED": "24V"}): a legend
+        # is as wide as its longest net name, and on a small board that width is what
+        # decides whether it goes down at a legible size or at all.
+        legend = ref + "\n" + "\n".join(
+            "%d %s" % (k, (labels or {}).get(v, v)) for k, v in sorted(pins.items()))
         for size, back in [(z, b) for z in (SIZE_J, SIZE_SMALL) for b in (True, False)]:
             if sides[back].place(legend, size, fp.GetPosition(), 14.0, step=0.5):
                 done.append("%s pinout (%s)" % (ref, "back" if back else "front"))

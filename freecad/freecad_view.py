@@ -168,10 +168,10 @@ def _warn_multi(n):
             "          SINGLE-instance design -- they share one .heartbeat/.status/.busy,",
             "          so those markers mean nothing while this lasts, and the busy guard",
             "          cannot protect an import it is not tracking.",
-            "          Usual cause: a worktree whose vendored cadkit predates the hub",
-            "          rework. Its launcher looks for a pid marker this one no longer",
-            "          writes, decides nothing is running, and spawns another FreeCAD",
-            "          EVERY BUILD.",
+            "          Usual cause: a worktree whose vendored cadkit is out of date --",
+            "          either it predates the hub rework (its launcher sees no pid",
+            "          marker and spawns a FreeCAD every build), or it predates the",
+            "          2026-10-04 fix (its refresh of a busy hub starts a second one).",
             "          Fix it IN THAT WORKTREE:",
             "              py -3.12 -m cadkit.tools.agent_sync sync",
             "          then close the extra windows."):
@@ -292,13 +292,19 @@ def _code_stamp():
 
     Must stay byte-identical to freecad_viewer.code_stamp() -- same files, same order.
     Both are in the stamp because BOTH are now updatable in place: re-running the macro
-    executes the macro from disk and reloads the viewer module."""
+    executes the macro from disk and reloads the viewer module.
+
+    ⚠ LINE ENDINGS ARE NORMALISED BEFORE HASHING. The canonical cadkit checkout holds these
+    files with LF and every vendored copy holds them with CRLF (git autocrlf), so the raw
+    bytes of IDENTICAL code hashed differently depending on which checkout asked. Each
+    side then declared the other's hub "older viewer code" and re-ran the macro -- a
+    reload nobody needed, and (see _refresh_hub) one that could open a second window."""
     import hashlib
     h = hashlib.sha1()
     for name in ("freecad_viewer.py", "view.FCMacro"):
         try:
             with open(os.path.join(_HERE, name), "rb") as f:
-                h.update(f.read())
+                h.update(f.read().replace(b"\r\n", b"\n"))
         except OSError:
             pass
     return h.hexdigest()
@@ -353,13 +359,61 @@ def _refresh_hub(exe, step):
         # inside the EXISTING process (using THAT process's env), but if that process has
         # exited since we read the process table, the same call LAUNCHES FreeCAD -- and
         # then this env is the one the macro reads. Correct either way.
+        #
+        # ⚠ FREECAD_VIEW_REFRESH IS WHAT STOPS THIS CALL OPENING A SECOND WINDOW. The
+        # forward only happens if the running FreeCAD answers its local socket within
+        # FreeCAD's own short timeout; one that is mid-import or wedged does not, and the
+        # fallback is a NORMAL NEW INSTANCE running the macro -- a second hub (user,
+        # 2026-10-04). The variable exists only in the spawned process's environment, so
+        # the macro can tell "I am the duplicate" from "I was forwarded" and close itself
+        # (view.FCMacro, _is_failed_handoff). Without it the two cases look identical.
         env = dict(os.environ, FREECAD_VIEW_STEP=step, FREECAD_VIEW_INBOX=_INBOX,
-                   FREECAD_VIEW_HEARTBEAT=_HEARTBEAT, FREECAD_VIEW_MACRO_DIR=_HERE)
+                   FREECAD_VIEW_HEARTBEAT=_HEARTBEAT, FREECAD_VIEW_MACRO_DIR=_HERE,
+                   FREECAD_VIEW_REFRESH="1")
         subprocess.Popen([exe, "--single-instance", _MACRO], env=env,
                          close_fds=True, creationflags=flags)
         return True
     except Exception:
         return False
+
+
+def _claim(name, window_s):
+    """Take a short-lived, cross-process claim. True if this caller got it.
+
+    Every decision in show() is check-then-act across separate processes -- several agents
+    build at once -- so two launchers could both see "no FreeCAD" and both launch one, or
+    both see "stale" and both fire a refresh. O_EXCL makes the claim atomic; the age bound
+    means a launcher that died holding it cannot block the next one for long. If the claim
+    file cannot be examined at all, say yes: failing to view is worse than a rare double."""
+    path = _HEARTBEAT + "." + name
+    try:
+        if time.time() - os.path.getmtime(path) > window_s:
+            os.remove(path)
+    except OSError:
+        pass
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(time.time()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return True
+
+
+def _report_duplicate():
+    """Print, once, the note a self-closed duplicate FreeCAD left behind. Never raises."""
+    path = _HEARTBEAT + ".duplicate"
+    try:
+        note = open(path, encoding="utf-8").read().strip()
+        os.remove(path)
+    except OSError:
+        return
+    if note:
+        print("[freecad] an earlier refresh could not reach the running FreeCAD (it was "
+              "busy or unresponsive); the extra FreeCAD it started closed itself rather "
+              "than open a second window.", file=sys.stderr)
 
 
 def _resolve_step(step_path=None, project=None):
@@ -393,6 +447,7 @@ def show(step_path=None, project=None, freecad_exe=None):
             return False
         os.makedirs(_INBOX, exist_ok=True)
         _compat_marker()
+        _report_duplicate()
 
         exe = _freecad_exe(freecad_exe)
         running = _freecad_count()
@@ -405,17 +460,21 @@ def show(step_path=None, project=None, freecad_exe=None):
 
         if running:
             age = _heartbeat_age()
+            busy = _busy_age()
             why = None
-            if _code_is_stale():
+            if busy is not None and busy <= _BUSY_MAX_S:
+                # Inside a blocking load. ⚠ THIS IS CHECKED FIRST, BEFORE THE CODE STAMP.
+                # It used to guard only the "unresponsive" case, so a stale-code refresh
+                # was still fired at a hub mid-import -- the one moment it cannot answer
+                # the --single-instance hand-off, which then started a second FreeCAD.
+                # The request below waits in the inbox; a later build refreshes the code.
+                why = None
+            elif _code_is_stale():
                 why = "is running older viewer code"
             elif age is None:
                 why = "has no heartbeat"
             elif age > _HEARTBEAT_STALE_S:
-                busy = _busy_age()
-                if busy is not None and busy <= _BUSY_MAX_S:
-                    why = None          # loading, not wedged — leave it alone
-                else:
-                    why = "watcher unresponsive (%.0fs since last tick)" % age
+                why = "watcher unresponsive (%.0fs since last tick)" % age
 
             # The request goes in FIRST, either way. The hub drains the inbox on every tick
             # AND inside start_hub, so this is picked up whether the hub is already healthy
@@ -433,6 +492,10 @@ def show(step_path=None, project=None, freecad_exe=None):
             # the watch loop, so no window closes and no tab is lost. This used to be a
             # taskkill /F /T, which is how a mid-reload hub got destroyed by the very build
             # that wanted the refresh.
+            # One refresh at a time: each one starts a freecad.exe, and several agents
+            # building in the same minute would otherwise each fire their own.
+            if not _claim("refreshing", 60.0):
+                return True
             if _refresh_hub(exe, step):
                 print("[freecad] hub %s - reloading it in place" % why, file=sys.stderr)
                 return True
@@ -441,7 +504,17 @@ def show(step_path=None, project=None, freecad_exe=None):
                   % why, file=sys.stderr)
             return False
 
-        # No (working) hub: start one. Clear stale requests so a previous session's
+        # No (working) hub: start one -- unless another launcher is already doing exactly
+        # that. Two builds finishing together both read "no FreeCAD" from the process
+        # table and both launched one; the loser of the claim leaves its request in the
+        # inbox instead, where the hub being started picks it up on its first drain.
+        if not _claim("launching", 60.0):
+            time.sleep(1.0)     # let the winner finish clearing the inbox first
+            req = os.path.join(_INBOX, uuid.uuid4().hex + ".txt")
+            with open(req, "w", encoding="utf-8") as f:
+                f.write(step)
+            return True
+        # Clear stale requests so a previous session's
         # tabs don't resurrect, then launch FreeCAD with this project as the first tab.
         for f in glob.glob(os.path.join(_INBOX, "*.txt")):
             try:

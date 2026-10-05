@@ -18,6 +18,7 @@ placement in <board>.board.json is the thing under version control.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -324,6 +325,48 @@ def route(stem, passes=None, timeout=14400, incremental=False, dsn_only=False):
         open(dsn, "w", encoding="utf-8").write(txt)
         print("  declared %s as plane layer(s) -- the router will not route on them"
               % ", ".join(planes))
+
+    # ⚠ KEEP THE ROUTER'S VIAS OFF THE STITCH VIAS. A stitch via is only a connection
+    # where the plane reaches it, and the plane is poured AFTER routing, round whatever
+    # the router added. Every foreign via voids a circle of (via radius + the plane's
+    # clearance) in the plane, and the router knows nothing of that: it spaces vias by
+    # the copper rule, 0.14 mm apart, which is far inside a 0.5 mm plane clearance. One
+    # neighbour 0.76 mm away took half the ring of a driver's supply stitch; two, one
+    # each side, would take all of it, and nothing after routing can put it back --
+    # another run lays the same via in the same place.
+    # So each stitch via gets a via keepout out to (plane clearance + its drill radius):
+    # no foreign antipad can then reach its barrel. Tracks are untouched -- this is a
+    # keepout for vias only -- and on a plane poured at 0.3 mm the circle is no bigger
+    # than the spacing the copper rule already enforces, so it costs nothing there.
+    stitch_nets = set(notes.get("stitch_nets", ())) if notes else set()
+    if stitch_nets and planes:
+        plane_ids = set(board.GetLayerID(n) for n in planes)
+        zclr = {}
+        for z in board.Zones():
+            if z.GetNetname() in stitch_nets and plane_ids & set(z.GetLayerSet().Seq()):
+                c_ = z.GetLocalClearance()
+                c_ = c_ if isinstance(c_, int) else (c_.value() if c_ and c_.has_value() else 0)
+                zclr[z.GetNetname()] = max(zclr.get(z.GetNetname(), 0), c_)
+        # a foreign via is voided out of EVERY plane, so the clearance that matters is
+        # the widest of them, whichever net the stitch itself is on
+        worst = max(list(zclr.values()) + [board.GetDesignSettings().m_MinClearance])
+        outs = []
+        for t in board.GetTracks():
+            if t.GetClass() != "PCB_VIA" or t.GetNetname() not in zclr:
+                continue
+            rad = pcbnew.ToMM(worst + t.GetDrillValue() / 2.0) * 1000.0
+            cx_, cy_ = pcbnew.ToMM(t.GetPosition().x) * 1000.0, -pcbnew.ToMM(t.GetPosition().y) * 1000.0
+            pts = ["%.1f %.1f" % (cx_ + rad * math.cos(k * math.pi / 6.0),
+                                  cy_ + rad * math.sin(k * math.pi / 6.0)) for k in range(13)]
+            outs.append('    (via_keepout "" (polygon signal 0  %s))\n' % "  ".join(pts))
+        if outs:
+            txt = open(dsn, encoding="utf-8").read()
+            at = txt.find("    (via ")
+            if at < 0:
+                raise SystemExit("no (via ...) line in the DSN structure to anchor keepouts")
+            open(dsn, "w", encoding="utf-8").write(txt[:at] + "".join(outs) + txt[at:])
+            print("  %d stitch via(s) fenced with a %.2f mm via keepout (plane clearance "
+                  "%.2f)" % (len(outs), pcbnew.ToMM(worst) + 0.15, pcbnew.ToMM(worst)))
 
     # ⚠ THE ROUTER IS GIVEN MORE CLEARANCE THAN THE FAB RULE, ON PURPOSE. freerouting
     # routes right up to the clearance it is handed, and its geometry and KiCad's do not

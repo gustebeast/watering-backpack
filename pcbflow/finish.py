@@ -337,7 +337,9 @@ def finish(stem, rounds=1, keep_route=False):
     # "strictly better or it does not count" test as a routing round -- the search works
     # to the netclass rule on a grid, DRC is the judge, and a repair that buys a
     # connection with a violation is put back.
-    if best_n and not best_v and not keep_route:
+    # (--keep-route takes this step too: a kept board with a net still open is exactly the
+    # board this was written for, and it lays nothing unless DRC then reads better.)
+    if best_n and not best_v:
         shutil.copy(stem + ".kicad_pcb", stem + ".preclose.kicad_pcb")
         shutil.copy(stem + ".finish.drc.json", stem + ".preclose.drc.json")
         try:
