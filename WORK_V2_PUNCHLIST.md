@@ -193,7 +193,7 @@ and where the change needed is big enough that it is the user's call.
 | # | item | state |
 |---|------|-------|
 | 10 | **No reverse-polarity protection on VBAT**, which `CIRCUIT.md` §6, `DESIGN_V2.md` §6 and `bom_consolidated.md` §6 all said was there | **RESOLVED** — D1 SMBJ24A → SMCJ24A |
-| 11 | **The pack and both pump terminals are SCREW**, where the same BOM line argues for spring-cage on a frame shared with two motors | **open — decision needed** |
+| 11 | **The pack and both pump terminals are SCREW**, where the same BOM line argues for spring-cage on a frame shared with two motors | **RESOLVED** — clamp style is free; all five are now one screw family |
 
 **10 is RESOLVED, and the thing that was wrong was this item's own framing.**
 
