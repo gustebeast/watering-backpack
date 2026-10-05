@@ -1271,9 +1271,24 @@ def drop_redundant_pad_vias(board, notes):
                 break
     if not cand:
         return 0
-    conn = board.GetConnectivity()
+    # ⚠ NEVER HOLD A CONNECTIVITY POINTER ACROSS BuildConnectivity(), which REPLACES the
+    # object it points at (watering-backpack main, 2026-10-05). This read a count out of
+    # a shared_ptr<CONNECTIVITY_DATA> it had taken one line BEFORE the rebuild that freed
+    # it. The number it got back was plausible, so the pass did its job and printed
+    # "removed 3 redundant via(s)" -- and the heap it had just read through was no longer
+    # the heap pcbnew thought it was. The damage surfaced in the NEXT pass and nowhere
+    # near here:
+    #   tidy_router_vias -> board.Tracks()  ->  TypeError: 'SwigPyObject' object is not
+    #                                           iterable
+    # and, after a Save/LoadBoard inserted to get a clean board, in LoadBoard ITSELF --
+    # pcbnew.LoadBoard() returned a bare SwigPyObject with no BOARD methods at all. That
+    # is the tell: a use-after-free had taken out SWIG's own type registry, process-wide,
+    # so no amount of reloading could help and the pass that raised was not the pass that
+    # was wrong. Two complete routing runs were thrown away reading the symptom.
+    #
+    # Ask the board for its connectivity EVERY time, immediately before use.
     board.BuildConnectivity()
-    base = conn.GetUnconnectedCount(False)
+    base = board.GetConnectivity().GetUnconnectedCount(False)
     doomed = {}
     for t, nc, why in cand:
         t.SetNetCode(0)
@@ -1283,11 +1298,32 @@ def drop_redundant_pad_vias(board, notes):
         else:
             doomed[t.m_Uuid.AsString()] = why  # stays off the net for the tests that follow
     del cand, lands
-    for u in list(doomed):
-        for t in board.GetTracks():
-            if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() == u:
-                board.Remove(t)
-                break
+    # One full walk to find them, then the removals, then the references go: the rule
+    # from tidy_router_vias' own docstring -- do not hold the thing you are about to
+    # delete, and do not re-walk a board you are deleting from.
+    victims = [t for t in board.GetTracks()
+               if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() in doomed]
+    for t in victims:
+        board.Remove(t)
+    # ⚠ AND THEY ARE PARKED ON THE BOARD, FOR THE REASON THE PASS ABOVE GIVES AT LENGTH.
+    # This pass did not do it, and that is what actually broke the 95 x 108 board: three
+    # vias removed here, freed when the list went out of scope, and the board's own
+    # connectivity still pointing at them. The next pass died in
+    # tidy_router_vias -> board.Tracks() with "'SwigPyObject' object is not iterable",
+    # and once a Save/LoadBoard was tried as a cure, pcbnew.LoadBoard() ITSELF came back
+    # as a bare SwigPyObject -- a freed object had taken out SWIG's type registry
+    # process-wide, so the pass that raised was never the pass that was wrong.
+    #
+    # Three routing runs were spent on the symptom. Two plausible-looking causes were
+    # fixed on the way and neither was it: a connectivity pointer held across
+    # BuildConnectivity() (real, worth fixing, not this), and re-walking the board
+    # between removals (likewise). The cure is the line below, and the rule it belongs
+    # to is already written out above: a via this file removes lives as long as the
+    # board does.
+    if victims:
+        board._pcbflow_removed = (getattr(board, "_pcbflow_removed", ())
+                                  + tuple(victims))
+    del victims
     board.BuildConnectivity()
     if doomed:
         print("  removed %d redundant via(s) drilled into a small soldered land: %s"
