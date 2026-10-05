@@ -374,11 +374,65 @@ tubing size, the 3/8" transition, and the mesh.
    number it argues for is 0.96 in² of open area at ≤1 ft/s — and 50 mesh is still
    finer than anything a pumice pot sheds that a diaphragm pump would mind.
 
-**So what is left is a purchase, and it is the owner's call, not a blocker:** buy
-two barb × barb × MNPT tees and one reducer and the printed housing is never
-built; or buy two plain barbed tees and build it. Until that is said,
-`src/line_filter.py` still builds the printed screen and `check_plumbing.py` still
-routes around it. Nothing is half-changed.
+### 13a — the strainer is DIRECTIONAL, and that decides which fitting goes where
+
+The owner, 2026-10-05: *"The stock filter has a female thread on one side and male
+on the other. The filtering direction goes from male to female, with female to male
+working as a cleaning cycle."* And, correcting a first telling of it: *"the fitting
+I have is female to 3/8 barb, it should be in the BOM I sent earlier."*
+
+It is: **McMaster 5346K56 — 3/8" hose barb × 1/2 NPT female**, which this BOM carries
+struck through, superseded by the Shurflo swivels. It is not superseded any more.
+
+**Orientation first, because it does not depend on the fittings.** §4's argument is
+that the filter **collects on the drain and is swept clean on the fill**, so that
+"sand migrates forward one pot per cycle — pumice fines returning to pumice." Apply
+that to each tee separately, because the dirty side is not the same side at both:
+
+> **Green tee — MALE end faces the POT.** Dirty water enters at the wand on retract,
+> so retract is male→female (collecting) and dispense is female→male (sweeping the
+> debris back out toward the pot). Reversed, the drain would run in the cleaning
+> direction and the pot's sand would pass straight through pump B into the tank.
+>
+> **Tank tee — MALE end faces the TANK.** *(This corrects an earlier reading of this
+> finding, which said the male end faced the tee.)* The thing a strainer at the tank
+> protects is **pump A**, and what threatens pump A is the tank's own settled
+> sediment, drawn in on fill. So fill is male→female (collecting) and drain is
+> female→male — pushing what it caught back into the tank, where it settles out
+> again. Facing it the other way makes the tank the thing being protected, which
+> nothing asked for, and sweeps the sediment toward pump A instead of away from it.
+
+**Both strainers therefore present their FEMALE end to the tee**, and that is what
+makes the fittings come out even. One part on each side, and they are parts that
+already exist:
+
+| | strainer MALE end | strainer FEMALE end (tee side) |
+|---|---|---|
+| **green tee** | **McMaster 5346K56** — FNPT × 3/8" barb. Owned. | barb × barb × **1/2"-14 MNPT** tee leg, screwed straight in. |
+| **tank tee** | **SFFN1-1220-01** — FNPT × 1/2" barb. §2 bought a 5-pack; four are fitted, so the spare is already in the drawer. | the same tee, same leg. |
+
+So the purchase is **two identical barb × barb × 1/2"-14 MNPT tees and nothing
+else** — no adapters, no couplers, no second thread handedness, and no hose stub
+between a strainer and a tee. That is a better outcome than this finding reached on
+its first pass, when the owned fitting was taken to be male × barb.
+
+**And it closes finding 13's loose end.** 13 noted that deleting the printed housing
+leaves the 1/2" → 3/8" step at the probe with nowhere to live. It lives in the
+5346K56: that fitting *is* the step, and it is on the green strainer's male end,
+which is exactly where the branch is allowed to narrow (§5 — the probe is 3/8"
+anyway, so the branch's narrowest element does not move).
+
+⚠ **One caution, and it is the owner's own measurement.** The 5346K56 is the brass
+fitting behind *"my fittings are quite hard to thread"* (§2). Brass male-tapered into
+plastic is what was hard; here it is brass FEMALE onto the strainer's plastic male
+thread, which is the gentler direction of the same mismatch but still not plastic on
+plastic. Tape it and stop at hand-tight plus a little — the strainer body is the
+cheap part, but it is also the part that cracks.
+
+**Still the owner's call, still not a blocker:** buy the two MNPT tees and the
+printed housing is never built; or buy two plain barbed tees and build it. Until
+that is said, `src/line_filter.py` still builds the printed screen and
+`check_plumbing.py` still routes around it. Nothing is half-changed.
 
 ### 14 — the two tees have never been on the BOM
 
