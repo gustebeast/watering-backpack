@@ -230,7 +230,14 @@ def _resite_post_pads(board, refs, notes):
                 return None
         if need_own and own > r:
             return None            # not on its own copper: the pad would need a track
-        keep = r_keep              # courtyard against courtyard, DRC's own test
+        # ⚠ THE PAD'S OWN COURTYARD, NOT ITS COPPER, IS WHAT MEETS A NEIGHBOUR'S COURTYARD.
+        # Tested with the copper radius, a site 0.2 mm off a part passed here and came
+        # back from DRC as courtyards_overlap -- a violation, which also stops close_last
+        # from running on the board at all.
+        keep = max(r + POST_PAD_CLR_MM, r_keep + 0.02)
+        # ...and never less than the courtyard itself, which is HEAD's own test of
+        # the same thing: r_keep already falls back to the copper radius when the
+        # part has no courtyard, so the max() is the stricter of the two always.
         for cx0, cx1, cy0, cy1 in courts:
             if cx0 - keep <= px <= cx1 + keep and cy0 - keep <= py <= cy1 + keep:
                 return None

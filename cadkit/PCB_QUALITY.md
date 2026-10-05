@@ -107,6 +107,10 @@ their barrel's equivalent width, pours as unlimited) and the widest-bottleneck p
 nearest. The drop is the least-resistance path's track resistance (pours counted as zero).
 Parallel vias and parallel tracks are not summed — add them up yourself and waive with
 the arithmetic if that is the design.
+A path may say `"split": true` when its `amps` is what the listed pads draw **together**
+(the supply pins of one IC): the drop is then solved on the whole copper network with the
+current shared equally between those pads, so a trunk is charged with what is downstream
+of it and no more. The narrowest-point check still uses the full figure.
 
 **Fix.** Size the net in `net_widths`, or lay the path as declared copper (`tracks`), or
 pour it. Then check **M3** (the return path).
