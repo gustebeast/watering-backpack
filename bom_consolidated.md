@@ -16,7 +16,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 1. Seaflo  *(🎒)*
 
-- [ ] 🎒 **Seaflo 42-Series pump — SFDP1-030-055-42, $64.99–$78.99 (pick the 12V option) — BUY A SECOND** — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
+- [x] 🎒 **Seaflo 42-Series pump — SFDP1-030-055-42 — BOTH BOUGHT.** One carried
+  over from v1; the second bought for v2 (owner, 2026-10-05), $64.99–$78.99 — https://seaflodirect.com/seaflo-42-series-diaphragm-water-pressure-pump-3-0-gpm-55-psi-choose-12v-or-24v/
   - ⚠️ **Select 12V** in the Voltage dropdown (not 24V).
   - v2 runs **two pumps in anti-parallel** — one plumbed tank→pot, one pot→tank —
     instead of reversing flow through a valve. A diaphragm pump cannot be reversed
@@ -28,8 +29,10 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - Ports are **1/2"-14 MNPT** (confirmed against Seaflo/West Marine listings).
   - ⚠️ **Bypass the internal pressure switch** on both — it cuts the pump on downstream
     pressure, fighting PWM.
-  - 📦 Includes a 50-mesh inlet strainer and 2× 1/2" barb adapters (straight; v2
-    uses 90° swivels instead). ⚠ **Do not discard the strainers.** They were written
+  - 📦 Each pump includes a 50-mesh inlet strainer and 2× 1/2" barb adapters
+    (straight; v2 uses 90° swivels instead). **Two pumps therefore put exactly two
+    strainers on the shelf, which is the number §4 needs** — no spare, so neither
+    is expendable. Four straight adapters come with them and go unused. ⚠ **Do not discard the strainers.** They were written
     off here as "redundant — v2 filters on the green line", and one of them has since
     been backflushed and cleared itself, which is the whole argument §4 makes for the
     printed screen. ✅ **DECIDED 2026-10-05 — they go at the two tees and the printed
