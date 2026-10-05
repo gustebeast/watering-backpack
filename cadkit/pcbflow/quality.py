@@ -71,6 +71,10 @@ HINT = {
     "A12": "move the hole, widen the ring or the track, enlarge the text -- or, if the "
            "order really uses another fab or a costlier option, state its numbers in "
            "quality.fab with where they were read",
+    "A13": "reroute the track that cuts the plane, or move the signal that crosses the cut; "
+           "a stitching via beside the crossing only helps if the plane is whole on the "
+           "other side. If the gap is deliberate, say in quality.return_slot_ok which "
+           "signal crosses what and what carries its return instead",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
@@ -1128,6 +1132,105 @@ def fab_capability(ctx):
     worst("silk text stroke", [(MM(t.GetTextThickness()), "'%s'" % n) for t, n in texts],
           fab["silk_stroke"], "thinnest silk stroke")
     return out
+
+
+# The longest cut a signal may straddle in its own return plane, in mm. Override with
+# quality.return_slot. 5.0 is two 0.25 mm tracks side by side with full clearance either
+# side and a little room: a single track crossing measures about 1.25, a pair about 3.0.
+RETURN_SLOT = 5.0
+
+
+@rule("A13")
+def return_path_slots(ctx):
+    """A signal's return runs in the plane beneath it. Where a track on the plane layer
+    cuts that plane, the return has to go round the end of the cut, and the loop it makes
+    is the area between the two."""
+    b = ctx.board
+    limit = float(ctx.q.get("return_slot", RETURN_SLOT))
+    allowed = set(ctx.q.get("return_slot_ok", {}) or {})
+    step = 0.25                       # mm between samples along a track
+
+    # the ground copper, by the layer it is on
+    planes = {}
+    for z in b.Zones():
+        if z.GetIsRuleArea() or not GROUND.match(z.GetNetname() or ""):
+            continue
+        for lid in z.GetLayerSet().CuStack():
+            if not z.IsOnLayer(lid):
+                continue              # GetFilledPolysList asserts on an unfilled layer
+            try:
+                poly = z.GetFilledPolysList(lid)
+            except Exception:         # noqa: BLE001 -- shape API differs by KiCad version
+                continue
+            if lid in planes:
+                planes[lid].append(poly)
+            else:
+                planes[lid] = [poly]
+    if not planes:
+        return [("plane", None, "no ground pour on this board: nothing to slot, and "
+                 "nothing is claimed about the return paths either")]
+
+    def covered(lid, pt):
+        return any(poly.Contains(pt) for poly in planes[lid])
+
+    gaps, checked = [], 0
+    for t in b.GetTracks():
+        if t.GetClass() == "PCB_VIA":
+            continue
+        lid, net = t.GetLayer(), (t.GetNetname() or "")
+        if not net or GROUND.match(net):
+            continue
+        # the plane this signal references: ground copper on any OTHER copper layer
+        others = [l for l in planes if l != lid]
+        if not others:
+            continue
+        ln = MM(t.GetLength())
+        if ln < 1.0:
+            continue
+        checked += 1
+        a, e = t.GetStart(), t.GetEnd()
+        n = max(2, int(ln / step))
+        for lid2 in others:
+            cov = []
+            for i in range(n + 1):
+                f = i / float(n)
+                cov.append(covered(lid2, pcbnew.VECTOR2I(
+                    int(a.x + (e.x - a.x) * f), int(a.y + (e.y - a.y) * f))))
+            i = 0
+            while i <= n:
+                if cov[i]:
+                    i += 1
+                    continue
+                j = i
+                while j <= n and not cov[j]:
+                    j += 1
+                # STRADDLED only: plane on BOTH sides. A track running off the edge of
+                # the pour is a different thing, and is not what this rule is about.
+                if i > 0 and j <= n:
+                    f = (i + j) / 2.0 / n
+                    gaps.append(((j - i) * ln / n, net,
+                                 MM(a.x + (e.x - a.x) * f), MM(a.y + (e.y - a.y) * f)))
+                i = j + 1
+
+    if not checked:
+        return [("plane", None, "no signal track runs over a ground pour on another layer")]
+    gaps = [g for g in gaps if g[1] not in allowed]
+    bad = sorted((g for g in gaps if g[0] > limit + 1e-6), reverse=True)
+    if bad:
+        g = bad[0]
+        return [("return slot", False,
+                 "%s straddles a %.2f mm cut in the ground plane at (%.2f, %.2f), and the "
+                 "longest a signal may straddle is %.2f mm (%d crossing(s) over it, of %d "
+                 "found on %d track(s))"
+                 % (g[1], g[0], g[2], g[3], limit, len(bad), len(gaps), checked))]
+    if not gaps:
+        return [("return slot", True, "%d signal track(s) checked, and not one crosses a "
+                 "cut in the ground plane" % checked)]
+    g = max(gaps)
+    return [("return slot", True,
+             "widest cut a signal straddles: %.2f mm, by %s at (%.2f, %.2f); %d crossing(s) "
+             "on %d track(s), limit %.2f mm" % (g[0], g[1], g[2], g[3], len(gaps), checked,
+                                                limit))]
 
 
 # ── which manual rules a board cannot need ───────────────────────────────────────────
