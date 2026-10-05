@@ -160,6 +160,58 @@ assert 0.20 <= BUCK_K_IND <= 0.40, (
     % (BUCK_K_IND, BUCK_IOUT_RATED))
 # The value carries the rating the asserts above check, so a substitution has to
 # satisfy them rather than silently inherit a number nobody re-read.
+# ── The OUTPUT capacitance, derived from 7.2.2.4's own equations ───────────
+# ⚠ WHAT THE DATASHEET DOES NOT SAY. Its worked example ends "For stability
+# consideration, one 47 uF output capacitor is needed at least", and that
+# sentence has NO equation behind it and sits inside "For this design example"
+# -- a 5 V / 2 A design, not this one. It is not a general floor that can be
+# checked, so it is not what this board is sized against. What CAN be checked
+# is equations 11 to 14, applied to this board's own numbers.
+#
+# The ceiling on undershoot is a BROWNOUT, not a preference: the ESP32's VDD33
+# minimum is 3.0 V (WROOM-32E v2.1 table 14) against a 3.301 V rail, so there
+# are 301 mV in total and 200 mV is that with margin. The load step is the
+# module going from idle to the 0.5 A WiFi burst Espressif specifies.
+#
+#   eq 13, undershoot  3 x (IOH - IOL) / (fSW x VUS)        -> 16.5 uF
+#   eq 14, overshoot   L x (IOH^2 - IOL^2) / ((VOS+V)^2-V^2) ->  2.6 uF
+#   eq 12, ripple      diL / (8 x fSW x dVc)  at 20 mV      ->  6.9 uF
+#   eq 11, ESR         dVc / diL              at 20 mV      -> < 36 mOhm
+#
+# So 16.5 uF is the binding number, and C4's 22 uF clears it by 1.33x NOMINAL
+# -- and not at all once bias is allowed for. The part is unsourced, so there
+# is no maker curve to read (M15), and a 0.6 derate is the pessimistic end for
+# a 16 V X7R 1206 at 3.3 V: 13.2 uF against 16.5 needed. That is the finding.
+#
+# TWO 22 uF RATHER THAN ONE 47. Same value, so it adds no part number and A11
+# stays true; two in parallel halve the ESR; and 44 uF nominal / 26.4 uF
+# derated is 2.67x and 1.60x. It also lands beside the example's 47 uF, which
+# is reassurance rather than evidence. For reference, sizing this rail at the
+# 2 % that A1 holds its DC drop to would ask for 50 uF -- not done, because 2 %
+# is a drop budget for a reference rail and not a transient spec, and saying
+# otherwise would be inventing a requirement.
+# ⚠ AND THE 0.6 DERATE ASSUMES X7R, SO X7R IS A REQUIREMENT AND NOT A HOPE.
+# "22u/16V" does not state a dielectric, and the derate is the whole argument
+# here: an X7R 1206 at 3.3 V on a 16 V part keeps well over 60 %, but a Y5V or
+# Z5U of the same marking can lose 80 % and land at 8.8 uF -- under eq 13's
+# 16.5 and with nothing in the gate to notice. Both output capacitors are X7R
+# or better, class II, and that is recorded as do-not-substitute under M40.
+BUCK_COUT_DIELECTRIC = "X7R"
+BUCK_VUS_MAX     = 0.200     # V, the brownout ceiling with margin
+BUCK_ISTEP_LO    = 0.05      # A, the module idling
+BUCK_ISTEP_HI    = 0.6       # A, the declared WiFi burst
+BUCK_COUT_NOM    = 44e-6     # C4 + C19, both 22u/16V 1206
+BUCK_COUT_DERATE = 0.6       # pessimistic, because the part is not sourced yet
+BUCK_COUT_EQ13   = 3.0 * (BUCK_ISTEP_HI - BUCK_ISTEP_LO) / (
+    BUCK_FSW_KHZ * 1e3 * BUCK_VUS_MAX)
+assert BUCK_VUS_MAX < 3.3 - 3.0, (
+    "a %.0f mV undershoot on a 3.3 V rail reaches the ESP32's 3.0 V minimum"
+    % (BUCK_VUS_MAX * 1000))
+assert BUCK_COUT_NOM * BUCK_COUT_DERATE > BUCK_COUT_EQ13, (
+    "SNVSAA5B eq 13 asks for %.1f uF and %.0f uF derated to %.0f%% is %.1f"
+    % (BUCK_COUT_EQ13 * 1e6, BUCK_COUT_NOM * 1e6, BUCK_COUT_DERATE * 100,
+       BUCK_COUT_NOM * BUCK_COUT_DERATE * 1e6))
+
 BUCK_L_VALUE = "%.0fuH/%ssat" % (BUCK_L_UH, _house(BUCK_L_ISAT, "A"))
 
 # ── VGATE, the gate-driver rail ─────────────────────────────────────────────
@@ -431,8 +483,20 @@ def circuit():
     d_cat = gen.part("D6", BUCK_CATCH_VALUE, "Diode_SMD:D_SMA", ["K", "A"],
                      "buck catch diode -- %.2f A average, %.0f V node"
                      % (BUCK_CATCH_I_AVG, VBAT_MAX))
-    c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2, "3V3 out")
-    c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "3V3 out")
+    c_o1 = gen.part("C4", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                    "3V3 out -- %s or better; the derate is the argument"
+                    % BUCK_COUT_DIELECTRIC)
+    # C5 is NOT an output capacitor -- see its placement note. It is the local
+    # charge for the 3V3 that leaves on J6, which is the job it was already
+    # doing from the wrong place.
+    c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+                    "+3V3 local charge at the programming header")
+    # The second half of the output capacitance eq 13 asks for; see the
+    # BUCK_COUT block. Same value as C4 on purpose: no new part number, and two
+    # in parallel halve the ESR.
+    c_o3 = gen.part("C19", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                    "3V3 out, the second of two -- %s or better"
+                    % BUCK_COUT_DIELECTRIC)
     r_f1 = gen.part("R1", FB_TOP, "Resistor_SMD:R_0603_1608Metric", 2, "FB top")
     r_f2 = gen.part("R2", FB_BOT, "Resistor_SMD:R_0603_1608Metric", 2,
                     "FB bottom -> %.2f V" % FB_VOUT)
@@ -451,11 +515,12 @@ def circuit():
 
     vbat += u_bk["VIN"], u_bk["EN"], c_bki[1]
     n_sw += u_bk["SW"], l1[1], c_bt[2], d_cat["K"]
-    v3v3 += l1[2], c_o1[1], c_o2[1], r_f1[1], j_joy["3V3"], j_prg["3V3"]
+    v3v3 += (l1[2], c_o1[1], c_o2[1], c_o3[1], r_f1[1], j_joy["3V3"],
+             j_prg["3V3"])
     n_fb += r_f1[2], r_f2[1], u_bk["FB"]
     n_rt += u_bk["RT"], r_rt[1]
     n_ss += u_bk["SS"], c_ss[1]
-    gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], r_f2[2], r_rt[2],
+    gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], c_o3[2], r_f2[2], r_rt[2],
              c_ss[2], c_bki[2], d_cat["A"])
     c_bt[1] += u_bk["BOOT"]
 
@@ -877,6 +942,7 @@ BOARD_NOTES = {
         "D6": (-30.1, 27.0, 270.0),     # catch: K up to SW, A down to GND
         "L1": (-24.4, 27.905, 0.0),     # SW pad on pin 8's own y
         "C4": (-18.0, 27.905, 0.0),     # COUT, at L1's output pad
+        "C19": (-18.0, 24.3, 0.0),      # COUT's other half, 4.60 mm from L1.2
         # ⚠ C5 IS NOT AT THE BUCK, AND IT NEVER REALLY WAS. It sat at (-8, 26)
         # with a comment calling it "3V3 out", and what it was actually doing
         # there was being J6's bypass: A2 gives a connector 25 mm to its
