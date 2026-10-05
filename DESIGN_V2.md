@@ -54,8 +54,27 @@ Two Seaflo 42-series pumps in anti-parallel, sharing both lines through tees:
                       └─── Pump B (pot→tank) ───┘
 ```
 
-One wand. The idle pump's internal check valves seal its branch — validated in the v1
-BOM note: *"diaphragm pump check-valves block flow when off, no siphon."*
+One wand. The idle pump's internal check valves seal its branch when **nothing is
+running** — validated in the v1 BOM note: *"diaphragm pump check-valves block flow
+when off, no siphon."*
+
+⚠ **That note does not cover the case this arrangement actually creates, and the
+sentence above used to be written as if it did.** The v1 note is about a STATIC
+system: gravity trying to push water out of a wand below the tank, which a check
+valve holds. Anti-parallel is not that case. Plumbed head to tail, a running pump A
+raises pressure at the tee that is pump B's *inlet* and lowers it at the tee that is
+pump B's *outlet* — a differential in pump B's **forward** direction, which is the
+direction its check valves exist to pass. Two pumps in *parallel* would see the
+reverse differential the v1 note describes; anti-parallel inverts it.
+
+The risk is therefore not a siphon but a **bypass**: part of pump A's flow
+short-circuiting through pump B's chambers instead of going down the wand. What
+limits it is that a stopped diaphragm pump is a poor flow path, and nothing here has
+measured how poor. **Built without a check valve, deliberately** — the cure costs
+pressure drop, two more joints on a system whose headline problem is priming, and two
+more air traps, against a fault that costs flow rate rather than function. The
+measurement that would settle it is written down in `WORK_V2_PUNCHLIST.md` finding 12
+so it does not have to be re-derived on the day.
 
 **Why not reverse the pump:** a diaphragm pump's check valves are passive. Reversing
 motor polarity spins the motor backwards but does not reverse flow. No diaphragm pump
@@ -131,6 +150,17 @@ previous drain collected.** Sand migrates forward one pot per cycle — pumice f
 returning to pumice — and never accumulates. No cleaning step needed between pots.
 The tank line only ever carries already-filtered water, so the pump's 50-mesh inlet
 strainer is redundant. One filter, total.
+
+⚠ **This may become two strainers at the tees instead, and the reason is a
+measurement rather than a preference** — see `WORK_V2_PUNCHLIST.md` finding 13. The
+owner backflushed one of the strainers that came with the pumps and it cleared
+itself, which is the same argument this section makes for the printed screen but
+made *about the exact part* rather than about a part like it. Two of them at the two
+tees sit where this section wants filtration and cost no printed consumable in a
+sealed line. The trade is that 50 mesh is slightly COARSER than this screen's 0.25 mm
+(≈60 mesh), and the tee the change needs — two barbs and one male thread, to the
+strainer's own port — has not been sourced. Until it is, `src/line_filter.py` still
+builds the printed screen and nothing is half-changed.
 
 Spigot water goes to the tank through its own separate fill line and bypasses the
 filter entirely; municipal water is clean enough. Revisit only if filling from a rain
