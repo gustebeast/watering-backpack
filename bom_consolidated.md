@@ -20,13 +20,20 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - ⚠️ **Select 12V** in the Voltage dropdown (not 24V).
   - v2 runs **two pumps in anti-parallel** — one plumbed tank→pot, one pot→tank —
     instead of reversing flow through a valve. A diaphragm pump cannot be reversed
-    (its check valves are passive), and those same check valves seal the idle pump's
-    branch, which is what makes this work. See DESIGN_V2 §1.
+    (its check valves are passive). ⚠ This line used to carry on "and those same
+    check valves seal the idle pump's branch, which is what makes this work" — that
+    is true of a STOPPED system and not of the one this builds: anti-parallel presents
+    the idle pump with a FORWARD differential, which its check valves pass. Built
+    without a check valve deliberately; DESIGN_V2 §1 and WORK_V2_PUNCHLIST finding 12.
   - Ports are **1/2"-14 MNPT** (confirmed against Seaflo/West Marine listings).
   - ⚠️ **Bypass the internal pressure switch** on both — it cuts the pump on downstream
     pressure, fighting PWM.
-  - 📦 Includes a 50-mesh inlet strainer (now redundant — v2 filters on the green line)
-    and 2× 1/2" barb adapters (straight; v2 uses 90° swivels instead).
+  - 📦 Includes a 50-mesh inlet strainer and 2× 1/2" barb adapters (straight; v2
+    uses 90° swivels instead). ⚠ **Do not discard the strainers.** They were written
+    off here as "redundant — v2 filters on the green line", and one of them has since
+    been backflushed and cleared itself, which is the whole argument §4 makes for the
+    printed screen. Putting the two of them at the two tees may replace that printed
+    part entirely — WORK_V2_PUNCHLIST finding 13.
 
 ## 2. Seaflo — pump fittings  *(🎒, NEW in v2)*
 

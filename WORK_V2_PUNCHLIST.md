@@ -265,6 +265,77 @@ Kangnex WJ500V-5.08, 2P/4P/5P. The asymmetry this item complained about is gone
 because the split is gone. See `elec/CIRCUIT.md` §7 for the withdrawn preference
 and for the 16.9 K rise that replaces "31 % of contact rating".
 
-**10 is still open and no longer has 11 to hide behind.** The two were tied
-together only through the connector choice; that is now settled and J1 is a
-screw terminal, so the keyed-inlet route in 10 is a live decision on its own.
+⚠ This section used to end *"10 is still open and no longer has 11 to hide
+behind"*. Both are resolved now; the sentence is removed rather than left to
+contradict the table two screens above it.
+
+---
+
+## Round 6 — the plumbing, which the board work had been walking past
+
+Neither of these is a board finding. Both are **decisions the owner has already
+taken**, written down here because the design documents still say something
+else — which is the same failure mode as finding 10: a claim that lives in
+prose, where no gate can reach it.
+
+| # | item | state |
+|---|------|-------|
+| 12 | **§1's "the idle pump's internal check valves seal its branch" does not cover the case that matters.** | **OPEN** — built without a check valve, deliberately; the test is written down below |
+| 13 | **The printed line filter vs the two strainers that came with the pumps.** | **OPEN** — owner's proposal: strainers at the two tees |
+
+### 12 — the idle pump sees a FORWARD differential, not a reverse one
+
+§1 cites the v1 BOM note, *"diaphragm pump check-valves block flow when off, no
+siphon"*, and that note is about a **static** system: no pump running, tank
+above the wand, gravity trying to push water out. A check valve holds that.
+
+The anti-parallel arrangement is not that case. The two pumps are plumbed
+**head to tail**, so when pump A runs tank→pot it raises pressure at the tee
+that is pump B's **inlet** and lowers it at the tee that is pump B's **outlet**.
+That is a differential in pump B's **forward** direction — the direction its
+check valves are built to pass. Two pumps in PARALLEL would present the idle one
+with a reverse differential, which is the case the v1 note covers; anti-parallel
+inverts it.
+
+So the worry is not a siphon. It is that part of pump A's flow short-circuits
+through pump B's chambers back to the suction tee instead of going down the
+wand. What limits it is that a stopped diaphragm pump is a poor flow path — the
+diaphragms are held by the motor's cogging and the chambers are small — but
+"poor" is not "none", and nothing here has measured it.
+
+**Decision: build it without a check valve.** The owner's words: *"what if I
+skip the test and just build it with no check valve"*. That is reasonable — the
+cure (two check valves in a 5/8" line) costs pressure drop, two more joints on a
+system whose headline problem is priming, and two more air traps, and the fault
+it guards against is a loss of flow rate and not a failure to work at all.
+
+**The test, so it does not have to be re-derived on the day.** With the wand in
+a bucket and the tank full, run pump A at RUN_DUTY and time a measured volume;
+then clamp pump B's two branch legs shut and repeat. The ratio is the bypass
+fraction. Anything under about 10 % is not worth a valve. If it is large, the
+cheapest fix is not a check valve either — it is a pinch clamp on the idle
+pump's branch, which the firmware already knows which one is idle.
+
+### 13 — the strainers that came with the pumps, at the tees
+
+§4 designs a printed 1" wedge-wire screen on the green line and says the pumps'
+own 50-mesh inlet strainers are redundant. The owner has since tested one:
+*"I tested the one that came with the pump and it cleaned itself when run
+backwards. I'm thinking we should just put the two filters at the T's on the
+merged end."*
+
+That is the same backflushing argument §4 makes for the printed screen, now with
+a **measurement behind it** rather than a prediction — and it is a measurement
+of the exact part, not of a part like it. Two strainers at the two tees also sit
+where §4 wants filtration (everything upstream of a pump is filtered) without a
+printed consumable in a sealed line.
+
+**What is not settled, and is the whole of the remaining work:** §4's screen is
+0.25 mm (≈60 mesh) and the pump strainer is 50 mesh, so the change is slightly
+COARSER, which §4 should be made to say rather than left to imply. And the
+fitting the owner asked for — *"a T that has two barbed fittings and one male
+thread"* — has not been sourced; the strainer's own port thread decides it, and
+that thread has not been measured.
+
+Until then `src/line_filter.py` still builds the printed screen and
+`check_plumbing.py` still routes around it. Nothing is half-changed.
