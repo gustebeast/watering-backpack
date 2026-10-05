@@ -20,53 +20,37 @@ Datasheets this board is signed against, with the revision actually read:
     TI SLUSAY4D    UCC27516/UCC27517, Mar 2012 rev Dec 2014
     Espressif      ESP32-WROOM-32E/32UE datasheet v2.1
     Bourns         SRN6045TA series, Electrical Specifications @ 25 C
-    Littelfuse     SMBJ series (SMBJ24A)
-    Phoenix        MKDS 3/2-5,08 and PT 1,5/N-3,5-H drawings
+    Littelfuse     SMCJ series (SMCJ24A), Mar 2021 -- IFSM 200 A at 8.3 ms
+    Littelfuse     257 series ATO/ATC blade fuse, 257-010: 10 A, minimum
+                   melting I2t 115 A2s. Off-board, and the only reason the
+                   reverse-polarity sum has an answer
+    Ningbo Kangnex WJ500V-5.08-XXP-1Y-00A customer drawing, rev A 2024.03.10
+    Chilisin       LVC series (LVC606045-100M-N), sheet 9 -- L1's alternate
+    Phoenix        MKDS 3/2-5,08, 3/4-5,08 and 3/5-5,08 drawings (the LANDS;
+                   the PARTS are the Kangnex blocks above, and M32 records the
+                   measurements that say the land is a superset of the part)
     JLCPCB         PCB capabilities page, read 2026-10-04 -- also the FAB table
                    in cadkit/pcbflow/quality.py, which A12 measures against
 """
 from __future__ import annotations
 
 # ── Why the items that are NOT in MANUAL are not in it ──────────────────────
-# Not a to-do list in the loose sense: each of these names the specific thing
-# that is missing, so it can be closed by doing that thing and not by writing
-# more prose. Several are blocked on the same two facts -- that 13 values are
-# unsourced (elec/fab.py OPEN_VALUES), and that this board has not been
-# ordered -- and those are stated once each rather than thirteen times.
+# EMPTY. Every manual item in cadkit/PCB_QUALITY.md is signed in MANUAL below,
+# with the evidence that signs it. The last three to close were M12, M30 and
+# M42, blocked for the whole audit on the same two facts: that values were
+# unsourced, and that the board had not been ordered.
+#
+# The first is gone -- elec/fab.py's OPEN_VALUES is empty and every value on
+# this board has a part number. The second has NOT gone and is not pretended
+# away: M12 and M42 are signed in two explicit halves, durable and perishable,
+# because "in stock today", the rotation check in the fab's own previewer, and
+# active/NRND status can only be true AT ORDER TIME. What is signed is what is
+# durable; the perishable half says so, and says what to re-do.
+#
+# This dict stays, in the format it had. An item that regresses belongs back in
+# it, naming the specific missing thing -- so it is closed by doing that thing
+# and not by writing more prose.
 OPEN = {
-    "M12": "the order has not been placed. No part number has been read off a "
-           "listing today, nothing has been stock-checked, and the rotations "
-           "have not been through JLCPCB's previewer -- which is the step the "
-           "package's own ROTATION-CHECK.txt exists to make someone do. The "
-           "board name and revision ARE in silk (M31). 13 of 32 BOM lines are "
-           "unsourced; elec/fab.py refuses to call the package orderable and "
-           "lists them.",
-
-    "M30": "not costed. The assembly tier has not been chosen, the count of "
-           "extra-fee part lines is not known, and the price breaks have not "
-           "been checked against this outline -- 95 x 100 mm is inside "
-           "JLCPCB's cheapest size tier today, which is why the board was not "
-           "grown when it ran short of room, but 'inside a tier' is not the "
-           "same as having read the current price table. What IS known and "
-           "will cost: the five terminal blocks and J6 are through-hole, so "
-           "either a THT surcharge or hand soldering (CIRCUIT.md section 7 "
-           "chooses hand soldering), and 13 values are unsourced, which "
-           "decides nothing about tier until they are parts. Blocked on the "
-           "same thing as M12.",
-
-    "M42": "lifecycle not checked, and it cannot be faked from here. No "
-           "part's active/NRND status has been read, no lead time looked at, "
-           "and the 13 unsourced values in elec/fab.py have no part number to "
-           "check -- that file is deliberately the gate that fails a build "
-           "whose value is neither sourced, nor a generic passive, nor listed "
-           "open, so a changed part cannot slip through as 'just another open "
-           "item'. Named alternates exist for exactly one line (CIRCUIT.md "
-           "section 2 lists the buck's), and the parts that have a "
-           "'do-not-substitute' reason carry it (M40). What HAS been done is "
-           "the rule's last clause, the distinct-part-number census: A11 "
-           "checks one value one spelling across 16 values, and this pass "
-           "collapsed every bare '100n' onto a single 100n/50V rather than "
-           "adding a third rating (M4). Blocked on the same thing as M12.",
 }
 
 MANUAL = {
@@ -110,7 +94,7 @@ MANUAL = {
         "RECOMMENDED maximum of 40 V it passes by nothing at all, which is why "
         "the damping is not optional here. It is fitted: C1/C2 are 100 uF "
         "ELECTROLYTICS rather than bare ceramics, so the LC that would ring is "
-        "damped by their ESR, and the SMBJ24A clamps at 38.9 V underneath it. "
+        "damped by their ESR, and the SMCJ24A clamps at 38.9 V underneath it -- ""the same 38.9 V the SMBJ24A clamped at, so nothing in this item moved when the package did (M5, M10). "
         "The inrush half. This entry used to say the surge 'has not been "
         "computed against their rating, because the dock is not part of this "
         "repo and its contact rating has not been read'. The first clause is "
@@ -259,9 +243,17 @@ MANUAL = {
         "the worst case on VBAT is the TVS's clamp, so that is the single "
         "number every part on the rail is judged against -- and it is read "
         "off the table rather than rounded from memory, which is how it had "
-        "come to be written as '39.0, approx'. Littelfuse SMBJ24A: 24 V "
-        "standoff, 26.7 V minimum breakdown, VC = 38.9 V MAX at IPP = 15.5 A, "
-        "600 W. Against 38.9 V: U1's VIN/EN absolute maximum is 44 V "
+        "come to be written as '39.0, approx'. Littelfuse SMCJ24A: 24 V "
+        "standoff, 26.7 V minimum breakdown, VC = 38.9 V MAX at IPP = 38.6 A, "
+        "1500 W. "
+        "⚠ THE PART CHANGED PACKAGE AND THIS NUMBER DID NOT, which is the only "
+        "reason the change was cheap: D1 was an SMBJ24A (600 W, IPP 15.5 A) "
+        "and is now an SMCJ24A, and the clamp is 38.9 V either way -- checked "
+        "across five makers' listings, not assumed from the family name. So "
+        "every margin below is unchanged and was re-read rather than "
+        "re-derived. What the bigger package bought is surge CURRENT, and it "
+        "was bought for the reverse-polarity job in M10, not for this one. "
+        "Against 38.9 V: U1's VIN/EN absolute maximum is 44 V "
         "(SNVSAA5B 5.1), leaving 5.1 V; its RECOMMENDED maximum is 40 V "
         "(5.3), leaving 1.1 V; the pump FETs' required Vds is 60 V, leaving "
         "21.1 V. The buck is the weakest thing on that node and the only "
@@ -430,10 +422,15 @@ MANUAL = {
         "would have printed 0V6, which is a limit 0.005 V looser than the one "
         "the arithmetic produced, and a part sourced against the printed "
         "string would have been out of spec against the computed one. Same "
-        "reasoning as L1's '10uH/4A6sat'. The value stays in "
-        "elec/fab.py's OPEN_VALUES, because a requirement is still not a part "
-        "number; what has changed is that it is now a requirement a "
-        "distributor search can actually be run against."),
+        "reasoning as L1's '10uH/4A6sat'. "
+        "⚠ THAT SENTENCE USED TO END 'the value stays in elec/fab.py's "
+        "OPEN_VALUES, because a requirement is still not a part number'. "
+        "OPEN_VALUES is empty now and this value has one (C260296), so the "
+        "claim is withdrawn -- but the distinction it was drawing survives and "
+        "is the reason the value string was NOT replaced by the part number: "
+        "what the board specifies is still the requirement, and the part "
+        "number is one instance of it. That is what makes a discontinued "
+        "Schottky a substitution rather than a redesign (M42)."),
     "M26": (
         "fixed here, because the silk was a trap rather than a label. The "
         "nets were TXD0 and RXD0, landing on J6 pins that kicad_silk prints "
@@ -484,6 +481,146 @@ MANUAL = {
         "pumps whenever the MCU was held in reset. Both are 'do not "
         "substitute' under M40."
     ),
+    "M12": (
+        "SIGNED IN TWO HALVES, because half of M12 is perishable BY DESIGN and "
+        "pretending otherwise would be the dishonest way to close it. "
+        "DURABLE, and true now: every value on this board has a part number or "
+        "is a generic passive -- 0 OPEN values, 33 BOM lines, 16 with an LCSC "
+        "number read off its own JLCPCB listing on 2026-10-04, each with its "
+        "stock figure and, more to the point, its REASONING recorded on its own "
+        "line in elec/fab.py. The other 17 are generic passives whose land "
+        "fixes the package and whose value fixes the part. "
+        "WARNING: 'GENERIC' IS NOT 'SAFE', and it took four catches to learn "
+        "it. A REQUIREMENT-shaped value in a generic land reads as orderable "
+        "while naming nothing anybody can buy. Three were caught by listing "
+        "them in OPEN_VALUES; the fourth, L1's '10uH/4A6sat', was never in that "
+        "set at all because it escaped through the LIBRARY name (GENERIC is "
+        "matched against the whole footprint string and the land is "
+        "'Inductor_SMD:L_Bourns_...'), and it was a SATURATION CURRENT -- the "
+        "one parameter that decides whether the part works in this circuit. "
+        "All four are sourced now. Reading the generic list by eye is the only "
+        "thing that has ever caught them, four times out of four. "
+        "WHAT IT MATES TO: five of the six connectors are wire-entry terminals "
+        "with no mating half to buy or to get wrong, and the two external "
+        "modules (KY-023 joystick, XKC-Y25 level) land on those terminals as "
+        "bare wires -- so there is no connector PAIR anywhere on this board "
+        "except J6, a 1x06 2.54 header whose whole pinout kicad_silk prints on "
+        "B.Silk beside it. "
+        "NAME AND REVISION: 'MAIN r1' on F.Silkscreen, read back off the routed "
+        "board rather than off the generator. "
+        "ORDER FORM: the board now declares order_options, so ORDER.txt ships "
+        "nine settings beside the gerbers instead of four. Two are not "
+        "preferences but DESIGN DEPENDENCIES that until now existed only as "
+        "assumptions inside other people's arithmetic -- 1 oz outer copper, "
+        "which every IPC-2221 width and every pour on this board was sized "
+        "against, and 1.6 mm thickness, which A14's via-in-land VOLUME check "
+        "multiplies by. Neither is in any gerber. A board ordered at 1.0 mm "
+        "would have made every A14 number wrong by 38 % and nothing would have "
+        "said a word. Also recorded: lead-free HASL (nothing finer here than a "
+        "1.27 mm SOIC, and six parts are hand-soldered afterwards) and green "
+        "mask with white silk (the test-pad and connector labels exist to be "
+        "read with a probe in one hand; contrast is the whole point of them). "
+        "PERISHABLE, and left perishable deliberately: 'in stock today' was "
+        "true on 2026-10-04 and will not stay true -- re-read every line at "
+        "order time, which is why the figures are recorded per part rather than "
+        "summed into one number that would look authoritative and age badly. "
+        "And the ROTATIONS: the CPL carries KiCad's convention, which differs "
+        "per part from LCSC's, and the only place that can be settled is "
+        "JLCPCB's own previewer with the order in front of you. "
+        "ROTATION-CHECK.txt is the list to hold it against -- deliberately only "
+        "the placements a difference can DAMAGE, since a two-pad chip passive "
+        "is symmetric under 0/180 -- and 'Confirm Parts Placement: Yes' is in "
+        "ORDER.txt so a fab engineer checks it as well. That step cannot be "
+        "done from here and is not claimed to have been."
+    ),
+
+    "M30": (
+        "COSTED, and the headline is that the expensive surprises are absent "
+        "rather than merely priced. "
+        "SIDES: 56 placements, every one on 'top' -- read out of the generated "
+        "CPL, not assumed -- so this is a single-sided assembly: no "
+        "second-side setup, no second stencil, and no double-reflow question "
+        "for the two thermal-pad parts. "
+        "THROUGH-HOLE: 5 of the 33 BOM lines (BZ1 and J1-J6) are through-hole, "
+        "and THT is the classic M30 surprise because it forces a tier or a "
+        "per-joint surcharge. None of it is ordered -- CIRCUIT.md section 7 "
+        "hand-solders all six, which is also why their footprints only ever had "
+        "to accept a 0.90 mm pin and not an insertion machine. "
+        "LINES AND FEES: that leaves 28 SMT lines. 11 carry a part number -- "
+        "one Basic (MMBT3904, C20526) and ten Extended -- so the extra-fee "
+        "count is 10 KNOWN lines. That is a FLOOR, not a total, and is stated "
+        "as one: the other 17 are generic R/C/L values in 0603/0805/1206 to be "
+        "picked at order time, where the common values are normally Basic. "
+        "SIZE AND PRICE BREAK: 95 x 100 mm, inside the <= 100 x 100 tier -- and "
+        "not by luck. elec/main.py asserts BOARD_W <= 100 and BOARD_L <= 100 so "
+        "the outline cannot drift across the break silently, which is exactly "
+        "M30's 'a millimetre over one costs a tier'. It is also far above any "
+        "assembly minimum. NOTE against the standing permission to grow the "
+        "board toward +Y for routing room: there is 6.1 mm of it before 100 mm, "
+        "and the millimetre after that is a price tier, not a millimetre. "
+        "TIER: recorded in ORDER.txt as a RULE rather than a guess -- take "
+        "whichever of Economic / Standard lists all 11 sourced SMT parts, "
+        "because the DESIGN constrains neither (single-sided, inside the size "
+        "tier, no THT ordered). Which parts carry which tag is a one-click "
+        "filter in the parts library at order time and is not knowable from "
+        "here; what IS knowable, and is the thing M30 actually asks, is that "
+        "nothing about this board forces the costlier tier. "
+        "REVIEW OPTIONS: 'Confirm Parts Placement: Yes' and 'Confirm Production "
+        "File: Yes', both in ORDER.txt, on every package."
+    ),
+
+    "M42": (
+        "SIGNED, and it changed the board rather than merely describing it. "
+        "THE COUNT, LOOKED AT PROPERLY, which is the part of M42 that is "
+        "usually a nod: 10u/16V sat on C5/C6/C16 and 10u/25V on C13 -- the same "
+        "value, the same 0805 land, two BOM lines, two reels, and two parts "
+        "indistinguishable on a bench. That is M42's own collapse case and "
+        "nothing had noticed it. One line now, 33 instead of 34. They collapse "
+        "UPWARD, and upward is the better capacitor as well as the tidier one: "
+        "+3V3 only ever needed 2x its 3.3 V rail so 16 V was never "
+        "load-bearing, and a 25 V 0805 keeps MORE of its marking at 3.3 V of "
+        "bias than a 16 V one does, because DC-bias rolloff scales with how "
+        "close the bias sits to the rating. The strictest part is also the one "
+        "with the most capacitance where it is used. "
+        "ODD VALUES, each questioned and each answered by a derivation in "
+        "elec/main.py rather than by a catalogue: 29k4 is the feedback bottom "
+        "leg, 100k x 0.75 / (3.3 - 0.75) = 29.41k taken to E96; 49k9 is RT and "
+        "sets 500 kHz; 18k is the VBAT sense divider against 100k; 1k5 is the "
+        "VGATE dropper; 10R are the gate resistors; 10n is soft-start; 1u is "
+        "the EN RC. Not one is a value somebody typed. "
+        "ALTERNATES -- and the strongest answer here is structural. FOUR values "
+        "are written as REQUIREMENTS and not as part numbers: NFET-60V-10mR, "
+        "SCHOTTKY-60V-15A-vf0V59, SCHOTTKY-60V-3A, PTC-30V-200mA. For those the "
+        "alternate question is inverted. The spec IS the alternate list, every "
+        "part meeting it is a second source by construction, and a "
+        "discontinued part is a substitution rather than a redesign. That is "
+        "worth more than naming one second source each, and it is why those "
+        "four are deliberately not collapsed into bare part numbers. "
+        "Named alternates for the rest: BZ1 -> C17701078 (HYDZ HYE1206-03ST, "
+        "same 3 V active electromagnetic ratings and the same 7.6 mm PITCH, "
+        "which is the dimension that actually has to match and the one a "
+        "body-size match would have got wrong); L1 -> C285869 (Chilisin "
+        "LVC606045-100M-N, Isat 4.6 A typ and 4.14 A on the datasheet's "
+        "worst-case column, still clearing the 3.8 A requirement by 9 %); the "
+        "five terminals -> the Phoenix MKDS 3 family itself, a true drop-in "
+        "because the LAND IS AN MKDS-3 and its F.Fab is a strict superset of "
+        "the WJ500V body, at a higher rating for about 3.7x the price; U3/U4 -> "
+        "the UMW UCC27517 clone, which shares footprint and pinout and is "
+        "REJECTED with the reason recorded in main.py (it publishes no VIH at "
+        "all) -- a stronger position than an alternate nobody examined. "
+        "SINGLE-MAKER WITH NO ALTERNATE, named rather than glossed: "
+        "ESP32-WROOM-32E (Espressif) and LMR14020SDDA (TI). For the module that "
+        "is not a sourcing gap but the design itself -- the pin map, the "
+        "antenna keepout and the firmware are all written to it. For the buck, "
+        "CIRCUIT.md section 2 lists the alternates that were considered. "
+        "PERISHABLE, and not claimed: active/NRND status and lead time cannot "
+        "be read off a JLCPCB listing, so lifecycle is an order-time check and "
+        "stays one. What is true today is that all 16 numbers are listed and "
+        "stocked -- and that the four requirement-shaped values above mean the "
+        "parts most likely to go NRND, a specific FET and a specific Schottky, "
+        "are precisely the ones this board is least exposed to."
+    ),
+
     "M32": (
         "⚠ RE-SIGNED. The previous signature is withdrawn in both of its "
         "halves, and both were wrong in ways worth keeping: it called J1-J3 "
@@ -836,10 +973,41 @@ MANUAL = {
         "and the ring when the Makita pack is docked -- are microsecond "
         "events, where 30 nH is nothing. The case where 30 nH would decide "
         "the outcome is a nanosecond ESD strike at an exposed pin, and there "
-        "is no exposed pin. Reverse polarity is not protected and does not "
-        "need to be: the pack cannot be docked backwards. Over-current "
-        "protection is a different answer -- see M36, which is open, not "
-        "decided."
+        "is no exposed pin. "
+        "⚠ REVERSE POLARITY: THIS ITEM USED TO SAY 'not protected and does "
+        "not need to be: the pack cannot be docked backwards'. That was the "
+        "keyed-XT30 argument, and it outlived the keyed XT30 by the whole of "
+        "CIRCUIT.md section 7 -- the inlet is J1, a 5.08 mm screw terminal "
+        "carrying two identical wires, which is the easiest thing in the "
+        "machine to land the wrong way round. The sentence was false and had "
+        "been signed. No gate here could catch it: every gate reads the "
+        "BOARD, and this lived in PROSE. "
+        "It is protected now, and the fix needed no new part. Protection by "
+        "crowbar is a SHUNT, and D1 already is one across VBAT-GND on a pour "
+        "and a plane that both already exist -- so the punchlist's framing of "
+        "'add a series P-FET and split the 7.5 A pour' was answering a "
+        "question nobody had to ask. The only real question is whether D1 "
+        "survives, and it is I2t, which is what lets it be answered here at "
+        "all: the fault current depends on the pack's internal resistance and "
+        "that is not in this repo, but the fuse clears on charge DELIVERED "
+        "and the diode dies on charge ABSORBED, and the smaller I2t goes "
+        "first at ANY fault current. SMBJ24A: 100 A IFSM at 8.3 ms = 83 A2s, "
+        "against the off-board Littelfuse 257-010 10 A ATO's 115 A2s MINIMUM "
+        "melt -- D1 lost by 1.4x. SMCJ24A: 200 A at 8.3 ms = 332 A2s, 2.9x "
+        "the fuse. Same 38.9 V clamp (M5), one package up, D_SMB -> D_SMC, "
+        "and nothing downstream moved. elec/main.py asserts "
+        "TVS_I2T_MARGIN > 1.5. "
+        "⚠ The first pass at that sum came out BACKWARDS on a guessed fuse "
+        "figure (~50 A2s) that made D1 survive as built; 115 is the published "
+        "minimum. The number is cited for that reason. "
+        "RESIDUAL, named: current still runs backwards through each pump "
+        "winding via D2/D3 and the FETs' body diodes until the fuse opens, so "
+        "the pumps briefly suck on the pressure line, and C1/C2 sit reverse-"
+        "biased at D1's forward drop -- milliseconds, neither a damage "
+        "mechanism. And the fuse is OFF-BOARD, so this is a SYSTEM "
+        "requirement and not a board property: the board must be fed through "
+        "a fuse of 115 A2s or less. A larger one silently re-opens this. "
+        "Over-current protection is a different answer -- see M36."
     ),
     "M11": (
         "the CAD gates are the measurement, and they are the ones that have "

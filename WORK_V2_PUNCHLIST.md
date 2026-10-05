@@ -192,42 +192,63 @@ and where the change needed is big enough that it is the user's call.
 
 | # | item | state |
 |---|------|-------|
-| 10 | **No reverse-polarity protection on VBAT**, which `CIRCUIT.md` §6, `DESIGN_V2.md` §6 and `bom_consolidated.md` §6 all said was there | **open — decision needed** |
+| 10 | **No reverse-polarity protection on VBAT**, which `CIRCUIT.md` §6, `DESIGN_V2.md` §6 and `bom_consolidated.md` §6 all said was there | **RESOLVED** — D1 SMBJ24A → SMCJ24A |
 | 11 | **The pack and both pump terminals are SCREW**, where the same BOM line argues for spring-cage on a frame shared with two motors | **open — decision needed** |
 
-**10, in full.** The P-FET was written down as "insurance rather than necessity,
-*because the Makita terminal is keyed*". That reasoning was sound while the
-battery inlet was a keyed XT30. `CIRCUIT.md` §7 then replaced it with **J1, a
-5.08 mm screw terminal carrying two identical wires** — the single easiest thing
-in the machine to land the wrong way round — and nobody came back to §6. The
-board was built from the connector decision; the protection decision was never
-re-opened.
+**10 is RESOLVED, and the thing that was wrong was this item's own framing.**
 
-No gate on this project can see this, and it is worth being precise about why:
-every gate reads the **board**, and the claim lived in **prose**. A1 checks that
-declared power paths exist in copper; it cannot check that a part a document
-promises was ever drawn.
+The P-FET was written down as "insurance rather than necessity, *because the
+Makita terminal is keyed*". That was sound while the inlet was a keyed XT30.
+`CIRCUIT.md` §7 then replaced it with **J1, a 5.08 mm screw terminal carrying two
+identical wires** — the single easiest thing in the machine to land the wrong way
+round — and nobody came back to §6. The board was built from the connector
+decision; the protection decision was never re-opened. No gate on this project
+can see that, and it is worth being precise about why: every gate reads the
+**board**, and the claim lived in **prose**.
 
-What a reversed pack actually does, measured rather than asserted: D1 is an
-SMBJ24A, **unidirectional**, so it forward-conducts at about 1 V and the pack
-pours current into it; C1/C2 sit reverse-biased at that clamp; and current runs
-backwards through each pump winding via D2/D3 and the FETs' body diodes, so the
-pumps briefly suck on the pressure line. The backstop is the **off-board 10 A
-ATC fuse** — real, and the reason this is a defect rather than a catastrophe,
-but it is the only thing standing there and it is not on this board.
+**What this item got wrong: it assumed protection meant a SERIES element.** That
+is what made it look expensive — a series P-FET splits the VBAT pour into two
+islands bridged by the part, a re-layout of the board's highest-current path on a
+board at zero findings — and it is why the only alternative on offer was
+restoring a keyed inlet, which contradicts §7 *and* the user's own requirement
+for a no-solder screw terminal. Both options were bad because the question was
+posed wrongly.
 
-The two ways out, with their costs, because the trade is the decision:
+Reverse-polarity protection by **crowbar is a SHUNT**. D1 already is one: a
+unidirectional TVS across VBAT–GND, on a pour and a ground plane that both
+already exist. Nothing needs splitting. The only real question is whether the
+part survives the job — and that is arithmetic, not layout.
 
-* **Add the part.** A P-channel high-side FET (or an ideal-diode controller) in
-  series with VBAT. ~$0.50 and ~0.17 W at 7.5 A in a 3 mΩ part. The cost is not
-  the part, it is the **layout**: VBAT is a hand-tuned pour, not a track, and a
-  series element means splitting that pour into two islands bridged by the FET —
-  a re-layout of the board's highest-current path on a board currently at zero
-  findings.
-* **Restore a keyed inlet.** Put the pack back on a polarised connector, which
-  makes the miswire impossible instead of survivable. Cheaper and safer, and it
-  contradicts `CIRCUIT.md` §7's own argument for terminal blocks ("one part with
-  no mating half").
+**The arithmetic, and why it is I²t.** The fault current depends on the pack's
+internal resistance, which is not in this repo. I²t removes that unknown: the
+fuse clears on charge delivered, the diode dies on charge absorbed, both are I²t,
+and the smaller one goes first at *any* fault current.
+
+| | I²t | |
+|---|---|---|
+| D1 as built, **SMBJ24A** | 100 A IFSM @ 8.3 ms → **83 A²s** | loses by 1.4× |
+| the fuse, **Littelfuse 257-010** 10 A ATO | **115 A²s** min. melt | |
+| D1 now, **SMCJ24A** | 200 A IFSM @ 8.3 ms → **332 A²s** | **wins, 2.9×** |
+
+⚠ The first pass at this got the answer **backwards**. Guessing "a 10 A blade
+fuse is about 50 A²s" put the fuse first and had D1 survive as built. The
+published minimum is 115, and the conclusion reversed on a number that was looked
+up instead of remembered. The fuse figure is cited for that reason.
+
+**The fix was one footprint.** SMCJ24A is the same TVS one package up: clamp
+**38.9 V at 38.6 A, identical** to the SMBJ24A's (checked across five makers), so
+nothing downstream of the clamp moves; 1500 W against 600 W; 200 A IFSM against
+100 A. `D_SMB` → `D_SMC`. No series element, no split pour, no keyed connector.
+`elec/main.py` carries the derivation and asserts `TVS_I2T_MARGIN > 1.5`.
+
+**Residual, named and measured rather than lumped.** A reversed pack still runs
+current backwards through each pump winding via D2/D3 and the FETs' body diodes
+until the fuse opens, so the pumps briefly suck on the pressure line, and C1/C2
+sit reverse-biased at D1's forward drop for that time — milliseconds, and neither
+is a damage mechanism. And **the fuse is off-board**, which makes it a *system*
+requirement rather than a board property: this board must be fed through a fuse
+of **115 A²s or less**. The existing 10 A ATC is it; a larger one silently
+re-opens this finding.
 
 **11 is RESOLVED.** The user's requirement is narrower than the punchlist
 assumed: *any* way to land a wire without soldering, with no preference between

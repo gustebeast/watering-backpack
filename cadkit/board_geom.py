@@ -65,6 +65,10 @@ HEIGHT = {
     "L_0603_1608Metric": 0.95, "Fuse_1206_3216Metric": 1.10,
     "Fuse_0805_2012Metric": 1.10,                # 0805 PTC: 1.0 max body + fillet
     "D_SMA": 2.20, "D_SMB": 2.45, "D_SOD-123": 1.10, "D_SOD-523": 0.75,
+    "D_SMC": 2.62,                               # JEDEC DO-214AB, dim D max
+                                                 # (Littelfuse SMCJ, Physical
+                                                 # Specifications). The SMB
+                                                 # beside it is DO-214AA.
     "SOT-23": 1.30, "SOT-23-5": 1.45, "SOT-23-6": 1.10,
     "TO-252-2": 2.40,                            # DPAK: 2.38 max seated height
     "SOT-363_SC-70-6": 1.10,                       # TI DCK, SCES424O section 11

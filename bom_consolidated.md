@@ -184,18 +184,26 @@ Exact part numbers to be fixed at layout; this is the functional list.
 - **RC filter on the joystick ADC input** — the only noise defence available, since
   there is no joystick board to buffer at the source.
 - 3.3 V pull-up for the level sensor's open-collector output.
-- **TVS: SMBJ24A** (24 V standoff, 38.9 V max clamp) + bulk electrolytics at the
-  switches. The clamp is the number every part on the rail is judged against, so buy
-  this part and not "an SMBJ class part".
+- **TVS: SMCJ24A** (24 V standoff, 38.9 V max clamp, 1500 W, IFSM 200 A) + bulk
+  electrolytics at the switches. The clamp is the number every part on the rail is
+  judged against, so buy this part and not "an SMCJ class part". The **C** matters:
+  an SMBJ24A has the identical 38.9 V clamp and would look right on every rail sum,
+  but only a third of the surge current, and the surge current is what holds reverse
+  polarity (§6). LCSC C310039; alternates C224045, C284096, C151903, C10771.
 - 1× **resettable PTC, 30 V 200 mA, 1206** (F1) in series with the level sensor's VBAT
   feed — resettable on purpose, because this machine is carried into a garden and a
   cartridge fuse out there is a walk home.
-- ⚠ **Reverse-polarity P-FET: specified here, NOT on the built board.** It was called
-  optional while the battery inlet was a keyed XT30; the inlet is now a 5.08 mm screw
-  terminal with two identical wires and nobody revisited the protection. The backstop
-  is the off-board 10 A ATC fuse. Do not tick this line as bought until the decision in
-  `elec/CIRCUIT.md` §6 is taken — it is a change to the 7.5 A path, not a part to drop
-  into a cart.
+- **Reverse-polarity P-FET: NOT required, and the line is withdrawn rather than left
+  pending.** It was specified while the battery inlet was a keyed XT30, and never
+  revisited when the inlet became a 5.08 mm screw terminal with two identical wires.
+  The resolution is not a new part: reverse-polarity protection by crowbar is a
+  **shunt**, and D1 already is one. Sizing it by I²t against the fuse — 332 A²s for an
+  SMCJ24A against the 10 A ATO's 115 A²s minimum melt, 2.9× — makes a reversed pack a
+  survivable event with no series element in the 7.5 A path. Full derivation in
+  `elec/CIRCUIT.md` §6.
+  ⚠ **The fuse is still off-board, so it is a system requirement, not a board
+  property: this board must be fed through a fuse of 115 A²s or less.** The existing
+  10 A ATC (8110K3 + 7460K45) is it. Do not replace it with a larger one.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
 - Connectors: **push-in terminal blocks, not JST** — 5.08 mm for battery and each
