@@ -151,6 +151,19 @@ returning to pumice — and never accumulates. No cleaning step needed between p
 The tank line only ever carries already-filtered water, so the pump's 50-mesh inlet
 strainer is redundant. One filter, total.
 
+⚠ **If the strainers replace this, they are DIRECTIONAL and the handedness is
+set by this very section.** The stock Seaflo 51S01 filters male→female and cleans
+female→male (owner, measured on the part). The paragraph above says the filter must
+collect on the drain and be swept clean on the fill, so the **male** end has to
+face whatever each strainer is protecting against — and that is not the same side
+at the two tees. **Green tee: male toward the pot**, because dirty water enters at
+the wand on retract. **Tank tee: male toward the tank**, because what that one
+protects is pump A and what threatens pump A is the tank's own settled sediment,
+drawn in on fill. Either one fitted backwards runs its collecting stroke as a
+cleaning stroke and sweeps the debris toward the pump instead of away from it.
+Both therefore face their **female** end at the tee, which is what makes the
+fittings come out even — worked through in `WORK_V2_PUNCHLIST.md` finding 13a.
+
 ⚠ **This may become two strainers at the tees instead, and the reason is a
 measurement rather than a preference** — see `WORK_V2_PUNCHLIST.md` finding 13. The
 owner backflushed one of the strainers that came with the pumps and it cleared

@@ -33,7 +33,12 @@ bought and are on the shelf, and the reasoning is worth keeping.
     off here as "redundant — v2 filters on the green line", and one of them has since
     been backflushed and cleared itself, which is the whole argument §4 makes for the
     printed screen. Putting the two of them at the two tees may replace that printed
-    part entirely — WORK_V2_PUNCHLIST finding 13.
+    part entirely — WORK_V2_PUNCHLIST finding 13. ⚠ **They are DIRECTIONAL**:
+    they filter male→female and clean female→male (owner, measured), so the male
+    end faces what each one protects against — the **pot** on the green tee, the
+    **tank** on the tank tee. Both therefore show their female end to the tee.
+    Fitted backwards a strainer sweeps its debris toward the pump instead of away
+    from it. Finding 13a.
 
 ## 2. Seaflo — pump fittings  *(🎒, NEW in v2)*
 
@@ -88,11 +93,13 @@ bought and are on the shelf, and the reasoning is worth keeping.
   omission — a tee is a bought fitting and the gates measure printed geometry.
   **What to buy is blocked on two decisions that have to be taken together**
   (WORK_V2_PUNCHLIST findings 13 and 14):
-  - **barb × barb × barb** if the printed screen stays, or **barb × barb ×
-    1/2"-14 MNPT** if the pump strainers go in at the tees — the Seaflo 51S01 is
-    MNPT one end and **FNPT** the other, so a male-threaded tee leg screws straight
-    into it and its MNPT end takes an SFFN1-1220-01 female barb, which §2 already
-    buys a spare of;
+  - **barb × barb × barb** if the printed screen stays, or **two identical
+    barb × barb × 1/2"-14 MNPT** if the pump strainers go in at the tees. The
+    Seaflo 51S01 is MNPT one end and **FNPT** the other, and finding 13a shows
+    both strainers face their FNPT end at the tee, so one male-threaded leg screws
+    straight into each. Their MNPT ends take the **owned McMaster 5346K56**
+    (FNPT × 3/8" barb) on the green side and the **spare SFFN1-1220-01**
+    (FNPT × 1/2" barb) on the tank side — so the tees are the only purchase;
   - **1/2" barb**, settled — the ✅ below. §2's pump fitting had already decided it
     and the owner has now bought it, so this is no longer an open variable.
 
@@ -134,6 +141,15 @@ bought and are on the shelf, and the reasoning is worth keeping.
 - [ ] 🎒 **Check valve, 1/2" barb — for the pot (green) line** — holds the suction column
   between cycles. v2 ingests air at the end of *every* retract by design, so re-priming
   is routine, not exceptional.
+
+- [x] 🎒 **McMaster 5346K56 barbed adapter** (3/8" hose × 1/2 NPT female) —
+  **OWNED, and not superseded after all.** It is struck off in *Dropped* below as
+  replaced by the Shurflo swivels, and for the pump ports it is. But the owner has
+  it, and finding 13a gives it the job no other fitting here can do: it screws onto
+  the green strainer's plastic MNPT end and *is* the 1/2" → 3/8" step at the probe
+  that §5 needs and that the printed housing used to provide. ⚠ This is the brass
+  fitting behind §2's *"my fittings are quite hard to thread"* — tape it, hand-tight
+  plus a little; the strainer body is what cracks.
 
 ## 4. Sensing & UI  *(🎒)*
 
@@ -430,9 +446,10 @@ Kept here rather than deleted: most are on the shelf, and the reasons are the de
   the board.
 - ~~**BTS7960 43 A H-bridge**~~ — two unidirectional pumps need two switched legs, not
   four quadrants.
-- ~~**McMaster 5346K56 barbed adapters** (3/8" hose × 1/2 NPT female)~~ — superseded by
-  the Shurflo swivels. These are the brass fittings that thread hard into the plastic
-  ports.
+- ~~**McMaster 5346K56 barbed adapters** (3/8" hose × 1/2 NPT female)~~ — dropped
+  for the pump ports, where the Shurflo swivels replace them, and they are the
+  brass fittings that thread hard into the plastic. **Un-dropped for one job** and
+  moved up to §3: finding 13a.
 - ~~**Beduan 5/8"→3/8" barb reducers ×4**~~ — v1 necked the whole system down to its
   narrowest element in four places. v2 runs 1/2" throughout with one transition, inside
   the printed filter housing.
