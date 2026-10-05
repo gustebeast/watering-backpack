@@ -3367,7 +3367,8 @@ def _inside(outline, x, y, margin):
 
 def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
                        clr=0.2, max_reach=3.0, allow=(), keepouts=(),
-                       escape_pins=(), escape_runs=None, declared=(), declared_vias=()):
+                       escape_pins=(), escape_runs=None, declared=(), declared_vias=(),
+                       net_widths=None):
     """Give every pad on a plane net its own via down to the plane layers.
 
     ⚠ WITHOUT THIS, A GROUND PAD'S CONNECTION DEPENDS ON THE POUR'S ISLAND TOPOLOGY,
@@ -3679,8 +3680,18 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
             # track to the via's margin is what made the search fail on every fine-pitch
             # VSS pin: the first sample sits at the pad's own centre, 0.35 mm from the
             # neighbouring land, which clears a 0.25 track easily and never a 0.6 via.
+            # ⚠ THE STUB IS AS WIDE AS ITS NET IS DECLARED (2026-10-04). It was 0.25 mm
+            # whatever net_widths said, so a rail the router drew at 0.5 mm left its
+            # inductor through a 0.25 mm neck 1.2 mm long -- the narrowest copper on the
+            # path, and the one piece nobody had drawn (fret_led_key +14V, 1.38 A, quality
+            # A1). Capped by the land it leaves: copper wider than its own pad is a bridge
+            # to the next one.
+            import fnmatch as _fn
+            _sw = max([0.25] + [w for pat, w in (net_widths or {}).items()
+                                if _fn.fnmatchcase(pad_.GetNetname(), pat)])
+            _sw = max(0.25, min(_sw, pcbnew.ToMM(min(pad_.GetSize().x, pad_.GetSize().y))))
             via_lim = pcbnew.FromMM(via_d / 2.0 + clr)
-            trk_lim = pcbnew.FromMM(0.25 / 2.0 + 0.127)
+            trk_lim = pcbnew.FromMM(_sw / 2.0 + 0.127)
             if not _clear_of(x_, y_, pad_.GetNetname(), via_lim):
                 return False
             if not _hole_off_lands(x_, y_):
@@ -3704,7 +3715,7 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
                 t_ = pcbnew.PCB_TRACK(board)
                 t_.SetStart(pcbnew.VECTOR2I(int(q0_[0]), int(q0_[1])))
                 t_.SetEnd(pcbnew.VECTOR2I(int(q1_[0]), int(q1_[1])))
-                t_.SetWidth(pcbnew.FromMM(0.25))
+                t_.SetWidth(pcbnew.FromMM(_sw))
                 t_.SetLayer(pad_.GetLayer())
                 t_.SetNet(net_)
                 board.Add(t_)
@@ -3731,7 +3742,7 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
                     _t = pcbnew.PCB_TRACK(board)
                     _t.SetStart(pcbnew.VECTOR2I(int(_prev[0]), int(_prev[1])))
                     _t.SetEnd(_q)
-                    _t.SetWidth(pcbnew.FromMM(0.25))
+                    _t.SetWidth(pcbnew.FromMM(_sw))
                     _t.SetLayer(board.GetLayerID(_lay_name))
                     _t.SetNet(net_)
                     board.Add(_t)
@@ -4402,7 +4413,8 @@ def build(stem):
                                escape_pins=set(notes.get("pin_escapes", ())),
                                escape_runs=notes.get("escape_runs"),
                                declared=notes.get("tracks", ()),
-                               declared_vias=notes.get("vias", ()))
+                               declared_vias=notes.get("vias", ()),
+                               net_widths=notes.get("net_widths"))
         print("  stitched %d pad(s) on %s straight to the plane"
               % (n, "/".join(sorted(stitch))))
 

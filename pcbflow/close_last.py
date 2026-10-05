@@ -176,6 +176,22 @@ def main(stem):
         # a fresh model per net: the copper laid for the previous one is an obstacle now
         board.Save(stem + ".kicad_pcb")
         model = RS.Board(stem, net)
+        # ⚠ NO VIA IN A SMALL SOLDERED PAD OF THE NET'S OWN (output_panel PWR_GND,
+        # 2026-10-04). Same-net copper is free ground to the search, so it changed layer
+        # in the middle of a SOD-523 land -- quality A12's hard finding, "solder wicks down
+        # it". Lands under 4 mm2 that carry paste are closed to vias; bigger ones can
+        # afford one, and a pad with no paste has nothing to lose.
+        model.own_lands = []
+        for f in board.GetFootprints():
+            for q in f.Pads():
+                if (q.GetNetname() != net or q.GetDrillSize().x > 0
+                        or not (q.IsOnLayer(pcbnew.F_Paste) or q.IsOnLayer(pcbnew.B_Paste))):
+                    continue
+                bb = q.GetBoundingBox()
+                w, h = pcbnew.ToMM(bb.GetWidth()), pcbnew.ToMM(bb.GetHeight())
+                if w * h < 4.0:
+                    c = bb.GetCenter()
+                    model.own_lands.append((pcbnew.ToMM(c.x), pcbnew.ToMM(c.y), w / 2, h / 2))
         # ⚠ TWO GRIDS, COARSE FIRST. maze3d pads its clearance by half a cell diagonal, and
         # at the default 0.15 mm cell that pad alone (0.106) walls in a QFN pin on 0.4 mm
         # pitch: 0.1 + 0.127 + 0.106 = 0.333 against the 0.3 to its neighbour's edge, so
