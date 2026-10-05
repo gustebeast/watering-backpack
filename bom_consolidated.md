@@ -32,8 +32,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
     uses 90° swivels instead). ⚠ **Do not discard the strainers.** They were written
     off here as "redundant — v2 filters on the green line", and one of them has since
     been backflushed and cleared itself, which is the whole argument §4 makes for the
-    printed screen. Putting the two of them at the two tees may replace that printed
-    part entirely — WORK_V2_PUNCHLIST finding 13. ⚠ **They are DIRECTIONAL**:
+    printed screen. ✅ **DECIDED 2026-10-05 — they go at the two tees and the printed
+    screen is not built** (WORK_V2_PUNCHLIST finding 13, closed). ⚠ **They are DIRECTIONAL**:
     they filter male→female and clean female→male (owner, measured), so the male
     end faces what each one protects against — the **pot** on the green tee, the
     **tank** on the tank tee. Both therefore show their female end to the tee.
@@ -86,30 +86,37 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 3. Tubing & plumbing  *(🎒)*
 
-- [ ] 🎒 **Two tees — NOT YET SOURCED, and they have never been on this list.**
-  §1's anti-parallel arrangement has needed them since it was chosen;
-  `src/plumbing.py` models both (`TANK_TEE` at x +73, `GREEN_TEE` at x −73) and
-  `check_plumbing.py` routes six hoses through them. No CAD gate can catch the
-  omission — a tee is a bought fitting and the gates measure printed geometry.
-  **What to buy is blocked on two decisions that have to be taken together**
-  (WORK_V2_PUNCHLIST findings 13 and 14):
-  - **barb × barb × barb** if the printed screen stays, or **two identical
-    barb × barb × 1/2"-14 MNPT** if the pump strainers go in at the tees. The
-    Seaflo 51S01 is MNPT one end and **FNPT** the other, and finding 13a shows
-    both strainers face their FNPT end at the tee, so one male-threaded leg screws
-    straight into each. Their MNPT ends take the **owned McMaster 5346K56**
-    (FNPT × 3/8" barb) on the green side and the **spare SFFN1-1220-01**
-    (FNPT × 1/2" barb) on the tank side — so the tees are the only purchase;
-  - **1/2" barb**, settled — the ✅ below. §2's pump fitting had already decided it
-    and the owner has now bought it, so this is no longer an open variable.
+- [ ] 🎒 **Two tees — barb × barb × 1/2"-14 MNPT, 1/2" barbs — DECIDED
+  2026-10-05, NOT YET SOURCED.** §1's anti-parallel arrangement has needed them
+  since it was chosen; `src/plumbing.py` models both (`TANK_TEE` at x +73,
+  `GREEN_TEE` at x −73) and `check_plumbing.py` routes six hoses through them — and
+  this list had never carried either one. No CAD gate could catch that: a tee is a
+  bought fitting and the gates measure printed geometry.
+  - **The male leg is what the decision bought.** The owner chose the two bought
+    Seaflo 51S01 strainers over the printed screen (WORK_V2_PUNCHLIST 13), and
+    finding 13a shows both strainers face their **FNPT** end at the tee — so one
+    male-threaded leg screws straight into each, with no adapter and no hose stub.
+  - **The two barbs are 1/2"**, to match everything else on the main run.
+  - **Nothing else is needed.** The strainers' MNPT ends take parts already in the
+    drawer: the **owned McMaster 5346K56** (FNPT × 3/8" barb) on the green side,
+    which is also the 1/2" → 3/8" step at the probe, and a **spare
+    SFFN1-1220-01** (FNPT × 1/2" barb) on the tank side.
+  - ⚠ **One thing is still unmeasured, and it is geometric, not a purchase:** each
+    strainer now sits inline on its tee's third leg, and nobody has measured the
+    51S01's length. The model says the green leg has **124 mm** of straight (tee at
+    z 84 down to the exit at z −40, and it leaves the pack, so it can also hang
+    outside) and the tank leg has about **100 mm** (z 84 up to the Uniseal at
+    z 234, less the 50 mm bend radius at the top). WORK_V2_PUNCHLIST finding 16.
 
 - [ ] 🎒 **1/2" ID vinyl tubing — UPSIZE from 3/8"** (Ace ProLine or equivalent)
   - v1 ran 3/8" at **8.7 ft/s**; suction lines want 2–3 ft/s. 1/2" brings it to 4.9 ft/s
     and cuts friction ~3× (loss scales with v²). This is the single cheapest improvement
     to v1's priming margin.
   - **The green line stays 3/8"** where it enters the inner-pot tube — that diameter is
-    fixed by the pot. Only the probe; the main run is 1/2". The printed filter housing is
-    the transition (3/8" barb pot-side, 1/2" barb pump-side).
+    fixed by the pot. Only the probe; the main run is 1/2". **The transition is the
+    owned McMaster 5346K56** (1/2 NPT female × 3/8" barb), screwed onto the green
+    strainer's MNPT end — it used to be the printed filter housing, which §4 no
+    longer builds.
   - ✅ **RESOLVED 2026-10-05 — 1/2", and this line was right all along.** This
     carried a ⚠ UNRESOLVED against DESIGN_V2 §4/§5's "5/8 everywhere except the
     probe", guessing §5 was "probably right" because it was the broader, later
@@ -117,7 +124,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
     fitting**, SFFN1-1220-01 with a **1/2" barb**, and a 5/8" tube does not grip a
     1/2" barb. So §2 of this list had already made the decision when it chose that
     fitting, and DESIGN_V2 §5 never noticed. Both are reconciled now, and
-    `src/line_filter.py` — which deliberately did not pick — picks 1/2".
+    the 1/2" figure is now the only one in the docs. *(`src/line_filter.py` used to
+    carry this reconciliation; the module is retired — see §7b.)*
     - The residual is named in DESIGN_V2 §5 rather than buried here: 1/2" runs at
       **4.90 ft/s**, above the 2–3 ft/s a suction line wants, against 5/8"'s
       3.14. It is accepted because the runs are short, the suction is flooded, and
@@ -330,7 +338,7 @@ so the frame contains the 206 mm pumps.
 
 ## 7b. Printed parts  *(🎒)*
 
-Two parts, plus three carried over from v1 and the filter screen. `py -3.12 -m
+Two parts, plus two carried over from v1. `py -3.12 -m
 src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
@@ -339,7 +347,6 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 | `v2_housing_lid` | 66 cm³ | shoebox cover: 28.0 mm skirt on all four bay walls (F2 is the tallest part now, 21.6 mm, and SKIRT_D is derived from it), 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
-| `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
 
 `joystick_mount` and `dual_clamp_19` attach to things this model does not draw —
 the shoulder strap, and the pack frame's tubing (`plumbing.pack_frame()` is a flat
@@ -347,24 +354,19 @@ reference panel). So they carry no position in the assembly and are **outside th
 interference gate**; only their print size is checked. Modelling the pack frame's
 tubing is what would bring them inside it.
 
-`line_filter_screen` is outside the gate for the same reason: §4 mounts the filter
-"partway along the green line, on the frame where the line leaves the pack", which
-is not a position. **Its housing is not modelled at all** — §4 fixes every
-dimension of the *screen* but leaves the housing's port arrangement, print split,
-and printed-vs-bought barbs undecided; `src/line_filter.py` lists what each one
-turns on. The screen is built first because it carries the makeability risk, not
-because the housing is finished.
-
-⚠️ **Print `test_screen_slice` before the real one.** §4 bets that a 0.2 mm nozzle
-renders 0.25 mm slots; nothing in the gate set can check minimum feature size, so
-the coupon (`py -3.12 -m src.test_pieces`, 21 mm tall, same slot/rib/wall as the
-real part) is the only thing that answers it. Hold it to a light.
+**`line_filter_screen` is retired, and so is its coupon.** §4 used to specify a
+printed, sealed, self-backflushing screen on the green line; the owner decided on
+2026-10-05 to use the two **bought** Seaflo 51S01 strainers at the two tees instead
+(finding 13). `src/line_filter.py` and `src.test_pieces.test_screen_slice` are
+deleted rather than left unbuilt — a coupon for a part nobody prints invites someone
+to print it and conclude something. git has both. The filament figure below dropped
+5 g with it, and `check_bom.py` is what noticed.
 
 **`dual_clamp_23` is retired.** It gripped a 23 mm *valve* body, and §1 of
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~299 g** for the set (243 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~294 g** for the set (239 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*
@@ -455,6 +457,12 @@ Kept here rather than deleted: most are on the shelf, and the reasons are the de
   the printed filter housing.
 - ~~**McMaster 4912K34 ball valve**~~ — dropped during v1. Killswitch is unplugging the
   Makita battery; the diaphragm check valves block flow when off, so there's no siphon.
+- ~~**Printed green-line filter screen** (`line_filter_screen`, `src/line_filter.py`,
+  and the `test_screen_slice` coupon)~~ — not bought, *designed*, and dropped
+  2026-10-05 for the two bought Seaflo 51S01 strainers at the tees. It was the right
+  part: §4's self-backflushing argument is sound and the owner's own backflush test
+  is what proved it. The strainers satisfy the same argument with parts already in
+  the drawer, no 0.25 mm slot printability bet, and no undecided housing. 13/13a.
 - ~~**YF-S201 flow sensor**~~ — dropped during v1; open-loop PWM was sufficient.
 
 ---

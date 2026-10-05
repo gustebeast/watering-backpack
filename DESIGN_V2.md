@@ -130,14 +130,22 @@ Fallback if the Uniseal does not suit: keep the top-routed dip tube and add a **
 valve** at its bottom so the column cannot drain back. Less robust — a slightly leaky
 foot valve loses prime overnight — but needs no modification to the tank.
 
-### 4. Filter — printed, sealed, self-backflushing
+### 4. Filter — two bought strainers at the tees, self-backflushing
 
-Mounted partway along the **green line**, on the frame where the line leaves the pack
-(not dangling on the hose, which would snag and adds a suction-side joint that could
-pull air).
+**DECIDED 2026-10-05.** This section used to specify a *printed*, sealed,
+self-backflushing screen on the green line, and `src/line_filter.py` built it. It is
+now **the two 50-mesh inlet strainers that came with the pumps, one at each tee** —
+`WORK_V2_PUNCHLIST.md` findings 13 and 13a, both closed. The argument below did not
+change; what changed is that the owner backflushed one of the stock strainers and it
+cleared itself, which is this section's own argument made about the *exact part*
+rather than about a part like it. The printed screen, its housing, and the
+`test_screen_slice` coupon are gone — recorded in `bom_consolidated.md` §7b and its
+*Dropped* list.
 
-The green line is the right place because it is the only line that is *both*
-bidirectional *and* connected to every dirty source:
+#### Why a filter on the green line at all, and why it self-cleans
+
+The green line is the only line that is *both* bidirectional *and* connected to every
+dirty source:
 
 | operation | path | filter direction |
 |---|---|---|
@@ -147,62 +155,66 @@ bidirectional *and* connected to every dirty source:
 
 So the pump never sees unfiltered water, and **every fill backflushes what the
 previous drain collected.** Sand migrates forward one pot per cycle — pumice fines
-returning to pumice — and never accumulates. No cleaning step needed between pots.
-The tank line only ever carries already-filtered water, so the pump's 50-mesh inlet
-strainer is redundant. One filter, total.
+returning to pumice — and never accumulates. No cleaning step between pots.
 
-⚠ **If the strainers replace this, they are DIRECTIONAL and the handedness is
-set by this very section.** The stock Seaflo 51S01 filters male→female and cleans
-female→male (owner, measured on the part). The paragraph above says the filter must
-collect on the drain and be swept clean on the fill, so the **male** end has to
-face whatever each strainer is protecting against — and that is not the same side
-at the two tees. **Green tee: male toward the pot**, because dirty water enters at
-the wand on retract. **Tank tee: male toward the tank**, because what that one
-protects is pump A and what threatens pump A is the tank's own settled sediment,
-drawn in on fill. Either one fitted backwards runs its collecting stroke as a
-cleaning stroke and sweeps the debris toward the pump instead of away from it.
-Both therefore face their **female** end at the tee, which is what makes the
-fittings come out even — worked through in `WORK_V2_PUNCHLIST.md` finding 13a.
+**Geometry is constrained by backflushing, and the stock strainer satisfies it.** A
+Y-strainer or spin-down collects debris in a sump *below* the flow path, deliberately,
+so reverse flow does not re-entrain it — those filter and never self-clean. What is
+needed is a straight-through cylindrical screen with no dead volume, which is exactly
+what the 51S01 is, and the owner's backflush test is the proof rather than the
+expectation.
 
-⚠ **This may become two strainers at the tees instead, and the reason is a
-measurement rather than a preference** — see `WORK_V2_PUNCHLIST.md` finding 13. The
-owner backflushed one of the strainers that came with the pumps and it cleared
-itself, which is the same argument this section makes for the printed screen but
-made *about the exact part* rather than about a part like it. Two of them at the two
-tees sit where this section wants filtration and cost no printed consumable in a
-sealed line. The trade is that 50 mesh is slightly COARSER than this screen's 0.25 mm
-(≈60 mesh), and the tee the change needs — two barbs and one male thread, to the
-strainer's own port — has not been sourced. Until it is, `src/line_filter.py` still
-builds the printed screen and nothing is half-changed.
+#### Where they go, and which way round
 
-Spigot water goes to the tank through its own separate fill line and bypasses the
+One at each tee, inline on the tee's third leg: the green tee's leg down to the wand,
+the tank tee's leg up to the Uniseal. Not dangling on the hose — that snags and adds
+a suction-side joint that can pull air.
+
+⚠ **They are DIRECTIONAL, and the handedness is set by the paragraphs above.** The
+51S01 filters male→female and cleans female→male (owner, measured on the part). The
+filter must collect on the drain and be swept clean on the fill, so the **male** end
+faces whatever each strainer protects against — and that is not the same side at the
+two tees:
+
+- **Green tee: male toward the POT.** Dirty water enters at the wand on retract, so
+  retract collects and dispense sweeps the debris back out toward the pot.
+- **Tank tee: male toward the TANK.** What that one protects is **pump A**, and what
+  threatens pump A is the tank's own settled sediment, drawn in on fill. So fill
+  collects and drain sweeps it back into the tank to settle out again.
+
+Either one fitted backwards runs its collecting stroke as a cleaning stroke and sweeps
+the debris *toward* the pump instead of away from it.
+
+Both therefore show their **female** end to the tee, and that is what makes the
+fittings come out even — one male-threaded tee leg screws straight into each, with no
+adapter and no hose stub. Worked through, with the fitting on each end, in finding 13a.
+
+#### What the change costs, named
+
+- **50 mesh instead of ≈60 mesh.** The printed screen's 0.25 mm slots were slightly
+  finer than the strainers' 50 mesh. Accepted: the thing being excluded is pumice sand
+  and fertilizer grit, and one mesh step does not decide whether the pump survives it.
+- **Two tees have to be bought** — barb × barb × 1/2"-14 MNPT, 1/2" barbs. They were
+  never on the BOM anyway (finding 14, closed), so this decision is what finally put
+  them there rather than an extra cost it created.
+- **The strainers' length is not measured, and it now matters.** Each one occupies
+  inline length on its tee's third leg. The model gives the green leg 124 mm of
+  straight and the tank leg about 100 mm. Finding 16.
+- **No longer sealed.** The printed housing was deliberately unopenable, because a
+  threaded joint on a suction line is an air-leak path and priming is the headline
+  problem. Each strainer adds two threaded joints on a suction line. Accepted, and it
+  is the real cost of this change: they are tapered pipe threads with tape, not the
+  twist-off cap the argument was against, and the system already re-primes every cycle
+  by design. Watch these two joints first if priming regresses.
+
+**Spigot water** goes to the tank through its own separate fill line and bypasses the
 filter entirely; municipal water is clean enough. Revisit only if filling from a rain
 barrel.
 
-**Geometry is constrained by backflushing.** A Y-strainer or spin-down collects debris
-in a sump *below* the flow path, deliberately, so reverse flow does not re-entrain it
-— they would filter and never self-clean. v2 needs a **straight-through cylindrical
-screen with no dead volume**, so reverse flow sweeps the cake off the mesh face.
-
-Sizing, for 3 GPM (11.55 in³/s) at ≤1 ft/s face velocity:
-
-- open area needed: **0.96 in²** (~9× the 3/8" line bore, so negligible restriction)
-- 0.25 mm slots on 0.65 mm pitch = 38% open → **2.5 in² gross**
-- → **1" diameter × 0.8" long** slotted cylinder
-
-Printed on a 0.2 mm nozzle: slots **≥ one nozzle diameter** (0.2–0.25 mm) or the
-slicer drops them; 0.4 mm walls between. 0.25 mm ≈ **60 mesh**, finer than the pump's
-own 50-mesh strainer. Build it wedge-wire style — vertical slots tied by solid rings
-top and bottom — so the ribs are supported and it prints without supports.
-
-**Sealed, not openable.** A threaded joint on the suction line is an air-leak path,
-and priming is the headline problem. Opening it also drains that section, which is one
-of the things that forced mouth-priming in v1. The housing is a cheap printed
-consumable: if backflushing ever fails to clear it, print another. This is a bet that
-backflushing works — and the cycle backflushes it on every fill.
-
-Barbs: **3/8" on the pot side** (fixed by the inner-pot tube), **1/2" on the pump
-side**. The housing is the transition. (This said 5/8" until 2026-10-05; see §5.)
+**Barbs: 3/8" on the pot side** (fixed by the inner-pot tube), **1/2" everywhere
+else**. The transition is the owned McMaster 5346K56 (1/2 NPT female × 3/8" barb) on
+the green strainer's male end — the job the printed housing used to do. (This said
+5/8" until 2026-10-05; see §5.)
 
 ### 5. Tubing — 1/2" everywhere except the probe
 
@@ -464,4 +476,5 @@ fuse (its *holder* did not carry over — it is **F2 on the main board** now), S
 5 gal can, Stansport frame, separate spigot fill line.
 
 **Dropped:** Farady 4-way X-port valve, Pololu D42V110F12 buck, 5/8"→3/8" reducers
-(×4 → ×1), pump inlet strainer (redundant given the green-line filter).
+(×4 → ×1). *The pump inlet strainers were on this list as "redundant given the
+green-line filter" until 2026-10-05; they are now the green-line filter itself — §4.*
