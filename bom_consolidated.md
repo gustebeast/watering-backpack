@@ -202,13 +202,14 @@ Exact part numbers to be fixed at layout; this is the functional list.
   pump (7.5 A), 3.5 mm for joystick (5-pos) and level sensor (4-pos). Every one of
   these is landed once at assembly, so JST's plug/unplug advantage doesn't apply,
   and a terminal is ONE part with no mating half to stock (PCB_README §3 warns that
-  a joint where you supply both halves is where the catalogue is worst). Spring-cage
-  over screw: two motors share this frame and screw clamps back off under vibration.
-  ⚠ **As built the board carries Phoenix MKDS-3 (5.08 mm, SCREW) for the pack and both
-  pumps**, and PT-1,5 (3.5 mm, push-in) for the joystick and level sensor — so the three
-  terminals that see vibration are the screw ones, against the preference stated in this
-  very line. That is a footprint decision to revisit before ordering, and it is the same
-  decision that left the board with no reverse-polarity protection (above).
+  a joint where you supply both halves is where the catalogue is worst).
+  **All five are one part: Ningbo Kangnex WJ500V-5.08-NP, 5.08 mm screw** — 2P
+  for the pack and both pumps (C8465), 5P for the joystick (C42377750), 4P for
+  the level sensor (C42377749). The old spring-cage-over-screw preference is
+  withdrawn in `CIRCUIT.md` §7: a joint torqued to the specified 0.4 N·m is not
+  the vibration risk a spring cage is sold against, and the cable load is carried
+  by the housing tie rib, not by the clamp. At 7.5 A the contact rises 16.9 K
+  over ambient against a 105 °C part limit — 38 K of margin.
   They give no strain relief, so the shroud needs a cable anchor behind them.
 - *Optional:* low-side shunt per pump → ADC.
 
@@ -273,8 +274,8 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 147 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 62 cm³ | shoebox cover: 24 mm skirt on all four bay walls, 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
+| `v2_housing` | 144 cm³ | battery mount + PCB case, one piece |
+| `v2_housing_lid` | 58 cm³ | shoebox cover: 20.8 mm skirt on all four bay walls, 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
@@ -302,7 +303,7 @@ real part) is the only thing that answers it. Hold it to a light.
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~290 g** for the set (235 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~280 g** for the set (228 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*

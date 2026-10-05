@@ -38,12 +38,15 @@ HEIGHT = {
     # catalogue line
     "PinHeader_1x06_P2.54mm_Vertical":       8.5,    # 2.54 header, pin above board
     "C_0603_1608Metric":                     0.9,    # 0603 MLCC, typical max
-    # ESTIMATE -- replace when a terminal block is in hand and can be measured.
-    # These set how far the PCB shroud must stand off the board face, so an
-    # estimate here is a real tolerance, not a cosmetic one.
-    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal":  17.0,  # ESTIMATE
-    "TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal": 15.0,  # ESTIMATE
-    "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,  # ESTIMATE
+    # MEASURED, not estimated: all five terminals are now the SAME part,
+    # Ningbo Kangnex WJ500V-5.08-NP, whose customer drawing (LCSC C8465,
+    # sheet 1/1) gives 14.07 mm above the board for the whole family. That
+    # replaces the 17.0 / 15.0 guesses this table used to carry, and it
+    # moves the right way: the PCB shroud needs 2.93 mm LESS standoff than
+    # the old MKDS-3 estimate demanded.
+    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 14.07,
+    "TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal": 14.07,
+    "TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal": 14.07,
 }
 
 BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)

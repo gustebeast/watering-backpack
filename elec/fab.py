@@ -79,6 +79,90 @@ LCSC = {
     "PTC-30V-200mA":   "C69680",    # nSMD020-30V, 1206, 192784. 200 mA hold / 460 mA
                                     # trip / 30 V, which is exactly what the asserts in
                                     # main.py's fuse block check against a 10 mA sensor.
+    # Passive, but NOT a generic one -- see the note on OPEN_VALUES below
+    "10uH/4A6sat":     "C2046332",  # Bourns SRN6045TA-100M, 1423, $0.2398. The part
+                                    # the board was designed around: the footprint is
+                                    # literally L_Bourns_SRN6045TA, and the listing's
+                                    # "10uH 3.2A 4.6A 52mOhm" matches the line already
+                                    # recorded in main.py -- Irms 3.20 A, Isat 4.60 A,
+                                    # DCR 52 mOhm -- so the value string "10uH/4A6sat"
+                                    # needs no change.
+                                    # ⚠ THE REQUIREMENT IS Isat > 3.8 A, NOT 4.6. 3.8 is
+                                    # BUCK_ILIM_MAX, the LMR14020's high-side current
+                                    # limit at its MAX (SNVSAA5B 5.5), because during a
+                                    # short the part drives to that limit and an
+                                    # inductor that saturates below it stops being an
+                                    # inductor. 4.6 is just this part's typ. main.py
+                                    # asserts the inequality, not the number.
+                                    # Alternate (M42, single maker): C285869, Chilisin
+                                    # LVC606045-100M-N, 10 uH, DCR 60 mOhm, Isat 4.6 A
+                                    # typ -- and 4.14 A on the datasheet's worst-case
+                                    # column, which still clears 3.8 A by 9 %. Read off
+                                    # the Chilisin LVC datasheet page 9, NOT off the
+                                    # listing: JLCPCB prints that part as "2.34A 4.6A",
+                                    # which is Irms-worst-case then Isat-typ -- neither
+                                    # the datasheet's own column order (Isat, Irms) nor
+                                    # a consistent one. The same search returned a TDK
+                                    # line reading "1.6A 1.6A 10uH", with the
+                                    # inductance last. Position means nothing here.
+    # Through-hole, hand-soldered at assembly (CIRCUIT.md section 7) -- these
+    # five are NOT in the SMT BOM and carry no extended-part fee.
+    "3V-ACTIVE":       "C252936",   # INGHAi GMD12065YB-3V2700, 787. Active (built-in
+                                    # driving circuit) electromagnetic, so a GPIO-rate
+                                    # square wave is not needed -- which is the whole
+                                    # reason the schematic drives it through Q3 rather
+                                    # than from a timer. 2V~5V operating, 3 V nominal,
+                                    # 30 mA, 80 dB, 2.7 kHz. ⚠ CHOSEN ON PITCH, NOT ON
+                                    # BODY SIZE: the footprint is Buzzer_12x9.5RM7.6 and
+                                    # JLCPCB's own package filter offers both "12x9.5"
+                                    # and "12x9.5pitch7mm" -- a 7.0 mm part is a
+                                    # footprint mismatch that matching on "12 mm" would
+                                    # have walked straight into. This one is 7.6 mm.
+                                    # Body 6.5 mm tall against the footprint's 9.5, so
+                                    # it fits under the lid with room to spare.
+                                    # Alternate: C17701078, HYDZ HYE1206-03ST, same
+                                    # ratings and the same 7.6 mm pitch, 256 in stock.
+    "PROG":            "C42431790", # PZ2.54-1X6P-H25, 7503, $0.0331. A plain vertical
+                                    # 1x6 2.54 header: no maker pinout to get wrong,
+                                    # because the order is this board's own and is
+                                    # printed on B.Silk (M26).
+    # ── The five field terminals, ALL ONE PART FAMILY ──────────────────────
+    # Ningbo Kangnex WJ500V-5.08-NP, read from the customer drawing (LCSC C8465,
+    # sheet 1/1, rev A 2024.03.10) rather than from the listing -- and the two
+    # disagree in a way that matters. The LISTING says 18 A / 14-30 AWG. The
+    # DRAWING says UL 10 A / IEC 24 A, 22-12 AWG. The drawing wins, and 10 A is
+    # the number to design against: J2 and J3 carry one pump's 7.5 A
+    # continuously (75 %), and J1 carries the same 7.5 A chopped at D = 0.60-0.80,
+    # so 6.7 A RMS worst case (67 %) -- never both pumps, which is what
+    # tools/check_pump_dirs.py exists to hold.
+    #
+    # ⚠ THE FOOTPRINT IS A PHOENIX MKDS-3 AND THE PART IS NOT A PHOENIX. That is
+    # deliberate and it is measured, not assumed:
+    #   pin      WJ500V is a 0.90 mm ROUND post (not the square post these blocks
+    #            are often assumed to have). MKDS-3 drills 1.30, so +0.40 mm --
+    #            inside IPC-2222's +0.25..+0.70 preferred band for a hand-soldered
+    #            lead. The drawing's own recommendation is 1.50 (+0.60), also in
+    #            band; 1.30 is the tighter of the two and so the better fill.
+    #   pitch    5.08 both.
+    #   body     MKDS-3's F.Fab is exactly N x 5.08 wide -- identical to the
+    #            WJ500V -- and 11.20 mm deep against the WJ500V's 10.00, with the
+    #            hole row 5.30/5.90 from the two faces against 4.50/5.50. So the
+    #            footprint is a strict SUPERSET of the real body on every side:
+    #            anything that clears the footprint clears the part.
+    #   height   14.07 mm above board, which is now the measured number in both
+    #            component-height tables and is what sets the housing bay depth.
+    "TB-5.08-2":       "C8465",     # WJ500V-5.08-2P, 260480, $0.1337. J1/J2/J3.
+    "TB-5.08-4":       "C42377749", # WJ500V-5.08-04P-14-00A, 6376, $0.3252. J5.
+    "TB-5.08-5":       "C42377750", # WJ500V-5.08-05P-14-00A, 2142, $0.4162. J4.
+                                    # ⚠ J4 USED TO BE A 3.5 mm PUSH-IN PT-1,5 and
+                                    # the comment on it said "no screw to vibrate
+                                    # loose". Trading that away was a decision, not
+                                    # an oversight: one family means one footprint
+                                    # drawing to be wrong about, one screwdriver,
+                                    # one wire-range spec and one entry-face rule
+                                    # for all five terminals -- and a torqued M2.5
+                                    # screw on 0.4 N.m is not the vibration risk a
+                                    # spring cage is usually sold against.
     "100u/50V":        "C371283",   # SamYoung MVK50V100M10*10, D10xL10, 1932, 310 mA
                                     # at 120 Hz. ⚠ THE RIPPLE IS THE SPEC HERE AND THE
                                     # VALUE STRING DOES NOT SAY SO. The pumps make the
@@ -100,62 +184,49 @@ LCSC = {
 # Values that are placed but not yet sourced. A value that is neither in LCSC, nor a
 # generic passive chosen at order time (an 0603 600R), nor listed here FAILS the build --
 # so a changed part number cannot slip through as "just another open item".
-OPEN_VALUES = frozenset({
-    # ── THE TWO THAT ARE DECIDED AS REQUIREMENTS BUT NOT AS PARTS ──────────
-    # Both carried a part number that did not meet the requirement. See the
-    # "Pump power semiconductors" block in main.py; do not re-source these two
-    # without reading it.
-    "NFET-60V-10mR",     # >= 60 V Vds, <= 10 mOhm at 4.5 V Vgs, DPAK/TO-263
-    "SCHOTTKY-60V-15A-vf0V59",  # >= 60 V, >= 15 A, low Vf, D2PAK. 1 A parts share the
-                         # SS1x numbering and will not survive this leg.
-    # ⚠ AND THIS ONE WAS COUNTED AS "GENERIC" UNTIL IT WAS LISTED HERE, which is
-    # worth knowing about the gate: fab_package's GENERIC pattern matches
-    # Diode_SMD:D_SM[AB], because a diode in an SMA land is normally picked by
-    # PART NUMBER and D1's "SMBJ24A" and D4's "1N4148W" are perfectly good
-    # orderable values. This one is not a part number, it is a requirement in
-    # the same style as the two above -- so the footprint said "orderable" and
-    # the value said nothing anybody could buy, and the package reported it in
-    # the generic count. The declaration below is what makes it visible.
-    "SCHOTTKY-60V-3A",   # the buck's CATCH diode, which the board did not have
-                         # at all: the LMR14020 integrates only a high-side
-                         # MOSFET (SNVSAA5B 6.1), so without this the SW node
-                         # is driven past its -3 V rating every cycle and the
-                         # 3V3 rail -- hence the MCU, the joystick and the gate
-                         # drivers' logic -- never comes up. >= 60 V (the
-                         # datasheet's floor is 1.25 x VIN = 25; 60 matches
-                         # everything else on this node and the TVS's 38.9 V
-                         # clamp), >= 3 A per 7.2.2.5's own starting point,
-                         # against a 0.50 A average. SMA.
-    # And a third one through the same hole, within the hour: GENERIC also
-    # matches "Fuse_", for the same good reason -- a fuse is normally named by
-    # part number. This is a requirement.
-    "PTC-30V-200mA",     # the level sensor's feed, the only fused net on the
-                         # board. VBAT left here unfused down the most exposed
-                         # conductor in the machine -- J5's lead climbs the
-                         # OUTSIDE of the case to the tank -- with a Makita pack
-                         # behind it and only a switch at the dock. Resettable
-                         # on purpose: this thing is carried into a garden, and
-                         # a cartridge fuse out there is a walk home. >= 30 V
-                         # (clears a 20 V fresh pack), 0.2 A hold against a
-                         # ~10 mA sensor. 1206.
-    # ── decided in the schematic, part number not read off a listing yet ───
-    "ESP32-WROOM-32E",   # expect an Extended part at JLCPCB (CIRCUIT.md section 3)
-    "LMR14020SDDA",      # the >= 40 V buck; CIRCUIT.md section 2 lists the alternates
-    "UCC27517",          # gate driver, non-inverting -- the inverting sibling
-                         # (UCC27516) would run the pumps whenever the MCU was held
-                         # in reset, so the suffix matters
-    "MMBT3904",          # buzzer driver
-    "ZENER-10V-0W5",     # VGATE shunt. The gate drivers are 4.5-18 V parts and
-                         # 3V3 is the only other rail on the board, so this is
-                         # what makes the pumps switch at all. Any 10 V +-5%,
-                         # >= 0.5 W SOD-123 Zener does it.
-    "100u/50V",          # bulk electrolytic, CP_Elec_10x10.5 -- not a generic 0603
-    "3V-ACTIVE",         # active buzzer, 3 V rated (CIRCUIT.md section 5)
-    "PROG",              # 1x06 2.54 header
-    "TB-5.08-2",         # Phoenix MKDS-3, battery + both pumps
-    "TB-3.5-4",          # Phoenix PT-1,5-4, level sensor
-    "TB-3.5-5",          # Phoenix PT-1,5-5, joystick
-})
+OPEN_VALUES = frozenset()
+# ── EMPTY, AND THAT IS A RESULT, NOT A DISABLED CHECK ──────────────────────
+# Every value placed on this board now has a part number in LCSC above. This set
+# held fifteen; the last five to go were the buzzer and the five field terminals
+# (which are three values between them). The rule it enforces is unchanged and
+# still live: a value that is neither in LCSC, nor a generic passive chosen at
+# order time, nor listed here FAILS the build. Emptying it makes that rule
+# STRICTER, not weaker -- there is no longer any value exempted from needing a
+# number.
+#
+# ⚠ WHAT THIS SET WAS ALSO DOING, so it is not lost with the entries. Four of
+# the fifteen were REQUIREMENTS wearing a value's clothes -- "NFET-60V-10mR",
+# "SCHOTTKY-60V-15A-vf0V59", "SCHOTTKY-60V-3A", "PTC-30V-200mA" -- and each one
+# sat in a footprint that fab_package's GENERIC pattern matches: R_, C_, Fuse_,
+# Inductor_SMD, Diode_SMD:D_SOD and Diode_SMD:D_SM[AB]. The pattern is right to
+# exist (a diode in an SMA land normally IS picked by part number, which is why
+# D1's "SMBJ24A" needs no entry), but it means the FOOTPRINT says "orderable"
+# while the VALUE says something nobody can buy, and the part is quietly counted
+# as a generic passive. It caught three parts in one hour, the third within
+# minutes of the second. Listing a value here was the only thing that made it
+# visible.
+#
+# So if a requirement-shaped value is ever placed again, it has to come back
+# here until it has a number -- otherwise one of those footprints will swallow
+# it in the generic count and nothing will say a word.
+#
+# ⚠ AND A FOURTH ONE GOT THROUGH THAT THIS SET NEVER CAUGHT, because it escaped
+# by a different door: "10uH/4A6sat", L1. The GENERIC pattern is matched against
+# the WHOLE footprint string as well as the part after the colon, so the LIBRARY
+# name can match it -- L1's land is "Inductor_SMD:L_Bourns_SRN6045TA_...", and
+# "Inductor_SMD" is in the pattern. The leaf name L_Bourns_... matches nothing.
+# So this value was never exempted here and never needed to be; it was counted
+# as a generic passive from the day it was placed, and it is a REQUIREMENT -- a
+# saturation current, which is the one parameter that decides whether a 10 uH
+# 6045 inductor works in this circuit at all. Two parts with identical BOM lines
+# can differ 2:1 on it. Found by reading the 19 generic lines one at a time for
+# M30, not by any gate. It is sourced now (C2046332).
+#
+# The lesson is narrower than "list more values": the generic test asks whether
+# the LAND is one you normally fill from a catalogue, and then trusts the VALUE
+# to be orderable. Those are two different questions and the second one has no
+# gate. Reading the generic list by eye before an order is the only thing that
+# has ever caught these -- four times out of four.
 
 _fab.configure(HERE, BOARDS, LCSC, OPEN_VALUES)
 

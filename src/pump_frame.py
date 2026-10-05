@@ -188,9 +188,15 @@ _PCB_HEIGHT = {
     # plain SOIC-8 cadkit already lists -- what changed is the land under it.
     "SOIC-8-1EP-FABDRILL": 1.75,
     "R_0805_2012Metric": 0.6,          # VGATE dropper: 0805 for its 0.1 W
-    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 17.0,
-    "TerminalBlock_Phoenix_PT-1,5-4-3.5-H_1x04_P3.50mm_Horizontal": 15.0,
-    "TerminalBlock_Phoenix_PT-1,5-5-3.5-H_1x05_P3.50mm_Horizontal": 15.0,
+    # MEASURED, not estimated: all five terminals are now the SAME part,
+    # Ningbo Kangnex WJ500V-5.08-NP, whose customer drawing (LCSC C8465,
+    # sheet 1/1) gives 14.07 mm above the board for the whole family. That
+    # replaces the 17.0 / 15.0 guesses this table used to carry, and it
+    # moves the right way: the PCB shroud needs 2.93 mm LESS standoff than
+    # the old MKDS-3 estimate demanded.
+    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 14.07,
+    "TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal": 14.07,
+    "TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal": 14.07,
 }
 
 # The board's own placement lives in src/housing.py, which is what the

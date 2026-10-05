@@ -824,12 +824,29 @@ def housing() -> cq.Workplane:
 # touch it: the lid seats on the bay RIM, and a skirt that bottoms out on the
 # plate first holds the lid off the rim it is supposed to be sealing against.
 #
-# Measured: the bay is 25.1 deep, a test skirt is clear of the dock, the pack
-# and the timber at 25.1, and fouls the back plate at 26.0. 24.0 is the last
-# whole bead short of the plate -- 1.1 mm of gap for the lid to close on, and
-# the step the user was looking at drops from 81.6 mm2 to 17.6.
-SKIRT_D   = 30 * BEAD             # 24.0 -- how far it drops. The dock's +Y face
-                                  # limit and it is 6.3 mm clear at this depth.
+# Measured: a test skirt is clear of the dock, the pack and the timber at 25.1,
+# and fouls the back plate at 26.0. The rule is "the last whole bead that still
+# leaves the lid a real gap to close on".
+#
+# ⚠ THAT RULE WAS WRITTEN DOWN AS ITS ANSWER, 30 * BEAD, AND THE ANSWER WENT
+# STALE THE MOMENT A PART GOT SHORTER. The bay's depth is abs(WALL_X - FLOOR_X),
+# and WALL_X comes from _parts_height() -- the tallest thing on the POSED BOARD.
+# So the bay is only ever as deep as the tallest part needs, and the tallest
+# parts here are the five terminal blocks. When their height stopped being a
+# 17.0 mm guess and became the WJ500V drawing's measured 14.07, the bay went
+# from 25.1 deep to 22.2 and a skirt frozen at 24.0 was suddenly 1.8 mm LONGER
+# than the bay -- it would have bottomed on the back plate and held the lid off
+# the one joint that is under five gallons of water. The assert below caught
+# it, which is the gate working; hard-coding the answer is what made there be
+# something to catch.
+#
+# So the rule computes. SKIRT_PLATE_MIN is the gap the lid closes on and is the
+# thing actually being chosen; the depth falls out of it, to the bead.
+SKIRT_PLATE_MIN = 1.0             # the lid must close on the RIM, not the skirt
+SKIRT_D   = (int((abs(WALL_X - FLOOR_X) - SKIRT_PLATE_MIN) / BEAD)) * BEAD
+                                  # how far it drops, to the whole bead. The
+                                  # dock's +Y face is the other limit and the
+                                  # skirt is clear of it at any depth <= 25.1.
 BAY_Y0, BAY_Y1 = Y_PCB0 - WALL, Y_OUTER       # the bay's outer faces
 LID_Y0 = BAY_Y0 - SKIRT_CLR - SKIRT_T
 LID_Y1 = BAY_Y1 + SKIRT_CLR + SKIRT_T
@@ -846,7 +863,7 @@ assert SKIRT_D < abs(WALL_X - FLOOR_X), "the skirt is deeper than the bay is tal
 # of water -- and nothing downstream would notice, because every part still
 # fits and the install gate still sweeps clear.
 SKIRT_PLATE_GAP = abs(WALL_X - FLOOR_X) - SKIRT_D
-assert SKIRT_PLATE_GAP >= 1.0, (
+assert SKIRT_PLATE_GAP >= SKIRT_PLATE_MIN, (
     "the skirt ends %.2f mm from the back plate; the lid would close on its "
     "skirt instead of on the bay rim" % SKIRT_PLATE_GAP)
 
