@@ -262,6 +262,12 @@ PCB_Z_C = 74.75
 BAY_BORDER = 3.0
 BAY_Z0     = PCB_Z_C - (PCB_L / 2.0 + BAY_BORDER + WALL)  # 11
 BAY_Z1     = PCB_Z_C + (PCB_L / 2.0 + BAY_BORDER + WALL)  # 139
+#
+# MADE TO FAIL, three ways, because a gate nobody has watched fail is a gate
+# nobody knows the sense of: BAY_BORDER 3.0 -> 4.0 reaches 137.15 against the
+# boss's 137.00, PCB_Z_C 74.75 -> 76.0 reaches 137.40, and PCB_Z_C -> 73.0 trips
+# the OTHER end instead and says so in the wire slot's own words. The window is
+# 1.55 mm wide and both of its ends are now asserted.
 _BOSS_Z0 = 145.0 - 16.0 / 2.0            # LID_BOSS_Z/-H, 400 lines below
 assert BAY_Z1 <= _BOSS_Z0 - 0.4, (
     "the bay's +Z wall reaches %.2f and the lid's screw boss starts at %.2f: "

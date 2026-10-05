@@ -408,7 +408,7 @@ VBAT_BULK_F = (100e-6      # C1, electrolytic
                            #      here is that it is still charged by the dock
                + 4.7e-6    # C15, the buck's input ceramic
                + 10e-6)    # C18, behind F1
-VBAT_INRUSH_J = 0.5 * VBAT_BULK_F * VBAT_MAX ** 2        # 0.045 J
+VBAT_INRUSH_J = 0.5 * VBAT_BULK_F * VBAT_MAX ** 2        # 0.049 J
 # I2t over an RC charge is V^2*C/(2R), so the LOWEST plausible loop resistance
 # is the worst case. 60 mOhm is already below what two electrolytics' ESR, the
 # harness and a pair of blade contacts can be between them; the figure is a

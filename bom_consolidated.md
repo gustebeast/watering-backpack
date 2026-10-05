@@ -81,6 +81,20 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 3. Tubing & plumbing  *(🎒)*
 
+- [ ] 🎒 **Two tees — NOT YET SOURCED, and they have never been on this list.**
+  §1's anti-parallel arrangement has needed them since it was chosen;
+  `src/plumbing.py` models both (`TANK_TEE` at x +73, `GREEN_TEE` at x −73) and
+  `check_plumbing.py` routes six hoses through them. No CAD gate can catch the
+  omission — a tee is a bought fitting and the gates measure printed geometry.
+  **What to buy is blocked on two decisions that have to be taken together**
+  (WORK_V2_PUNCHLIST findings 13 and 14):
+  - **barb × barb × barb** if the printed screen stays, or **barb × barb ×
+    1/2"-14 MNPT** if the pump strainers go in at the tees — the Seaflo 51S01 is
+    MNPT one end and **FNPT** the other, so a male-threaded tee leg screws straight
+    into it and its MNPT end takes an SFFN1-1220-01 female barb, which §2 already
+    buys a spare of;
+  - **1/2" or 5/8" barb** — the ⚠ below, unresolved, sets this too.
+
 - [ ] 🎒 **1/2" ID vinyl tubing — UPSIZE from 3/8"** (Ace ProLine or equivalent)
   - v1 ran 3/8" at **8.7 ft/s**; suction lines want 2–3 ft/s. 1/2" brings it to 4.9 ft/s
     and cuts friction ~3× (loss scales with v²). This is the single cheapest improvement
