@@ -134,7 +134,9 @@ def main(stem):
 
     plane_nets = set(notes.get("stitch_nets", ()))
     merge_mm = float(q.get("via_land_merge", 2.0))
+    hole_mm = float(q.get('via_hole_hole', 0.45))
     moved, stuck, retired = [], [], []
+    drilled, crowded = [], []
     for v in vias:
         vp = v.GetPosition()
         hit = [(p, n) for p, n in lands if p.GetBoundingBox().Contains(vp)]
@@ -215,6 +217,64 @@ def main(stem):
         v.SetPosition(np_)
         moved.append((name, dist, 100.0 * barrel / paste))
 
+    # ── second pass: a hole drilled on top of another hole ────────────────────────
+    # ⚠ THE SAME DEFECT WEARING A DIFFERENT TRIGGER, and the first pass cannot see it
+    # because it only looks at lands small enough to starve. U2 is an ESP32 module whose
+    # thermal pad is 21 pad objects -- nine 0.90 mm SMD lands and TWELVE 0.70 mm plated
+    # holes on a 0.700 mm grid, the module's own thermal via array. The pad is far too big
+    # to be in `lands`, so the first pass walks past it; meanwhile the router had dropped
+    # its own GND vias into the same pad, and one of them sat 0.300 mm from a footprint
+    # barrel -- two 0.3 mm holes exactly tangent, which the drill cannot make as two
+    # holes. Ten places in all, from 0.000 to 0.416 mm of gap against a 0.45 mm minimum.
+    #
+    # Those vias were redundant the moment they were laid: the pad they are in is on GND
+    # and already has twelve plated barrels of its own. So the keeper here may be a PAD
+    # hole as well as a via -- a plated barrel reaches the plane whichever object owns it.
+    holes = [(t.GetPosition(), t.GetDrillValue(), t.GetNetCode(), None) for t in vias]
+    for fp in board.GetFootprints():
+        for pd in fp.Pads():
+            if pd.GetDrillSizeX() > 0:
+                holes.append((pd.GetPosition(), pd.GetDrillSizeX(), pd.GetNetCode(), pd))
+
+    def _gap(a, ra, b, rb):
+        return math.hypot(a.x - b.x, a.y - b.y) - ra / 2.0 - rb / 2.0
+
+    for v in [t for t in board.GetTracks() if t.GetClass() == "PCB_VIA"]:
+        vp, vd = v.GetPosition(), v.GetDrillValue()
+        tight = [(MM(int(_gap(vp, vd, hp, hd))), owner)
+                 for hp, hd, _nc, owner in holes
+                 if not (hp.x == vp.x and hp.y == vp.y and owner is None)
+                 and _gap(vp, vd, hp, hd) < FM(hole_mm)]
+        if not tight:
+            continue
+        worst_gap, _owner = min(tight)
+        keeper = None
+        if v.GetNetname() in plane_nets:
+            for hp, hd, nc, owner in holes:
+                if nc != v.GetNetCode() or (hp.x == vp.x and hp.y == vp.y):
+                    continue
+                if math.hypot(hp.x - vp.x, hp.y - vp.y) > FM(merge_mm):
+                    continue
+                if _gap(vp, vd, hp, hd) >= FM(hole_mm) or owner is not None:
+                    keeper = (owner, MM(int(math.hypot(hp.x - vp.x, hp.y - vp.y))))
+                    break
+        if not keeper:
+            crowded.append((v.GetNetname(), worst_gap))
+            continue
+        for t in list(board.GetTracks()):
+            if t.GetClass() == "PCB_VIA" or t.GetNetCode() != v.GetNetCode():
+                continue
+            if (t.GetStart() == vp or t.GetEnd() == vp) and t.GetLength() < FM(0.3):
+                board.Remove(t)
+        board.Remove(v)
+        drilled.append((v.GetNetname(), worst_gap, keeper[1]))
+
+    for net, gap, d in drilled:
+        print("  retired a %s via drilled %.3f mm from another hole -- the same net has a "
+              "plated barrel %.2f mm away that is not" % (net, gap, d))
+    for net, gap in crowded:
+        print("  COULD NOT clear a %s via %.3f mm from another hole: quality A12 will say "
+              "so" % (net, gap))
     for name, dist, pct in moved:
         print("  moved the via out of %s by %.2f mm -- its barrel was %.0f %% of the "
               "paste printed there" % (name, dist, pct))
@@ -225,14 +285,14 @@ def main(stem):
     for name, pct in stuck:
         print("  COULD NOT move the via out of %s (barrel is %.0f %% of the paste "
               "printed there): quality A14 will say so" % (name, pct))
-    if moved or retired:
+    if moved or retired or drilled:
         board.Save(pcb)
         try:
             import layout
             layout._canonical_uuids(pcb)
         except Exception:                   # noqa: BLE001
             pass
-    return len(moved) + len(retired)
+    return len(moved) + len(retired) + len(drilled)
 
 
 if __name__ == "__main__":

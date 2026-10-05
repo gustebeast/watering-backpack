@@ -157,9 +157,21 @@ Exact part numbers to be fixed at layout; this is the functional list.
   of replaced.
 - 2× **Schottky freewheel diode**. Plain, not synchronous: it conducts only during
   off-time and usage is mostly full-on.
-- 1× **synchronous buck, 18 V → 3.3 V, ~1 A**, rated **≥36 V in** — a fresh Makita pack
-  is 20 V and inductive spikes exceed that, so 24 V-max parts (MP2315, AP63203) are too
-  close to the edge. LMR14030 / TPS54360 class.
+- 1× **LMR14020SDDA buck, 18 V → 3.3 V**, 0.6 A drawn of a 2 A part, rated **≥36 V in**
+  — a fresh Makita pack is 20 V and inductive spikes exceed that, so 24 V-max parts
+  (MP2315, AP63203) are too close to the edge.
+  ⚠ **It is NOT synchronous**, and this list said it was. A non-synchronous buck needs
+  an external **catch diode** — **D6, SCHOTTKY-60V-3A in SMA** — and without it the SW
+  node is driven past its −3 V rating every cycle: no 3.3 V rail, no MCU, no gate drive,
+  no board. Buy the diode.
+- 1× **inductor, 10 µH, ≥4.6 A saturation** (Bourns SRN6045TA-100M class). The
+  saturation current is the spec that matters, not the DCR: it has to clear the
+  regulator's own 3.8 A maximum current limit, or the part saturates *before* the chip
+  protects it. The first choice did not, and the fix ran **down** in inductance.
+- 2× **output capacitor, 22 µF 16 V 1206 X7R** (C4 + C19 = 44 µF nominal). X7R is a
+  **requirement, not a preference** — the datasheet's stability equation needs 16.5 µF
+  of *effective* capacitance at 3.3 V, and the DC-bias derate is the whole argument.
+  Y5V in the same package would not meet it.
 - 1× **ESP32-WROOM-32E** module. Expect an *Extended* part (small setup fee). Keep the
   antenna over a board edge with copper keepout — **and don't orient it into the tank**;
   5 gal of water is an excellent RF absorber.
@@ -172,7 +184,18 @@ Exact part numbers to be fixed at layout; this is the functional list.
 - **RC filter on the joystick ADC input** — the only noise defence available, since
   there is no joystick board to buffer at the source.
 - 3.3 V pull-up for the level sensor's open-collector output.
-- Reverse-polarity P-FET, TVS, bulk electrolytics at the switches.
+- **TVS: SMBJ24A** (24 V standoff, 38.9 V max clamp) + bulk electrolytics at the
+  switches. The clamp is the number every part on the rail is judged against, so buy
+  this part and not "an SMBJ class part".
+- 1× **resettable PTC, 30 V 200 mA, 1206** (F1) in series with the level sensor's VBAT
+  feed — resettable on purpose, because this machine is carried into a garden and a
+  cartridge fuse out there is a walk home.
+- ⚠ **Reverse-polarity P-FET: specified here, NOT on the built board.** It was called
+  optional while the battery inlet was a keyed XT30; the inlet is now a 5.08 mm screw
+  terminal with two identical wires and nobody revisited the protection. The backstop
+  is the off-board 10 A ATC fuse. Do not tick this line as bought until the decision in
+  `elec/CIRCUIT.md` §6 is taken — it is a change to the 7.5 A path, not a part to drop
+  into a cart.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
 - Connectors: **push-in terminal blocks, not JST** — 5.08 mm for battery and each
@@ -181,6 +204,11 @@ Exact part numbers to be fixed at layout; this is the functional list.
   and a terminal is ONE part with no mating half to stock (PCB_README §3 warns that
   a joint where you supply both halves is where the catalogue is worst). Spring-cage
   over screw: two motors share this frame and screw clamps back off under vibration.
+  ⚠ **As built the board carries Phoenix MKDS-3 (5.08 mm, SCREW) for the pack and both
+  pumps**, and PT-1,5 (3.5 mm, push-in) for the joystick and level sensor — so the three
+  terminals that see vibration are the screw ones, against the preference stated in this
+  very line. That is a footprint decision to revisit before ordering, and it is the same
+  decision that left the board with no reverse-polarity protection (above).
   They give no strain relief, so the shroud needs a cable anchor behind them.
 - *Optional:* low-side shunt per pump → ADC.
 

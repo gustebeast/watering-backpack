@@ -182,9 +182,21 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
 - 2x MOSFET pump drivers (40 V, low Rds(on), DPAK on copper pour; gate driver, not a
   bare GPIO, at 7.5 A and 20 kHz). Plain Schottky freewheel rather than synchronous:
   it only conducts during off-time, and usage is mostly full-on.
-- 18 V -> 3.3 V synchronous buck, ~1 A. Must be rated **>= 36 V in** — a fresh Makita
-  pack is 20 V and inductive spikes exceed that, so common 24 V-max parts are too close
-  to the edge. Single stage; this also deletes the Traco TSR.
+- 18 V -> 3.3 V buck, **LMR14020SDDA**, 0.6 A drawn of a 2 A part. Rated **>= 36 V in**
+  — a fresh Makita pack is 20 V and inductive spikes exceed that, so common 24 V-max
+  parts are too close to the edge. Single stage; this also deletes the Traco TSR.
+  ⚠ **NOT synchronous**, which this line claimed for months and which nearly cost the
+  board. The LMR14020 has one high-side switch and needs an external **catch diode** —
+  D6, a 60 V 3 A SMA Schottky — because without it the SW node is driven past its -3 V
+  rating every cycle and there is no 3.3 V rail at all, so no MCU, no joystick and no
+  gate drive. It was found by reading the datasheet's layout figure against the placed
+  board rather than by any check, because nothing on a schematic looks wrong when a
+  part is simply absent. The inductor is **10 uH / 4.6 A saturation**: the first choice
+  saturated below the regulator's own 3.8 A current limit, and the fix ran *down* in
+  inductance. Output capacitance is C4 + C19 = 44 uF nominal, which is what the
+  datasheet's equation 13 needs once X7R's DC bias derate is allowed for — the
+  dielectric is a stated requirement, not a preference, because the derate is the whole
+  argument.
 - ESP32-WROOM-32E module (crystal, antenna, shielding, FCC pre-cert; bare silicon buys
   nothing here)
 - Battery voltage divider -> ADC: duty compensation as the pack drains, and sag visible
@@ -195,11 +207,23 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
 - Tank level input: 3.3 V pull-up for the sensor's open-collector output
 - **RC filter on the joystick ADC input** — the only noise defence available, since
   there is no joystick board to buffer at the source
-- Reverse-polarity P-FET, TVS, bulk electrolytics near the switches
+- TVS (SMBJ24A, 38.9 V max clamp) and bulk electrolytics near the switches.
+  ⚠ **The reverse-polarity P-FET is NOT on the built board.** It was called optional
+  because the battery inlet was keyed; the inlet is now a screw terminal, which is not.
+  The consequence, the remaining backstop (the off-board 10 A ATC fuse) and the two
+  ways out are written up in `elec/CIRCUIT.md` §6 and tracked in the punchlist. It is
+  an open decision, not an oversight that has been accepted.
+- **F1**, a 30 V 200 mA resettable PTC, in series with the level sensor's VBAT feed —
+  that lead leaves the sealed bay and climbs the outside of the case, so it is the one
+  conductor that gets rubbed and pinched, with a Makita pack behind it.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
-  path outdoors, and OTA covers everything after bring-up.
-- Connectors: XT30 battery in, XT30 per pump, 5-pin JST-PH to joystick, JST-PH to level
-  sensor
+  path outdoors, and OTA covers everything after bring-up. Its silk reads
+  `3V3 / GND / ESP_TX / ESP_RX / EN / IO0`: the old `TXD`/`RXD` matched every adapter's
+  own labels, so wiring like-to-like wired output into output.
+- Connectors — **Phoenix terminal blocks, not XT30 or JST** (the reasoning is
+  `elec/CIRCUIT.md` §7): J1/J2/J3 are MKDS-3 5.08 mm 2-pin (pack, pump A, pump B), J4 is
+  PT-1,5 3.5 mm 5-pin (joystick), J5 is PT-1,5 3.5 mm 4-pin (level sensor). J1-J4 all
+  leave the board's -Y edge, which faces down in the housing; J5 and J6 are on +Y.
 - Optional: low-side shunt per pump -> ADC (would have diagnosed the v1 slowdown
   immediately)
 

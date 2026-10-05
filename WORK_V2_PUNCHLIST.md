@@ -181,3 +181,56 @@ boss hangs off the plate by the 1.2 mm of Z where the two overlap — for the on
 feature that takes the whole lid's retention load. The 7.8 mm of it beyond the
 boss's own face is what ties it into the +Y skirt corner. Say the word and it
 comes off, but it is doing a job.
+
+## Round 5 — two open decisions the board cannot take for itself
+
+Both came out of reading the **exported gerbers** against the design documents,
+and neither is a bug in the board: the board is at 0 unconnected, 0 DRC
+violations and 0 quality FAILs, and it is orderable as it stands. They are
+places where three documents promise something the built board does not have,
+and where the change needed is big enough that it is the user's call.
+
+| # | item | state |
+|---|------|-------|
+| 10 | **No reverse-polarity protection on VBAT**, which `CIRCUIT.md` §6, `DESIGN_V2.md` §6 and `bom_consolidated.md` §6 all said was there | **open — decision needed** |
+| 11 | **The pack and both pump terminals are SCREW**, where the same BOM line argues for spring-cage on a frame shared with two motors | **open — decision needed** |
+
+**10, in full.** The P-FET was written down as "insurance rather than necessity,
+*because the Makita terminal is keyed*". That reasoning was sound while the
+battery inlet was a keyed XT30. `CIRCUIT.md` §7 then replaced it with **J1, a
+5.08 mm screw terminal carrying two identical wires** — the single easiest thing
+in the machine to land the wrong way round — and nobody came back to §6. The
+board was built from the connector decision; the protection decision was never
+re-opened.
+
+No gate on this project can see this, and it is worth being precise about why:
+every gate reads the **board**, and the claim lived in **prose**. A1 checks that
+declared power paths exist in copper; it cannot check that a part a document
+promises was ever drawn.
+
+What a reversed pack actually does, measured rather than asserted: D1 is an
+SMBJ24A, **unidirectional**, so it forward-conducts at about 1 V and the pack
+pours current into it; C1/C2 sit reverse-biased at that clamp; and current runs
+backwards through each pump winding via D2/D3 and the FETs' body diodes, so the
+pumps briefly suck on the pressure line. The backstop is the **off-board 10 A
+ATC fuse** — real, and the reason this is a defect rather than a catastrophe,
+but it is the only thing standing there and it is not on this board.
+
+The two ways out, with their costs, because the trade is the decision:
+
+* **Add the part.** A P-channel high-side FET (or an ideal-diode controller) in
+  series with VBAT. ~$0.50 and ~0.17 W at 7.5 A in a 3 mΩ part. The cost is not
+  the part, it is the **layout**: VBAT is a hand-tuned pour, not a track, and a
+  series element means splitting that pour into two islands bridged by the FET —
+  a re-layout of the board's highest-current path on a board currently at zero
+  findings.
+* **Restore a keyed inlet.** Put the pack back on a polarised connector, which
+  makes the miswire impossible instead of survivable. Cheaper and safer, and it
+  contradicts `CIRCUIT.md` §7's own argument for terminal blocks ("one part with
+  no mating half").
+
+**11** is the same decision wearing different clothes, and the two should be
+taken together: whatever lands on J1 decides both. Note the asymmetry as built —
+the three terminals that carry 7.5 A beside two running motors are the **screw**
+ones (MKDS-3), and the two that carry signals are the **push-in** ones (PT-1,5).
+If only one family changes, it is the wrong one that is currently screw.
