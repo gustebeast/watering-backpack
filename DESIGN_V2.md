@@ -207,7 +207,7 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
 - Tank level input: 3.3 V pull-up for the sensor's open-collector output
 - **RC filter on the joystick ADC input** — the only noise defence available, since
   there is no joystick board to buffer at the source
-- TVS (SMBJ24A, 38.9 V max clamp) and bulk electrolytics near the switches.
+- TVS (**SMCJ24A**, 38.9 V max clamp — same clamp as the SMBJ24A it replaced, 1500 W and 200 A IFSM instead of 600 W and 100 A) and bulk electrolytics near the switches. The package was chosen by the reverse-polarity sum, not the transient one: see `elec/CIRCUIT.md` §6.
   ⚠ **The reverse-polarity P-FET is NOT on the built board.** It was called optional
   because the battery inlet was keyed; the inlet is now a screw terminal, which is not.
   The consequence, the remaining backstop (the off-board 10 A ATC fuse) and the two

@@ -79,6 +79,21 @@ LCSC = {
     "PTC-30V-200mA":   "C69680",    # nSMD020-30V, 1206, 192784. 200 mA hold / 460 mA
                                     # trip / 30 V, which is exactly what the asserts in
                                     # main.py's fuse block check against a 10 mA sensor.
+    "SMCJ24A":         "C310039",  # Brightking SMCJ24A/TR13, 12745, $0.1452. ⚠ NOT a
+                                    # generic D_SM[AB] land any more and that is the
+                                    # point: D_SMC does not match fab_package's GENERIC
+                                    # pattern, so this value HAS to carry a number.
+                                    # 1.5 kW, VC 38.9 V at 38.6 A -- the SAME clamp as
+                                    # the SMBJ24A it replaces, confirmed across five
+                                    # makers' listings, so nothing downstream moves.
+                                    # IFSM 200 A at 8.3 ms = 332 A2s against the 10 A
+                                    # ATO fuse's 115 A2s minimum melt: the fuse clears
+                                    # first with 2.9x margin, which is the whole reverse
+                                    # polarity story (main.py, TVS_I2T_MARGIN).
+                                    # Alternates, same ratings: C224045 Littelfuse
+                                    # (2941, $0.3236 -- same maker as the fuse whose
+                                    # I2t this is argued against), C284096 DOWO (5247,
+                                    # $0.1026), C151903 BORN (4207), C10771 RUILON.
     # Passive, but NOT a generic one -- see the note on OPEN_VALUES below
     "10uH/4A6sat":     "C2046332",  # Bourns SRN6045TA-100M, 1423, $0.2398. The part
                                     # the board was designed around: the footprint is

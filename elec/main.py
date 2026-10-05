@@ -259,6 +259,20 @@ assert VGATE_R_W < VGATE_R_W_MAX * 0.75, (
 # 49 V even though it only ever sees BOOT-SW.
 CAP_100N  = "100n/50V"
 CAP_VGATE = "10u/25V"        # 2.5x a 10 V rail, same 0805 land as the 16 V part
+# ⚠ AND THEN THE 16 V PART WENT AWAY TOO, so there is ONE 10 uF on this board.
+# PCB_QUALITY M42 asks for the distinct part-number count to be looked at, and
+# for "same value and package at different ratings to collapse to the stricter
+# one". This was exactly that case and nothing had noticed: 10u/16V on C5, C6
+# and C16 and 10u/25V on C13, same value, same 0805 land, two BOM lines, two
+# reels, and two visually identical parts to keep apart on the bench.
+#
+# They collapse upward, and upward is not merely the tidier direction -- it is
+# the better capacitor. C5/C6/C16 sit on +3V3, where 16 V was already 4.8x the
+# rail and the rule only wants 2x, so nothing needed 16 V; and a 25 V 0805 holds
+# MORE of its marking at 3.3 V of bias than a 16 V one does, because DC-bias
+# rolloff scales with how close the bias is to the rating. So the strictest part
+# is also the one with the most capacitance where it is used.
+CAP_10U   = CAP_VGATE        # the board's only 10 uF: +3V3 bulk and VGATE alike
 
 # ── What the board hands to a cable, and what limits it ────────────────────
 # ⚠ VBAT LEFT THIS BOARD UNFUSED, down the most exposed conductor in the whole
@@ -411,6 +425,71 @@ assert VBAT_INRUSH_J < 0.5, (
     "covers; read the contact's make rating" % VBAT_INRUSH_J)
 
 
+# ── REVERSE POLARITY: what D1 has to survive, and why it is a SHUNT ────────
+# WORK_V2_PUNCHLIST item 10. Three documents promised a reverse-polarity P-FET
+# this board does not have. The argument that made it optional -- "the Makita
+# terminal is KEYED" -- died when the inlet became J1, a 5.08 mm screw terminal
+# carrying two identical wires, and nobody went back to it. No gate here can see
+# that: every gate reads the BOARD, and the claim lived in PROSE.
+#
+# ⚠ THE PUNCHLIST FRAMED THE FIX AS A SERIES ELEMENT and that framing is what
+# made it look expensive. A series P-FET or ideal-diode controller means
+# SPLITTING THE VBAT POUR into two islands bridged by the part -- a re-layout of
+# the board's highest-current path, on a board at zero findings. But reverse
+# polarity protection by CROWBAR is a SHUNT, and D1 already IS that shunt: a
+# unidirectional TVS across VBAT-GND, landing on a pour and a ground plane that
+# both already exist. Nothing has to be split. The only question is whether the
+# part survives the job, and that is arithmetic.
+#
+# WHAT A REVERSED PACK DOES. D1 is unidirectional, so with the pack backwards it
+# FORWARD-conducts at about 1 V and the pack pours current into it. The current
+# itself is not computable from here -- it is set by the pack's internal
+# resistance, which is not in this repo -- so the pack is deliberately NOT the
+# subject. The subject is I2t, which removes the unknown entirely: the fuse
+# clears on charge delivered, the diode dies on charge absorbed, and both are
+# I2t. Whichever has the smaller I2t goes first, at ANY fault current.
+#
+#   D1 as built   SMBJ24A, IFSM 100 A at 8.3 ms  ->  100^2 x 8.3 ms =  83 A2s
+#   the fuse      Littelfuse 257-010, 10 A ATO, MINIMUM melting   = 115 A2s
+#
+# 115 > 83. The fuse does NOT clear first; D1 is destroyed, by 1.4x. (The usual
+# TVS failure mode is a short, which then crowbars the rail and blows the fuse
+# anyway, so the BOARD survives -- but by sacrificing a part, and only if the
+# part fails short rather than open. That is a coin toss to design around.)
+#
+# ⚠ AND THE FIRST VERSION OF THIS SUM GOT THE ANSWER BACKWARDS, which is why the
+# fuse number is cited and not estimated. Guessing "a 10 A blade fuse is about
+# 50 A2s" made the fuse clear first and D1 survive. The published minimum is
+# 115. The conclusion reversed on a number that was looked up rather than
+# remembered.
+#
+# THE FIX IS ONE FOOTPRINT. SMCJ24A is the same TVS in the next package up:
+#
+#   clamp         38.9 V at 38.6 A  -- IDENTICAL to the SMBJ24A's 38.9 V, read
+#                 off five makers' listings, so TVS_CLAMP below does not move
+#                 and NOTHING downstream of it changes
+#   power         1500 W against 600 W
+#   IFSM          200 A at 8.3 ms  ->  200^2 x 8.3 ms = 332 A2s, 2.9x the fuse
+#
+# So the fuse opens with 2.9x margin and D1 is not harmed. Reverse polarity
+# stops being a defect and becomes a survivable event with a named margin, for
+# a package change on a part that was already there -- no series element, no
+# split pour, no keyed connector, and no argument with CIRCUIT.md section 7.
+TVS_IFSM        = 200.0                 # A, SMCJ series, 8.3 ms single half
+                                        # sine (Littelfuse SMCJ, LCSC C224045)
+TVS_IFSM_MS     = 8.3                   # ms, the rating's own pulse width
+TVS_I2T         = TVS_IFSM ** 2 * TVS_IFSM_MS / 1000.0        # 332 A2s
+FUSE_ATC_I2T    = 115.0                 # A2s, Littelfuse 257-010 MINIMUM
+                                        # melting I2t -- minimum, because the
+                                        # fuse clearing LATE is the bad case
+TVS_I2T_MARGIN  = TVS_I2T / FUSE_ATC_I2T
+assert TVS_I2T_MARGIN > 1.5, (
+    "the TVS absorbs %.0f A2s before the %.0f A2s fuse clears (%.2fx): on a "
+    "reversed pack D1 goes before the fuse does, and the board's only reverse "
+    "polarity protection is a sacrificial part" % (
+        TVS_I2T, FUSE_ATC_I2T, TVS_I2T_MARGIN))
+
+
 # ── What the freewheel diode has to survive THERMALLY, which is what chooses it ──
 # ⚠ THE VOLTS AND AMPS WERE NEVER THE BINDING SPEC. "60 V, 15 A, D2PAK" is met by
 # a wide, cheap field of parts; what separates them is Vf, and Vf is the only
@@ -531,7 +610,7 @@ def circuit():
                      "cross them to the adapter")
 
     # ── Input protection ────────────────────────────────────────────────────
-    d_tvs = gen.part("D1", "SMBJ24A", "Diode_SMD:D_SMB", ["K", "A"],
+    d_tvs = gen.part("D1", "SMCJ24A", "Diode_SMD:D_SMC", ["K", "A"],
                      "TVS: 24 V standoff > 20 V pack, ~39 V clamp < 60 V FETs")
     c_in1 = gen.part("C1", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
     c_in2 = gen.part("C2", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
@@ -583,7 +662,7 @@ def circuit():
     # C5 is NOT an output capacitor -- see its placement note. It is the local
     # charge for the 3V3 that leaves on J6, which is the job it was already
     # doing from the wrong place.
-    c_o2 = gen.part("C5", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+    c_o2 = gen.part("C5", CAP_10U, "Capacitor_SMD:C_0805_2012Metric", 2,
                     "+3V3 local charge at the programming header")
     # The second half of the output capacitance eq 13 asks for; see the
     # BUCK_COUT block. Same value as C4 on purpose: no new part number, and two
@@ -632,7 +711,7 @@ def circuit():
                      {1: "GND", 2: "3V3", 3: "EN", 6: "IO34", 7: "IO35", 10: "IO25",
                       11: "IO26", 12: "IO27", 13: "IO14", 15: "GND", 25: "IO0",
                       34: "RXD0", 35: "TXD0", 38: "GND", 39: "GND"}, "MCU + WiFi. LOCAL footprint: KiCad's stock one has twelve 0.2 mm thermal vias, below the 0.3 mm fab minimum — 12 of this board's 14 DRC violations were that one footprint")
-    c_m1 = gen.part("C6", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2, "MCU bulk")
+    c_m1 = gen.part("C6", CAP_10U, "Capacitor_SMD:C_0805_2012Metric", 2, "MCU bulk")
     c_m2 = gen.part("C7", CAP_100N, "Capacitor_SMD:C_0603_1608Metric", 2, "MCU decoupling")
     r_en = gen.part("R3", "10k", "Resistor_SMD:R_0603_1608Metric", 2, "EN pull-up")
     c_en = gen.part("C8", "1u", "Capacitor_SMD:C_0603_1608Metric", 2, "EN RC, power-on reset")
@@ -766,7 +845,7 @@ def circuit():
     # the end of a lead and had no charge nearer than the far side of the board:
     # +3V3 at the joystick was 64.7 mm from C4, VBAT at the level sensor 55.1 mm
     # from C1.
-    c_joy = gen.part("C16", "10u/16V", "Capacitor_SMD:C_0805_2012Metric", 2,
+    c_joy = gen.part("C16", CAP_10U, "Capacitor_SMD:C_0805_2012Metric", 2,
                      "local charge at the joystick connector")
     c_lvl = gen.part("C17", "10u/50V", "Capacitor_SMD:C_1206_3216Metric", 2,
                      "local charge at the level-sensor connector")
@@ -858,6 +937,49 @@ HOLES = [(-43.0, -44.0), (43.0, -44.0), (-43.0, 44.0), (43.0, 44.0)]
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
+    # ── Order-form choices, which live in NO gerber (PCB_QUALITY M12) ────────
+    # Two of these four are not preferences, they are DESIGN DEPENDENCIES, and
+    # until now they existed only as assumptions inside other people's sums:
+    #
+    #   copper   EVERY current-carrying width on this board was sized against
+    #            IPC-2221 for 1 oz OUTER copper -- it is why the 7.5 A nets are
+    #            pours and not tracks (3.18 mm of 1 oz at a 20 C rise). Order
+    #            2 oz and the board is merely cooler; the danger is the other
+    #            way, and nothing in the gerbers would have said which was
+    #            assumed.
+    #   thick    A14 (via-in-land) computes a barrel VOLUME as pi r^2 x 1.6 mm
+    #            and weighs it against the paste deposit. A 1.0 mm board makes
+    #            every one of those numbers wrong by 38 %.
+    #
+    # The other two are choices, made for reasons rather than taste:
+    #
+    #   finish   Lead-free HASL. The finest thing here is a 1.27 mm SOIC and a
+    #            1.5 mm-pitch castellated module, so HASL's unevenness has
+    #            nothing to be uneven against -- and five terminals and a buzzer
+    #            get hand-soldered later, which HASL's thicker coat helps. ENIG
+    #            is the upgrade if U1's exposed-pad voiding ever needs chasing.
+    #   mask     Green. kicad_silk's whole argument for 1.0 mm test-pad and
+    #            connector labels is that somebody reads them with a probe in
+    #            one hand on a board that does not work; white-on-green is the
+    #            highest-contrast and best-tested pair the fab offers, and it is
+    #            the cheapest and quickest. A dark mask would spend legibility
+    #            on a board that lives inside a sealed box where nobody sees it.
+    "order_options": {
+        "copper":  "1 oz outer (35 um). ⚠ DESIGN DEPENDENCY -- every width and "
+                   "pour on this board is sized against IPC-2221 at 1 oz.",
+        "thick":   "1.6 mm. ⚠ DESIGN DEPENDENCY -- A14's via-in-land volume "
+                   "check assumes it.",
+        "finish":  "Lead-free HASL. Nothing finer than a 1.27 mm SOIC; five "
+                   "terminals and a buzzer are hand-soldered afterwards.",
+        "mask":    "Green, white silk. Highest contrast for the test-pad and "
+                   "connector labels, which exist to be read during bring-up.",
+        "tier":    "Whichever of Economic / Standard lists all 11 sourced SMT "
+                   "parts -- the DESIGN constrains neither. 56 placements, all "
+                   "on top (single-sided, no second-side setup); 95 x 100 mm, "
+                   "inside the cheapest size tier and far above the minimum; "
+                   "the 5 through-hole lines (BZ1, J1-J6) are hand-soldered, "
+                   "so no THT assembly is ordered at all.",
+    },
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
     "layers": 2,
     "thickness_mm": 1.6,
