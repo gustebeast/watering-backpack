@@ -65,20 +65,6 @@ OPEN = {
            "their rating, because the dock is not part of this repo and its "
            "contact rating has not been read.",
 
-    "M18": "one crossing can back-power, and it is named. ESP_RX_FROM_PROG "
-           "runs from J6 pin 4 to the module's U0RXD. An adapter can drive "
-           "that pin at 3.3 V while the board's own 3V3 is down (the pack out "
-           "of the dock), and the current then goes through the GPIO's ESD "
-           "diode into a 52 uF rail -- the rule's own answer to this is 'a "
-           "series resistor', and there is none. J6 pin 1 is +3V3, so the "
-           "intended use is for the adapter to power the board, which is why "
-           "this has not bitten; but the rule is about what CAN happen, and "
-           "someone landing only TX/RX/GND is the ordinary case. The other "
-           "crossing is safe by construction: the level sensor runs at VBAT "
-           "and its output is an open collector, so it can only ever pull "
-           "DOWN and cannot feed the 3V3 rail (R23 is the pull-up). Closes "
-           "with a resistor in series with ESP_RX, placed with the re-lay.",
-
     "M25": "signable in three of its four parts, so it is left open for the "
            "fourth rather than signed on a majority. Right net, measured: "
            "U1's exposed pad on GND as 'the major heat dissipation path of "
@@ -137,19 +123,6 @@ OPEN = {
            "what has been done. This is honest-cheap to close and is not "
            "blocked on anything.",
 
-    "M36": "a real gap, measured. Three supplies leave this board down a "
-           "cable and NONE has a current limit or a fuse: +3V3 to J4 (the "
-           "joystick) and J6 (the programming header), and VBAT to J5 (the "
-           "level sensor). The 3V3 pair matter least -- a short there pulls "
-           "the buck into its own 3.8 A limit and the MCU resets. The VBAT "
-           "feed is the one that counts: J5's lead leaves the housing through "
-           "the chase and climbs the OUTSIDE of the case to the tank, so it "
-           "is the most exposed conductor in the machine, and behind it is a "
-           "Makita pack that will deliver tens of amps into a chafed wire "
-           "with nothing in the way. The killswitch at the dock is a switch, "
-           "not a fuse. Closes with a resettable fuse in series with J5.1, "
-           "sized for the sensor's draw; placed with the re-lay.",
-
     "M37": "the mechanical half holds and the human half has not been done. "
            "cadkit/pcbflow/fab_package.py refills the zones and re-runs DRC "
            "immediately before export, refuses to package a board with "
@@ -181,6 +154,28 @@ OPEN = {
 
 MANUAL = {
     # ══ must hold ═══════════════════════════════════════════════════════════
+    "M18": (
+        "there are two crossings on this board and only one of them could "
+        "ever back-power, so that one got the resistor the rule names. J6 "
+        "pin 4 goes straight to the module's U0RXD: an adapter can hold it at "
+        "3.3 V while this board's own 3V3 is down -- the pack out of the dock, "
+        "which is the ordinary way someone programs it -- and the current then "
+        "runs through the pin's ESD diode into a 52 uF rail. J6 pin 1 is +3V3, "
+        "so the INTENDED use is for the adapter to power the board, which is "
+        "why it has never bitten; but landing only TX/RX/GND is a normal thing "
+        "to do, and this rule is about what CAN happen. M18 names the fix -- "
+        "'a series resistor, a powered-off-tolerant buffer or guaranteed "
+        "sequencing' -- and R25 is 1k in series with ESP_RX, holding the diode "
+        "current to about 2.7 mA. It costs nothing at 115200 baud: 1k into the "
+        "pin's 2 pF plus a little trace is tens of nanoseconds against an "
+        "8.7 us bit, and 1k is already a value on this board (R22, R24) so it "
+        "adds no part number. It sits at the CONNECTOR end, where the hazard "
+        "enters, so the whole run back to the module is behind it. The other "
+        "crossing is safe by construction and needs nothing: the level sensor "
+        "runs at VBAT and its output is an open collector, so it can only pull "
+        "DOWN and cannot feed the 3V3 rail at all -- R23 is the pull-up, and "
+        "that open collector is also what keeps 18 V off the pin."
+    ),
     "M13": (
         "re-laid against SNVSAA5B 7.4.1 and measured against it afterwards, "
         "which is the comparison this rule asks for. It also found the thing "
@@ -357,7 +352,6 @@ MANUAL = {
         "20 %, and Irms at a 40 C rise rather than 20. All three couplings "
         "are asserts in elec/main.py, and the 15 uH part trips the first one."
     ),
-    "M18": None,        # see OPEN
     "M19": (
         "VGATE is 10 V and the FET requirement is Rds(on) <= 10 mOhm AT 4.5 V "
         "Vgs, so the part is driven at better than twice the voltage its "
@@ -514,6 +508,36 @@ MANUAL = {
         "whole point of the ten bring-up pads (M9)."
     ),
     # ══ decide ══════════════════════════════════════════════════════════════
+    "M36": (
+        "the one genuine safety finding in this pass, and it is fixed rather "
+        "than decided away. Three supplies leave this board down a cable: "
+        "+3V3 to J4 (the joystick) and J6 (the programmer), and VBAT to J5 "
+        "(the level sensor). The 3V3 pair are limited by the regulator itself "
+        "-- a short there drives the LMR14020 into its own 2.5/3.2/3.8 A "
+        "current limit with short-circuit protection and frequency fold-back "
+        "(SNVSAA5B 6.3), and the MCU resets. VBAT had nothing. That lead is "
+        "the most exposed conductor in the machine: it leaves the sealed bay "
+        "through the chase and then climbs the OUTSIDE of the case to the "
+        "tank, so it is the one wire that gets rubbed, pinched and walked "
+        "past -- and behind it is a Makita 18 V LXT pack that will put well "
+        "over a hundred amps into a short. The killswitch at the dock is a "
+        "SWITCH, not a fuse: it opens when a person opens it, not when a "
+        "chafed sensor lead starts to glow. F1 is now a resettable PTC in "
+        "series with J5.1, and resettable on purpose -- this machine is "
+        "carried into a garden and a cartridge fuse out there is a walk home. "
+        "0.2 A of hold current against a sensor drawing about 10 mA is twenty "
+        "times headroom, so no nuisance trip from the inrush into C18, while "
+        "still far under what damages the lead; 30 V is the common 1206 PPTC "
+        "tier and clears a 20 V fresh pack. Both numbers are asserted. C18 "
+        "went in with it because fusing the feed makes J5.1 a net of its own "
+        "and A2 gives a connector 25 mm to its nearest charge -- what had been "
+        "answering for J5 was C15, the BUCK's input ceramic 16.25 mm away, on "
+        "VBAT by accident of placement and with a different job. Past the "
+        "fuse is the right side for it anyway: F1 then sees the DC while the "
+        "cable's inrush comes from C18, 9.76 mm away. C17 could not be moved "
+        "up to do it, because C17 is J1's bypass at 24.0 mm and the next "
+        "nearest pad to J1 is 27.5."
+    ),
     "M21": (
         "the capacitor is AT the pin now, which is the clause this rule turns "
         "on, and it was 56.81 mm away. Measured on the routed board, pad to "

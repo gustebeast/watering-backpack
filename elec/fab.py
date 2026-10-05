@@ -59,6 +59,18 @@ OPEN_VALUES = frozenset({
                          # everything else on this node and the TVS's 38.9 V
                          # clamp), >= 3 A per 7.2.2.5's own starting point,
                          # against a 0.50 A average. SMA.
+    # And a third one through the same hole, within the hour: GENERIC also
+    # matches "Fuse_", for the same good reason -- a fuse is normally named by
+    # part number. This is a requirement.
+    "PTC-30V-200mA",     # the level sensor's feed, the only fused net on the
+                         # board. VBAT left here unfused down the most exposed
+                         # conductor in the machine -- J5's lead climbs the
+                         # OUTSIDE of the case to the tank -- with a Makita pack
+                         # behind it and only a switch at the dock. Resettable
+                         # on purpose: this thing is carried into a garden, and
+                         # a cartridge fuse out there is a walk home. >= 30 V
+                         # (clears a 20 V fresh pack), 0.2 A hold against a
+                         # ~10 mA sensor. 1206.
     # ── decided in the schematic, part number not read off a listing yet ───
     "ESP32-WROOM-32E",   # expect an Extended part at JLCPCB (CIRCUIT.md section 3)
     "LMR14020SDDA",      # the >= 40 V buck; CIRCUIT.md section 2 lists the alternates
