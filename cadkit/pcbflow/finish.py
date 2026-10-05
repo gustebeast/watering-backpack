@@ -269,6 +269,7 @@ def finish(stem, rounds=1, keep_route=False):
     else:
         _run("layout.py", stem)
         _run("route.py", stem)
+        _run("unwick.py", stem)
         _run("repair_planes.py", stem)
     best_n, nets, best_v = _drc(stem)
     print("  %s: %d unconnected, %d violation(s)"
@@ -304,6 +305,7 @@ def finish(stem, rounds=1, keep_route=False):
         try:
             _run("layout.py", stem)
             _run("route.py", stem)
+            _run("unwick.py", stem)
             _run("repair_planes.py", stem)
         except SystemExit as exc:
             print("  ⚠ pass %d FAILED (%s) -- keeping pass %d's board and stopping the "
@@ -342,6 +344,7 @@ def finish(stem, rounds=1, keep_route=False):
         shutil.copy(stem + ".finish.drc.json", stem + ".preclose.drc.json")
         try:
             _run("close_last.py", stem)
+            _run("unwick.py", stem)
             _run("repair_planes.py", stem)
             _n3, _nets3, _v3 = _drc(stem)
             print("  close_last: %d unconnected, %d violation(s)" % (_n3, _v3))

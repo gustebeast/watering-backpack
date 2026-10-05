@@ -426,6 +426,44 @@ assemble or wire the board correctly (a board name, a test-pad name). *Do not br
 for a polarity mark, a pin-1 mark, or the only statement of a connector's pin order: if
 that does not fit at the legible size, make room.
 
+
+### A14 — No via drinks a solder joint
+
+**Rule.** A via whose centre falls inside a pasted SMD land does not have a barrel that
+can hold half or more of the solder paste printed over that land. Measured as volume: the
+barrel is pi x (drill/2)^2 x `board_thickness`, the deposit is the land's area times
+`stencil_foil`.
+
+**Why.** An open plated barrel under a solder joint is a capillary, and reflow is exactly
+the condition it wants. The solder does not vanish -- it ends up on the far side of the
+board, which is no help to the joint it left. IPC-7093 says a via in a land is filled and
+capped, or is not there.
+
+Two things made this invisible until the exported files were read. First, the board model
+says the vias are **tented**: KiCad reports `IsOnLayer(F_Mask)` false for every via inside
+a pad, because it adds no mask opening of its *own*. The pad's aperture is already open
+over it. On the board this came from, F.Mask exported as 208 dark flashes -- one per pad
+on the layer -- and not one clear flash anywhere, so there is no mask island inside any
+aperture and every one of those barrels is open under the paste. Second, as an **area**
+ratio a 0.3 mm barrel in an 0603 land reads 8 % of the pad and looks like nothing. As a
+volume it is 0.113 mm3 against a 0.103 mm3 deposit: **110 %**. Four such vias survived a
+quality pass that was looking for them.
+
+**How it is checked.** Every via centre is tested against every SMD pad that opens the
+paste; a pad with no paste (a bare test pad) has no joint to starve and is skipped.
+`quality.stencil_foil` and `quality.board_thickness` set the two constants;
+`quality.via_in_land_ok` lists lands exempted, which is where an order placed with the
+vias filled and capped is declared. `cadkit/pcbflow/unwick.py` runs after routing and
+moves what it can -- it insists on a mask dam between via and land, and refuses a move
+longer than `via_land_move_max` (1.5 mm), because a ground return that walks 4 mm to
+avoid wicking is the worse board.
+
+**How strict.** **Hard** at half the deposit or more: that is a joint the assembler cannot
+make reliably, and no board has a good reason to keep one. Under half it is reported with
+its worst case and passes. The honest escape is not a waiver but a declaration -- order
+the vias filled and capped and say so in `via_in_land_ok`. **Tenting is not an escape**,
+for the reason above.
+
 ---
 
 ## Manual checks
@@ -697,5 +735,6 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-04 | (third survey: a community review FAQ for schematics, read by the owner and summarised here in our own words) | USB device inrush capacitance, unused inputs and outputs, gate over-voltage and series resistance, live tabs and heatsinks, connectors without a ground, values that cannot be bought, undebounced contacts | A10, M39–M41; M19, M25, M32 extended |
 | 2026-10-04 | (same community FAQ: its layout and bill-of-materials pages, summarised in our own words) | crystal traces changing layer and load capacitors on the wrong side of the crystal, protection parts placed after the capacitor instead of at the connector, hardware keep-out differing per face, unlabelled controls and connector pins, one value typed two ways, parts that are obsolete or single-sourced at order time | A11, M42; A9, M10, M11, M23, M24, M31 extended |
 | 2026-10-04 | (design review, before first order) | four classes of fault named as the ones to stop before a board is ordered: supply choke points, missing surge capacitance, unmatched high-speed traces, mirrored pinouts | A1, A2, A3, A4, M3, M4, M6 |
+| 2026-10-04 | the same gerber read, carried on into the mask and paste layers | the board model called every via tented, and the exported F.Mask had 208 apertures and no islands at all, so ten barrels sat open under solder paste; measured as pad AREA the worst read 8 %, measured as paste VOLUME it read 110 % | **A14** (new, measured); `unwick.py` added to the post-route steps; M29 keeps the parts A14 does not measure |
 | 2026-10-04 | the exported gerbers of a two-layer board, rendered layer by layer by a reader that is not KiCad | the ground pour was the return for every signal on the board and was also a routing layer, carrying 455.89 mm of signal copper cut through it; nothing measured whether a return had to go round a cut, and M6 only asks it of fast buses | **A13** (new, measured); M6 narrowed to the edge-rate judgement A13 cannot make |
 | 2026-10-04 | the fab's own capability page, read against the rule files of seven routed boards | the rule file is typed by a person and DRC only proves the board against it; five of its values were looser than the fab's, and all silk was under the fab's legible height | **A12** (new, measured); M29 narrowed to what A12 cannot measure; `kicad_silk` and the layout's reference text raised to 1.0 mm |
