@@ -281,7 +281,8 @@ prose, where no gate can reach it.
 | # | item | state |
 |---|------|-------|
 | 12 | **§1's "the idle pump's internal check valves seal its branch" does not cover the case that matters.** | **OPEN** — built without a check valve, deliberately; the test is written down below |
-| 13 | **The printed line filter vs the two strainers that came with the pumps.** | **OPEN** — owner's proposal: strainers at the two tees |
+| 13 | **The printed line filter vs the two strainers that came with the pumps.** | **OPEN** — topology and threads settled; blocked on the 1/2" vs 5/8" question |
+| 14 | **The two tees §1 has always needed are not on the BOM at all.** | **OPEN** — blocked on the same purchase decision as 13 |
 
 ### 12 — the idle pump sees a FORWARD differential, not a reverse one
 
@@ -330,12 +331,57 @@ of the exact part, not of a part like it. Two strainers at the two tees also sit
 where §4 wants filtration (everything upstream of a pump is filtered) without a
 printed consumable in a sealed line.
 
-**What is not settled, and is the whole of the remaining work:** §4's screen is
-0.25 mm (≈60 mesh) and the pump strainer is 50 mesh, so the change is slightly
-COARSER, which §4 should be made to say rather than left to imply. And the
-fitting the owner asked for — *"a T that has two barbed fittings and one male
-thread"* — has not been sourced; the strainer's own port thread decides it, and
-that thread has not been measured.
+**The topology works, and `src/plumbing.py` already settles which leg.** Each tee
+has three legs: two to the pumps, and one shared — `TANK_TEE`'s third leg goes up
+to the tank, `GREEN_TEE`'s goes out to the wand. A strainer in a *shared* leg sees
+flow both ways:
 
-Until then `src/line_filter.py` still builds the printed screen and
-`check_plumbing.py` still routes around it. Nothing is half-changed.
+| | tank tee's shared leg | green tee's shared leg |
+|---|---|---|
+| dispense | tank → tee, **filtering** | tee → wand, **backflushing** |
+| retract | tee → tank, **backflushing** | wand → tee, **filtering** |
+
+So both strainers self-clean on alternate strokes, which is §4's own argument run
+twice. A strainer in a *pump* leg would not: those legs are one-directional, so one
+would only ever filter and the other only ever backflush.
+
+**The thread is settled now, and the owner's instinct was right.** Seaflo's own
+page for the 51S01 (the strainer that ships with the 42-series pump): **1/2"-14
+MNPT one end, 1/2"-14 FNPT the other**, 50 mesh, PA, removable clear top. So:
+
+- the tee the owner asked for — *"two barbed fittings and one male thread"* —
+  screws straight into the strainer's **FNPT** end. That ask is exactly right and
+  a barb × barb × MNPT tee is a stock part;
+- the strainer's **MNPT** end then wants a female barb, and the BOM already carries
+  that family: SEAFLO SFFN1-1220-01 is 1/2"-14 FNPT × 1/2" barb, O-ring sealed,
+  nylon — bought for the pump ports, and the 5-pack already has a spare.
+
+**Three things still block it, and none of them is the strainer.**
+
+1. **The tubing size is not settled** — `bom_consolidated.md` §3 carries its own
+   ⚠ about this: §4 and §5 of DESIGN_V2 say 5/8", the BOM line says 1/2". It sets
+   the barb on the tee, so the tee cannot be bought before it is.
+2. **The printed filter is also the 3/8" → 1/2" transition** at the pot end, and
+   nothing has said where that goes if the housing does. The green line is 3/8"
+   where it enters the inner-pot tube, which is fixed by the pot.
+3. **Mesh:** §4's screen is 0.25 mm (≈60 mesh) and the strainer is 50, so the
+   change is slightly COARSER — §4 should be made to say that rather than leave
+   it to be inferred.
+
+Until all three are answered `src/line_filter.py` still builds the printed screen
+and `check_plumbing.py` still routes around it. Nothing is half-changed.
+
+### 14 — the two tees have never been on the BOM
+
+Found while sourcing 13, and it is older than 13: §1 has needed two tees since the
+anti-parallel arrangement was chosen, `src/plumbing.py` models both of them
+(`TANK_TEE` at x +73, `GREEN_TEE` at x −73) and `check_plumbing.py` routes six
+hoses through them — and `bom_consolidated.md` has never listed either one. Not
+struck through, not deferred, not open: absent. The CAD gates cannot catch it
+because a tee is a bought fitting and they measure printed geometry.
+
+It is cheap to fix and is deliberately **not** being fixed in the same breath as
+13, because 13 may change what the tee IS — plain barb × barb × barb if the
+printed filter stays, barb × barb × MNPT if the strainers go in. The size is
+blocked on the same 1/2" vs 5/8" question. One purchase decision settles all
+three, and it is the owner's.
