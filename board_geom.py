@@ -89,12 +89,14 @@ HEIGHT = {
     # JST: top entry bodies, and side entry (cadkit.pcb carries the drawings' numbers)
     "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 7.0,
     "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 7.0, "JST_XH_B6B-XH-A_1x06_P2.50mm_Vertical": 7.0,
+    "JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical": 6.0,              # JST ePH p.2, top entry
     "JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical": 6.0,
     "JST_PH_B8B-PH-K_1x08_P2.00mm_Vertical": 6.0,
     "JST_PH_S4B-PH-SM4-TB_1x04-1MP_P2.00mm_Horizontal": 5.5,   # cadkit.pcb PH_SIDE_H
     "JST_PH_S6B-PH-SM4-TB_1x06-1MP_P2.00mm_Horizontal": 5.5,
     "JST_PH_S8B-PH-SM4-TB_1x08-1MP_P2.00mm_Horizontal": 5.5,
     "JST_XH_S4B-XH-SM4-TB_1x04-1MP_P2.50mm_Horizontal": 5.75,  # JST eXH p.4
+    "JST_XH_S4B-XH-A_1x04_P2.50mm_Horizontal": 6.1,            # JST eXH p.5, side entry THT
     "JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal": 2.95,  # JST SH side view: 6.25 x 2.95
     # headers and sockets
     "PinSocket_2x20_P2.54mm_Vertical": 8.5,        # the Pi-HAT socket's body = its standoff
@@ -140,6 +142,9 @@ TAIL = {
     "HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm_Mask2.75x3.43mm": 0.0,
     "Texas_RNX0012_VQFN-HR-12_2x3mm_P0.5mm": 0.0, "L_Sunlord_SWPA4030S": 0.0,
     "JST_PH_S6B-PH-SM4-TB_1x06-1MP_P2.00mm_Horizontal": 0.0,
+    # through-hole JST posts stand 3.4 mm below the seating plane, top or side entry
+    "JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical": 3.4, "JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical": 3.4,
+    "JST_XH_S4B-XH-A_1x04_P2.50mm_Horizontal": 3.4,
     "JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal": 0.0,
     "Xinyangze_YZF0002-38080-02": 0.0,
 }

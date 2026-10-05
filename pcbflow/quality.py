@@ -307,6 +307,46 @@ class _Net:
                     heapq.heappush(pq, (r + ohm, n, v))
         return None
 
+    def shared_drop(self, src, dsts, amps):
+        """Volts lost from pad `src` to each pad in `dsts` when `amps` IN TOTAL is drawn by
+        them in equal shares: the copper solved as one resistor network, so a trunk
+        carries what is downstream of it and parallel paths share. {dst: volts}, or None
+        without numpy or when a pad is not on the net."""
+        try:
+            import numpy as np
+        except Exception:
+            return None
+        keys = [self.pad_keys.get(d) for d in dsts]
+        s = self.pad_keys.get(src)
+        if s is None or any(k is None for k in keys):
+            return None
+        # only the island the source is on: a cut rail is reported by widest(), not here
+        seen, st = {s}, [s]
+        while st:
+            u = st.pop()
+            for v, _ohm in self.r[u]:
+                if v not in seen:
+                    seen.add(v)
+                    st.append(v)
+        if any(k not in seen for k in keys):
+            return None
+        nodes = list(seen)
+        ix = {n: i for i, n in enumerate(nodes)}
+        A = np.zeros((len(nodes), len(nodes)))
+        rhs = np.zeros(len(nodes))
+        for a in nodes:
+            for c, ohm in self.r[a]:
+                g = 1.0 / max(ohm, 1e-5)       # pads and pours: a 10 micro-ohm link
+                A[ix[a], ix[a]] += g
+                A[ix[a], ix[c]] -= g
+        for k in keys:
+            rhs[ix[k]] -= amps / len(keys)
+        A[ix[s], :] = 0.0
+        A[ix[s], ix[s]] = 1.0
+        rhs[ix[s]] = 0.0
+        v = np.linalg.solve(A, rhs)
+        return {d: float(-v[ix[k]]) for d, k in zip(dsts, keys)}
+
     def widest(self, src, dst):
         """The path from pad `src` to pad `dst` whose NARROWEST edge is widest:
         (bottleneck width, kind, layer, (x, y), runs through a pour?) or None."""
@@ -361,6 +401,10 @@ def power_paths(ctx):
             graphs[net] = _Net(ctx, net)
         g = graphs[net]
         dsts = p["to"] if isinstance(p["to"], (list, tuple)) else [p["to"]]
+        # "split": the amps are what the listed pads draw TOGETHER (one IC's supply pins),
+        # so the drop is solved on the network rather than charged in full to each path
+        shared = (g.shared_drop(p["from"], list(dsts), amps)
+                  if p.get("split") and all(e in g.pad_keys for e in dsts) else None)
         for dst in dsts:
             subject = "%s %s>%s" % (net, p["from"], dst)
             for end in (p["from"], dst):
@@ -383,7 +427,7 @@ def power_paths(ctx):
                 # ...and the DROP: a path can be wide enough not to heat and still be long
                 # and thin enough to starve the load
                 ohm = g.resistance(p["from"], dst) or 0.0
-                drop_mv = ohm * amps * 1000.0
+                drop_mv = (shared[dst] if shared else ohm * amps) * 1000.0
                 limit_mv = p.get("max_drop_mv", ctx.q.get("max_drop_mv"))
                 if limit_mv is None:
                     volts = _rail_volts(net)
@@ -392,10 +436,11 @@ def power_paths(ctx):
                 limit_mv = float(limit_mv)
                 if drop_mv > limit_mv:
                     out.append((subject + " drop", False,
-                                "%s %s -> %s, %.2f A: %.0f mOhm of track drops %.0f mV "
+                                "%s %s -> %s, %.2f A%s: %.0f mOhm of track drops %.0f mV "
                                 "(limit %.0f mV) -- widen it, shorten it, or pour it"
-                                % (net, p["from"], dst, amps, ohm * 1000.0, drop_mv,
-                                   limit_mv)))
+                                % (net, p["from"], dst, amps,
+                                   " shared by %d pads" % len(dsts) if shared else "",
+                                   ohm * 1000.0, drop_mv, limit_mv)))
                 out.append((subject, ok,
                             "%s %s -> %s, %.2f A: narrowest point is a %.2f mm %s on %s "
                             "%s; %.2f mm needed for %.0f C rise%s"

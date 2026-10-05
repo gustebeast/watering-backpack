@@ -195,7 +195,7 @@ def _resite_post_pads(board, refs, notes):
                                              ((px - x1) * dx + (py - y1) * dy) / l2))
         return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
-    def _ok(px, py, r, net):
+    def _ok(px, py, r, net, court_r=None):
         own = 1e9
         for x1, y1, x2, y2, hw, n in segs:
             d = _seg_d(px, py, x1, y1, x2, y2) - hw
@@ -211,7 +211,11 @@ def _resite_post_pads(board, refs, notes):
                 return None
         if own > r:
             return None            # not on its own copper: the pad would need a track
-        keep = r + POST_PAD_CLR_MM
+        # ⚠ THE PAD'S OWN COURTYARD, NOT ITS COPPER, IS WHAT MEETS A NEIGHBOUR'S COURTYARD.
+        # Tested with the copper radius, a site 0.2 mm off a part passed here and came
+        # back from DRC as courtyards_overlap -- a violation, which also stops close_last
+        # from running on the board at all.
+        keep = max(r + POST_PAD_CLR_MM, (court_r or 0.0) + 0.02)
         for cx0, cx1, cy0, cy1 in courts:
             if cx0 - keep <= px <= cx1 + keep and cy0 - keep <= py <= cy1 + keep:
                 return None
@@ -230,7 +234,12 @@ def _resite_post_pads(board, refs, notes):
         r = pcbnew.ToMM(max(pad.GetSize().x, pad.GetSize().y)) / 2.0
         px = pcbnew.ToMM(pad.GetPosition().x)
         py = pcbnew.ToMM(pad.GetPosition().y)
-        if _ok(px, py, r, net) is not None:
+        try:
+            _cb = fp.GetCourtyard(pcbnew.F_CrtYd).BBox()
+            court_r = pcbnew.ToMM(max(_cb.GetWidth(), _cb.GetHeight())) / 2.0
+        except Exception:
+            court_r = None
+        if _ok(px, py, r, net, court_r) is not None:
             continue               # the recorded site still clears: nothing to do
         # Ring search outwards, so a pad that has to move moves as little as possible --
         # these coordinates were chosen next to the thing they help bring up, and that
@@ -243,7 +252,7 @@ def _resite_post_pads(board, refs, notes):
             for i in range(n_th):
                 th = 2.0 * math.pi * i / n_th
                 qx, qy = px + rad * math.cos(th), py + rad * math.sin(th)
-                if _ok(qx, qy, r, net) is not None:
+                if _ok(qx, qy, r, net, court_r) is not None:
                     best = (qx, qy, rad)
                     break
             k += 1
