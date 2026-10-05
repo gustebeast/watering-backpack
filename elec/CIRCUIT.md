@@ -22,7 +22,7 @@ pack before any switching spike. **Everything on the battery rail is specified
 
 | rail | source | feeds |
 |---|---|---|
-| **VBAT** 15–20 V | pack, after the off-board ATC fuse + TVS. Reverse polarity is held by D1 as a **crowbar**, not by a series FET — see §6 | pump FETs, level sensor (fused), VGATE |
+| **VBAT** 15–20 V | pack, after **F2** (the on-board ATC blade fuse) + TVS. Reverse polarity is held by D1 as a **crowbar**, not by a series FET — see §6 | pump FETs, level sensor (fused), VGATE |
 | **3V3** | **non-synchronous** buck from VBAT (LMR14020, catch diode D6) | ESP32, joystick, buzzer, logic |
 | **VGATE** 10 V | 1k5 dropper + Zener shunt off VBAT | the two gate drivers, and nothing else |
 
@@ -210,8 +210,27 @@ check in this repo would pass.
 
 ## 6. Protection
 
-- **Inline ATC fuse** (10 A, existing 8110K3 + 7460K45) in the battery **+** lead,
-  off-board.
+- **F2, a 10 A ATC blade fuse, ON THE BOARD.** Littelfuse 178.6165 FLR holder
+  (20 × 6 mm, 80 V, 30 A, four solder pins per terminal), taking the standard ATC
+  blade the owner already has — McMaster 7460K45, 10 A, 32 V, bought in a pack of
+  five. The fuse itself is therefore not a BOM line; the holder was chosen to suit
+  the fuse rather than the other way round.
+
+  It used to be an in-line holder in the lead (8110K3). Moving it on-board cost
+  12 mm of board length and a bay re-layout, and bought the thing §6's reverse-
+  polarity sum needed: the fuse is a **board property** now, not a system
+  requirement somebody has to remember.
+
+  **What it stops protecting, named:** the dock-to-board harness. An in-line fuse
+  in the lead covers that run; this one does not. On this machine that run is short
+  and inside the sealed bay, and the long exposed lead is the pack's own, upstream
+  of the dock, which no fuse of ours was ever going to cover.
+
+  **F2 is the ONLY series element in the pack lead**, so VBAT_RAW — J1.1 to F2.1,
+  9.3 mm of pour — is the only copper on the board in front of it. **C21** sits on
+  it, 8.4 mm from the pad: 10 µF of ceramic at the pack entry, which is what carries
+  the first microsecond of a pump step now that C1/C2's 200 µF are behind a fuse and
+  its spring contacts. It is also the one capacitor a blown fuse does not isolate.
 - **REVERSE POLARITY: held by D1 as a crowbar, and there is no series element.**
   This section used to promise a reverse-polarity P-FET the board does not have. The
   argument that made it optional was "the Makita terminal is keyed, so this is insurance
@@ -254,10 +273,16 @@ check in this repo would pass.
   Residual, named: a reversed pack still runs current backwards through each pump
   winding via D2/D3 and the FETs' body diodes for as long as the fuse takes, so the
   pumps briefly suck on the pressure line, and C1/C2 sit reverse-biased at D1's forward
-  drop for that time. Both are milliseconds and neither is a damage mechanism. The fuse
-  is still **off-board**, which makes it a system requirement rather than a board
-  property: this board must be fed through a fuse of **115 A²s or less**.
-- **Inline ATC fuse** (10 A, off-board) in the battery **+** lead, and **F1**, a 30 V
+  drop for that time. Both are milliseconds and neither is a damage mechanism.
+
+  ⚠ **AND THE FUSE IS ON THE BOARD NOW, WHICH CLOSES THE LAST GAP IN THIS ARGUMENT.**
+  While it was in the lead, the whole sum rested on a part this repo did not contain:
+  the requirement read "feed this board through a fuse of 115 A²s or less", and a board
+  whose reverse-polarity protection depends on somebody else's fuse is a board with a
+  promise in it, not a property. **F2** is that fuse — on the laminate, in series with
+  D1, in the BOM. The 115 A²s is a number read off a part the board
+  specifies now, rather than a condition imposed on whoever wires it up.
+- **F1**, a 30 V
   200 mA resettable PTC, in series with J5.1 so the level sensor's cable cannot take the
   rail down or glow when it chafes (M36).
 - **TVS on VBAT** — standoff above 20 V, clamping well below the FETs' 60 V. D1 is an
@@ -830,12 +855,11 @@ py -3.12 elec/main.py                                   # netlist + board.json
 <KiCad python> elec/fab.py main                          # -> elec/out/fab/main.zip
 ```
 
-Current result: 95 x 100 mm, 1.6 mm, 58 footprints, 4 mounting holes, **0
-unconnected and 0 violations** — 48 routed parts plus the ten bring-up pads of
-finding 9. Eleven DRC *warnings* remain: ten silkscreen (`silk_over_copper` x6,
-`silk_overlap` x4), most of them the new net labels sitting on the copper they
-name, which is where a label belongs; and one `track_dangling`, a 1.2 mm RXD0
-stub the router left. `finish.py` prints warnings but deliberately does not fail
+Current result: 95 x 112 mm, 1.6 mm, 69 footprints, 4 mounting holes, **0
+unconnected and 0 violations** — 59 routed parts plus the ten bring-up pads of
+finding 9. 32 DRC *warnings* remain: 27 silkscreen (`silk_over_copper` ×17,
+`silk_overlap` ×10), most of them the net labels sitting on the copper they
+name, which is where a label belongs; and five `track_dangling`. `finish.py` prints warnings but deliberately does not fail
 a board on them, so these are accepted, not overlooked. What it *does* fail on is
 an **unexpected violation class**, which is how finding 9's five courtyard
 overlaps and the TP10 short were both caught.

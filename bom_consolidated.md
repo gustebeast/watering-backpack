@@ -127,9 +127,11 @@ bought and are on the shelf, and the reasoning is worth keeping.
 ## 5. Power & protection  *(🎒)*
 
 - [x] 🎒 **Makita 643852-2 terminal — qty 2 (one spare)**, $8.84 ea, ERP10153397 — https://www.ereplacementparts.com/parts/drill/makita/erp10153397/terminal-643852-2/
-- [x] 🎒 **Inline fuse holder — 8110K3** — McMaster, ATC blade, 1–20 A, 32 V, $4.34.
-  Splices into battery **+** before the board.
+- [ ] ~~**Inline fuse holder — 8110K3**~~ — **NOT NEEDED.** The fuse moved onto the
+  board as **F2** (Littelfuse 178.6165 FLR holder, LCSC C207061, on the PCBA BOM).
 - [x] 🎒 **10 A blade fuse — 7460K45** — McMaster, ATC, 32 V, fast-acting, 5-pack, $3.83.
+  **This is the fuse F2 holds.** The holder was chosen to suit it, so the blade itself
+  is owned and never appears on the PCBA BOM.
 - [x] 🎒 **M2×20 socket screws — OWNED** (McMaster 91292A013) · **M2 heat-set inserts —
   OWNED** (McMaster 94459A110, brass, 2.5 mm).
 
@@ -201,9 +203,10 @@ Exact part numbers to be fixed at layout; this is the functional list.
   SMCJ24A against the 10 A ATO's 115 A²s minimum melt, 2.9× — makes a reversed pack a
   survivable event with no series element in the 7.5 A path. Full derivation in
   `elec/CIRCUIT.md` §6.
-  ⚠ **The fuse is still off-board, so it is a system requirement, not a board
-  property: this board must be fed through a fuse of 115 A²s or less.** The existing
-  10 A ATC (8110K3 + 7460K45) is it. Do not replace it with a larger one.
+  The fuse is **F2, on the board** (Littelfuse 178.6165 FLR holder, LCSC C207061),
+  taking the 10 A ATC blade already owned. That makes the 115 A²s a figure read off a
+  part the board specifies rather than a requirement on whoever wires it up. Do not
+  fit a larger blade: 115 A²s is the ceiling the sum above is built on.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
 - Connectors: **push-in terminal blocks, not JST** — 5.08 mm for battery and each
@@ -282,8 +285,8 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 144 cm³ | battery mount + PCB case, one piece |
-| `v2_housing_lid` | 58 cm³ | shoebox cover: 20.8 mm skirt on all four bay walls, 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
+| `v2_housing` | 151 cm³ | battery mount + PCB case, one piece — the bay grew 12 mm in Z with the board (F2, the on-board blade fuse) |
+| `v2_housing_lid` | 66 cm³ | shoebox cover: 28.0 mm skirt on all four bay walls (F2 is the tallest part now, 21.6 mm, and SKIRT_D is derived from it), 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 | `line_filter_screen` | 3.7 cm³ | §4 filter element — 122 × 0.25 mm slots, ID 1" |
@@ -311,7 +314,7 @@ real part) is the only thing that answers it. Hold it to a light.
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~280 g** for the set (228 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~299 g** for the set (243 cm³ at 1.23 g/cm³), plus waste.
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*

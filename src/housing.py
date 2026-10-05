@@ -40,10 +40,16 @@ frame's back edge instead of from the dock:
   -----
   210     exactly the frame
 
-The board does NOT grow into the slack. It is routed at 95 x 100 and JLCPCB's
-cheapest tier stops at 100 x 100, so the price tier is the binding constraint
-now, not the frame. What the slack buys is the lid: a shoebox skirt needs air
-outboard of the bay walls on all four sides, and at 1.4 mm there was none.
+The board does not grow into the slack IN Y, which is the axis this budget is
+about: it is 95 wide and JLCPCB's cheapest tier stops at 100, so the price tier
+is the binding constraint there, not the frame. What the slack buys is the lid:
+a shoebox skirt needs air outboard of the bay walls on all four sides, and at
+1.4 mm there was none.
+
+⚠ IN Z IT DID GROW, 100 -> 112, for the on-board blade fuse (elec/main.py's
+outline note). That axis has no price tier in it and never had this much slack
+either: the bay is pinned between the wire slot's top and the lid screw boss,
+and absorbing 12 mm of board took BAY_BORDER from 8 to 3 and moved PCB_Z_C.
 
 HOW THE CABLES GET OUT
 ----------------------
@@ -138,7 +144,17 @@ BACK_T  = 4 * BEAD            # 3.2
 # does not have) a typed copy would have gone on reserving 28.6 mm of the
 # frame's 210 for material that is no longer there.
 DOCK_W  = battery_dock.val().BoundingBox().xlen        # 72.0
-PCB_W   = 95.0
+# ⚠ READ OFF THE BOARD, NOT TYPED. These were two literals, 95.0 and 100.0, and
+# the day the board grew 8 mm for the fuse holder they were simply wrong -- the
+# bay would have been built around a board that no longer existed, and nothing
+# in the CAD would have said a word. geom.json carries the outline the ROUTED
+# board actually has, which is the same file the agreement gate measures
+# against, so the two can no longer disagree.
+PCB_W, PCB_L = _BOARDS.load("main")["outline_mm"]
+assert (PCB_W, PCB_L) == (95.0, 112.0), (
+    "the board outline moved to %s x %s: every Z number below was chosen "
+    "against 95 x 112 and wants re-reading, starting with BAY_Z1 against the "
+    "lid screw boss" % (PCB_W, PCB_L))
 PCB_CLR = 2.0
 # The dock is anchored by its CENTRELINE, not by its -Y edge. Its edge moved
 # 14.3 mm when the ears came off; its battery, its contact block and the deck
@@ -189,10 +205,20 @@ assert Y_PCB0 - WALL - SKIRT_CLR - SKIRT_T >= Y_DOCK1, (
 # once the bay moved it would not have.
 Y_PLATE0, Y_PLATE1 = 0.0, L.FRAME_D
 
-PCB_Z_C = 75.0
+# ⚠ 75.6, NOT 75.0, AND THE 0.6 IS NOT A PREFERENCE. The bay is pinned top and
+# bottom by things that are not the board (see BAY_BORDER), and at 112 mm of
+# laminate what is left over is 1.55 mm. Centring the board in the WINDOW rather
+# than on the old 75.0 is what splits that evenly instead of spending it all at
+# one end.
+PCB_Z_C = 74.75
+# ⚠ AND THE WINDOW IS NARROW ENOUGH TO BE WORTH ASSERTING, because both of its
+# ends are in other parts: the wire slot is cut through the back plate and the
+# boss belongs to the lid, so nothing that reads this file alone would notice
+# either moving. The overlap gate does catch it -- that is how the boss's real
+# underside was found -- but it catches it as a volume in a build log, which is
+# a long way from the number that caused it.
 
 # ── Z layout ────────────────────────────────────────────────────────────────
-PCB_L      = 100.0
 # The bay is taller than the board needs, and that is deliberate. It used to be
 # 11 mm of border above and below, sized to host the four lid pillars, because
 # there was no room for them inside the board's own footprint (the board fills
@@ -203,12 +229,44 @@ PCB_L      = 100.0
 #
 #   * the board's own Z retention lives in it (see the retention ribs below);
 #   * the lid's screw boss has to clear the bay's +Z wall. The screw is fixed
-#     at z=145 and the boss needs 2 mm of lid under a Ø9.5 bore, which puts the
-#     boss's underside at 138.25. At BAY_BORDER=11 the bay wall reached 139 and
+#     at z=145 and the boss is LID_BOSS_H = 16 mm of lid around a Ø9.5 bore, so
+#     its UNDERSIDE IS AT 137.0. At BAY_BORDER=11 the bay wall reached 139 and
 #     the two interpenetrated -- 912 mm3, which the overlap gate caught.
-BAY_BORDER = 8.0
+#     ⚠ THIS USED TO SAY 138.25, which is the bore plus the 2 mm of lid the
+#     assert below demands -- the MINIMUM boss, not the boss that is drawn. The
+#     gate caught the difference the moment the bay was pushed up against it:
+#     237.6 mm3 at z 137.00..137.50, y 183..199, which is the boss's own 16 mm
+#     band. A number taken from a rule rather than from the geometry is exactly
+#     the kind of thing that survives until something moves.
+# ⚠ AND IT IS 5 NOW, BECAUSE THE BOARD GREW 8 mm AND THE BAY HAD NOWHERE TO PUT
+# THEM. The bay is pinned at both ends by things that are not the board: the wire
+# slot's top at Z 10.5, which the bay's -Z wall must start above, and the lid
+# screw boss's underside at 138.25, which its +Z wall must stay below. That is
+# 125.35 mm of Z for a bay of PCB_L + 2*BAY_BORDER + 2*WALL. At 112 x 8 that is
+# 132.8 and it does not fit -- the first build after the board grew failed on the
+# wire slot, by 2.3 mm at 108 and 6.3 at 112, which is a real collision and not a
+# tolerance.
+#
+# 3.0 makes the bay 122.8, and PCB_Z_C moves to 74.75 to share what is left
+# evenly: 0.45 mm over the wire slot and 0.85 under the boss. Nothing was traded
+# away for the border: the two jobs it had are both
+# somewhere else now. The lid pillars it was originally sized for are gone, and
+# the board's Z retention is the rib on the LID (see PRINT_ROT), not a feature of
+# this border at all -- the comment above still says "lives in it" and was
+# already out of date when it was written.
+#
+# The alternative was the plate, and the owner offered it ("we can make the plate
+# larger to compensate"). It was not taken because the plate's top is L.RAIL_Z0 =
+# 150: growing past it is a change to the BACKPACK FRAME, which is a much bigger
+# thing to disturb than 3 mm of empty border, and the border had the 3 mm.
+BAY_BORDER = 3.0
 BAY_Z0     = PCB_Z_C - (PCB_L / 2.0 + BAY_BORDER + WALL)  # 11
 BAY_Z1     = PCB_Z_C + (PCB_L / 2.0 + BAY_BORDER + WALL)  # 139
+_BOSS_Z0 = 145.0 - 16.0 / 2.0            # LID_BOSS_Z/-H, 400 lines below
+assert BAY_Z1 <= _BOSS_Z0 - 0.4, (
+    "the bay's +Z wall reaches %.2f and the lid's screw boss starts at %.2f: "
+    "they interpenetrate, which the overlap gate reports as a volume and not "
+    "as a dimension" % (BAY_Z1, _BOSS_Z0))
 # The back plate runs the posts' full height so the countersinks have laminate
 # all round them. The screws then sit far enough from the bay that their Ø9
 # cones do not undercut its wall -- at z=7 the cone reached z=11.5 and left a

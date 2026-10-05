@@ -245,10 +245,16 @@ nothing downstream of the clamp moves; 1500 W against 600 W; 200 A IFSM against
 current backwards through each pump winding via D2/D3 and the FETs' body diodes
 until the fuse opens, so the pumps briefly suck on the pressure line, and C1/C2
 sit reverse-biased at D1's forward drop for that time — milliseconds, and neither
-is a damage mechanism. And **the fuse is off-board**, which makes it a *system*
-requirement rather than a board property: this board must be fed through a fuse
-of **115 A²s or less**. The existing 10 A ATC is it; a larger one silently
-re-opens this finding.
+is a damage mechanism.
+
+⚠ **AND THE FUSE IS ON THE BOARD NOW**, which is the second half of this item and
+was closed after it. While the fuse was a holder in the lead, the sum above rested
+on a part this repo did not contain. **F2** — Littelfuse 178.6165 FLR holder, LCSC
+C207061, taking the 10 A ATC blade already owned — puts it on the laminate in series
+with D1. The board grew 100 → 112 mm for it and the housing bay was re-laid; what
+was given up is protection of the dock-to-board harness, which is short and inside
+the sealed bay. Do not fit a larger blade: **115 A²s** is the ceiling this sum is
+built on, and a larger one silently re-opens the finding.
 
 **11 is RESOLVED.** The user's requirement is narrower than the punchlist
 assumed: *any* way to land a wire without soldering, with no preference between

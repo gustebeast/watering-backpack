@@ -47,6 +47,23 @@ HEIGHT = {
     "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 14.07,
     "TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal": 14.07,
     "TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal": 14.07,
+    # ⚠ THE TALLEST PART ON THE BOARD, AND THE ONE THAT NOW SETS THE BAY DEPTH.
+    # Littelfuse 178.6165 FLR, datasheet drawing (LCSC C207060, 1 page, VECTOR
+    # not a scan, so these are read dimensions): 20 wide, 6 deep, and 21.6 mm
+    # OVERALL from the top of the body to the tips of the pins. The side view
+    # breaks that down as 17.5 body + 1 standoff above the board + 3.1 of pin
+    # below it, i.e. 18.5 mm above the laminate.
+    #
+    # 21.6 IS DECLARED HERE, NOT 18.5, AND THE EXTRA 3.1 mm IS DELIBERATE. What
+    # has to clear the lid is the holder WITH A FUSE IN IT, and the drawing does
+    # not dimension that. The cavity is 20 x 6 and an ATO fuse is 19.1 x 5.1 x
+    # 18.6, so it drops in essentially flush -- but "essentially" is an argument
+    # and 21.6 is a number off the same drawing that cannot be smaller than the
+    # truth, since it already contains 3.1 mm of pin that lives UNDER the board.
+    # Nobody has to own a caliper for the housing to be right. A measurement of
+    # the fitted stack would recover about 3 mm of bay depth and is the first
+    # thing to do if that depth is ever wanted.
+    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165":                21.6,
 }
 
 BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)

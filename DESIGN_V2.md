@@ -210,9 +210,16 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
 - TVS (**SMCJ24A**, 38.9 V max clamp — same clamp as the SMBJ24A it replaced, 1500 W and 200 A IFSM instead of 600 W and 100 A) and bulk electrolytics near the switches. The package was chosen by the reverse-polarity sum, not the transient one: see `elec/CIRCUIT.md` §6.
   ⚠ **The reverse-polarity P-FET is NOT on the built board.** It was called optional
   because the battery inlet was keyed; the inlet is now a screw terminal, which is not.
-  The consequence, the remaining backstop (the off-board 10 A ATC fuse) and the two
-  ways out are written up in `elec/CIRCUIT.md` §6 and tracked in the punchlist. It is
-  an open decision, not an oversight that has been accepted.
+  The consequence and the backstop are written up in `elec/CIRCUIT.md` §6. It is
+  **closed**: the crowbar is sized by I²t against the fuse, and the fuse is **F2 on
+  the board** now rather than a holder in the lead, so the sum rests on a part this
+  repo contains instead of on a condition imposed on whoever wires it up.
+- **F2, a 10 A ATC blade fuse on the board** — Littelfuse 178.6165 FLR holder taking
+  the ATC blade already owned (McMaster 7460K45). It cost 12 mm of board length and a
+  bay re-layout; what it bought is that the reverse-polarity argument above is now a
+  **board property**. What it gives up is protection of the dock-to-board harness,
+  which is short and inside the sealed bay. **C21**, 10 µF at the pack pad, is the
+  only charge in front of it.
 - **F1**, a 30 V 200 mA resettable PTC, in series with the level sensor's VBAT feed —
   that lead leaves the sealed bay and climbs the outside of the case, so it is the one
   conductor that gets rubbed and pinched, with a Makita pack behind it.
@@ -380,8 +387,9 @@ Two habits go with them, and they matter more than the list:
 ## Carried over unchanged from v1
 
 Seaflo SFDP1-030-055-42 pumps (12 V, 3.0 GPM, 55 psi), Makita 18 V pack + 643852-2
-terminal, Traco TSR 1-2450E for logic 5 V, KY-023 joystick, BTS7960, ATC fuse holder +
-10 A fuse, Scepter 5 gal can, Stansport frame, separate spigot fill line.
+terminal, Traco TSR 1-2450E for logic 5 V, KY-023 joystick, BTS7960, the 10 A ATC
+fuse (its *holder* did not carry over — it is **F2 on the main board** now), Scepter
+5 gal can, Stansport frame, separate spigot fill line.
 
 **Dropped:** Farady 4-way X-port valve, Pololu D42V110F12 buck, 5/8"→3/8" reducers
 (×4 → ×1), pump inlet strainer (redundant given the green-line filter).
