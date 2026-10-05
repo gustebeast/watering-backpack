@@ -894,7 +894,7 @@ def route(stem, passes=None, timeout=14400, incremental=False, dsn_only=False):
     # ⚠ COUNTED BEFORE tidy_router_vias, WHICH REMOVES. 2026-09-21: the count used to sit
     # after it, and on the optical board tidy's removals left the track container in the
     # SWIG state described below -- GetTracks() raised and threw away a 52-minute route.
-    n = len(list(board.GetTracks()))
+    n = len(list(board.GetTracks())) - layout.drop_redundant_pad_vias(board, notes)
     layout.tidy_router_vias(board, notes)
     # ⚠ COUNT BEFORE REMOVING. board.Remove() leaves the track container in a state
     # where GetTracks() raises -- the same SWIG ownership hazard that made fp.Remove()
