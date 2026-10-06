@@ -751,3 +751,56 @@ is not a detail.
    that eventually shorts trips F1 rather than the pack. The protection already
    anticipated a fault on this wire; this finding just notes we are now adding one
    more place for it to start.
+
+### 21 — J5 is on the WRONG EDGE of the board, against a requirement stated in words
+
+Found while starting the wiring model the owner asked for, which is the point of
+drawing cables: you cannot route one without asking where it leaves from.
+
+**The requirement, from the owner, verbatim and never withdrawn:**
+
+> *"Avoid moving the wiring connections to other sides of the board since it'll be
+> convenient to have them all in the same side facing down."*
+
+**Where the five field terminals actually are, off the routed board:**
+
+| | board y | world z | |
+|---|---|---|---|
+| J1 pack, J2 pump A, J3 pump B, J4 joystick | −52.35…−41.05 | **28.0** | bottom edge, facing down, over the chase |
+| **J5 level sensor** | **+39.65…+50.95** | **120.0** | **top edge — 92 mm up, at the far end of the bay** |
+
+The chase is in the bay **floor**, world y 115.3…192.0 at z 13.4. J5's world *y* of
+172.1 does sit inside that span, so this is not a plan-view problem — it is 92 mm of
+**height**. A four-conductor cable has to climb from J5 down the full face of the
+board, inside the sealed bay, to reach the only exit.
+
+**Two documents say otherwise and both are wrong.** `src/housing.py` says *"the level
+sensor's lead leaves through this chase too"* and `CIRCUIT.md` §7 says the same. The
+lead does eventually reach the chase; neither says it crosses the board to get there.
+Worse, `housing.py`'s own `_edge_connector_span()` **filters J5 out** — `if y0 >
+-PCB_L / 4.0: continue`, commented *"not on the bottom border"* — so the chase was
+sized from four terminals while the prose claimed five use it. The code knew.
+
+**No gate catches this, and the reason is worth stating.** `elec/cad_geom_check.py`
+checks the routed board against the CAD, `check_overlaps.py` weighs solids, and the
+PCB quality pass reads the board. **An internal cable that no model draws is in none
+of them** — which is exactly why the owner asking for wiring in the CAD surfaced it
+on the first query.
+
+**THE FIX IS FEASIBLE WITHOUT GROWING THE BOARD, measured:**
+
+| | mm |
+|---|---|
+| J2 + J1 + J3 + J4 + J5 bodies | 10.26 + 10.26 + 10.26 + 25.50 + 20.42 = **76.70** |
+| usable −Y edge on the 95 mm board, 2 mm clear each end | **91.00** |
+| left for the four gaps | **14.30** → 3.57 mm each |
+
+So all five fit on the edge they were supposed to be on, at the width the board
+already is. It costs a re-space of the terminal row, a re-route and a full
+re-verification — not a bigger board, and not the +Y growth the owner authorised.
+
+**Open: the owner's call, because the board is otherwise orderable at 0 FAIL / 0
+OPEN and parts are being bought around it.** Doing it means re-routing a board that
+currently passes everything. Not doing it means a 92 mm four-conductor run across the
+face of the board inside a sealed box, on the one circuit whose whole protection
+story (F1, the PTC) is about that lead being the exposed one.
