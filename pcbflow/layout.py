@@ -1368,9 +1368,29 @@ def tidy_router_vias(board, notes, min_gap_mm=0.25):
         return (round(pcbnew.ToMM(p.x) - 100.0, 3),
                 round(100.0 - pcbnew.ToMM(p.y), 3)) in declared_xy
 
+    # ⚠ NOR IS A PIN'S ESCAPE VIA (optical SAI_FS, 2026-10-05). "pin_escapes" gives a
+    # sealed fine-pitch pin a stub and a via before routing. When the router does not use
+    # it the via carries one layer and reads as dangling -- and it is exactly the copper
+    # the closing step needs: with it removed, close_last had only the F.Cu stub to start
+    # from, inside the seal, and reported "no path" on a net it could have closed.
+    escape_at = []
+    for key in notes.get("pin_escapes", ()):
+        ref, _, num = key.partition(".")
+        fp = board.FindFootprintByReference(ref)
+        pad = fp.FindPadByNumber(num) if fp else None
+        if pad is not None:
+            pp = pad.GetPosition()
+            escape_at.append((pad.GetNetname(), pp.x, pp.y))
+
+    def _escape(v):
+        p, name = v.GetPosition(), v.GetNetname()
+        return any(name == n and math.hypot(p.x - x, p.y - y) < pcbnew.FromMM(3.0)
+                   for n, x, y in escape_at)
+
     doomed, joins, reported = {}, [], []
     for v in vias:
-        if conn.TestTrackEndpointDangling(v, False) and not _declared(v):
+        if (conn.TestTrackEndpointDangling(v, False) and not _declared(v)
+                and not _escape(v)):
             doomed[v.m_Uuid.AsString()] = "dangling %s" % v.GetNetname()
 
     def _ends(v):

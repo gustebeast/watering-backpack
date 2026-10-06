@@ -261,6 +261,33 @@ def _zones(board_txt):
     return out
 
 
+def _keepouts(board_txt):
+    """Rule areas that forbid tracks: [{layers, pts}], one per keep-out zone.
+
+    ⚠ A KEEP-OUT IS NOT COPPER, SO NOTHING ABOVE SAW IT (optical V5_PRE, 2026-10-05). The
+    ring round a mounting cut-out is a zone with `(keepout (tracks not_allowed))` and no
+    fill; the search modelled the hole's edge and its 0.3 mm rule, ran a rail through the
+    wider ring, and DRC called it items_not_allowed -- which threw away five other good
+    closures made in the same pass.
+    """
+    out = []
+    for z in re.findall(r"\(zone\b(.*?)\n\t\)", board_txt, re.S):
+        if "(keepout" not in z or "(tracks not_allowed)" not in z:
+            continue
+        ly = re.search(r'\(layers((?: "[^"]+")+)\)', z)
+        one = re.search(r'\(layer "([^"]+)"\)', z)
+        layers = set(re.findall(r'"([^"]+)"', ly.group(1))) if ly else (
+            {one.group(1)} if one else set())
+        pg = re.search(r"\(polygon\s*\(pts(.*?)\)\s*\)", z, re.S)
+        if not pg:
+            continue
+        pts = [(float(a), float(b))
+               for a, b in re.findall(r"\(xy ([-\d.]+) ([-\d.]+)\)", pg.group(1))]
+        if len(pts) >= 3:
+            out.append(dict(layers=layers, pts=pts))
+    return out
+
+
 def _pt_in_poly(px, py, pts):
     inside = False
     n = len(pts)
@@ -430,6 +457,7 @@ class Board:
         self.edge_clear = _edge_clearance(stem)
         # ⚠ AND THE POURS, which this class did not model at all until 2026-09-30.
         self.zones = _zones(txt)
+        self.keepouts = _keepouts(txt)
         self.zone_clear = _zone_clearance(stem)
 
     def via_ok(self, x, y, r=VIA_D / 2.0):
@@ -454,6 +482,12 @@ class Board:
                 return False
         for e in self.edges:                      # and the outline, at ITS rule
             if _d_pt_seg(x, y, *e) < r + max(MARGIN, getattr(self, "edge_clear", 0.3)):
+                return False
+        for k in getattr(self, "keepouts", ()):   # a via is on every layer
+            pts = k["pts"]
+            if _pt_in_poly(x, y, pts) or any(
+                    _d_pt_seg(x, y, a[0], a[1], b[0], b[1]) < r
+                    for a, b in zip(pts, pts[1:] + pts[:1])):
                 return False
         return True
 
@@ -615,6 +649,16 @@ class _Index:
             self._put(min(e[0], e[2]) - _eh, min(e[1], e[3]) - _eh,
                       max(e[0], e[2]) + _eh, max(e[1], e[3]) + _eh,
                       ("seg", e[0], e[1], e[2], e[3], _eh))
+
+        # a track keep-out's boundary, as a zero-width wall: paths start outside one, so a
+        # wall they cannot cross keeps them out (see _keepouts)
+        for k in getattr(board, "keepouts", ()):
+            if k["layers"] and layer not in k["layers"]:
+                continue
+            pts = k["pts"]
+            for a, b in zip(pts, pts[1:] + pts[:1]):
+                self._put(min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]),
+                          ("seg", a[0], a[1], b[0], b[1], 0.0))
 
     def _put(self, x0, y0, x1, y1, item):
         c = self.CELL

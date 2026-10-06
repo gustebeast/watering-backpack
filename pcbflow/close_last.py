@@ -151,6 +151,12 @@ def main(stem):
         (na, la, pa, ta), (nb, lb, pb, tb) = _ends(u["items"][0]), _ends(u["items"][1])
         if na and na == nb:
             todo.append((na, la, pa, ta, lb, pb, tb))
+    # nets finish.py asks to leave alone on this attempt: a closure of theirs broke a rule
+    # last time, and one bad closure must not cost the board the good ones (see finish.py)
+    skip = {s for s in os.environ.get("CLOSE_LAST_SKIP", "").split(",") if s}
+    if skip:
+        print("close_last: leaving %s open on this attempt" % ", ".join(sorted(skip)))
+        todo = [t for t in todo if t[0] not in skip]
     if not todo:
         print("close_last: nothing to close")
         return 0
@@ -168,7 +174,20 @@ def main(stem):
     close_w = _notes.get("close_widths", {}) or {}
     layers = [L for L in LAYERS if L in have and L not in plane]
     made = 0
-    for net, la, pa, ta, lb, pb, tb in todo:
+    # ⚠ THE SEARCH HAS A CLOCK (optical, 2026-10-05). Ten open nets on a 188 mm board took
+    # this file past an hour, silently, on a route whose real fault was a placement that
+    # left four of them open in the first place. A closing step that runs longer than the
+    # router is not finishing a board, it is hiding one that needs another look: after
+    # CLOSE_LAST_BUDGET_S (default 20 minutes) the nets not yet reached are left open
+    # and named.
+    import time as _time
+    _t0 = _time.time()
+    _budget = float(os.environ.get("CLOSE_LAST_BUDGET_S", "1200"))
+    for _i, (net, la, pa, ta, lb, pb, tb) in enumerate(todo):
+        if _time.time() - _t0 > _budget:
+            print("close_last: out of time after %.0f s -- left open: %s"
+                  % (_time.time() - _t0, ", ".join(t[0] for t in todo[_i:])))
+            break
         if ta:
             la, pa = _free_end(board, net, la, pa, pb)
         else:
@@ -214,14 +233,40 @@ def main(stem):
         via_a = sorted(_via_starts(board, net, pa, layers), key=lambda c: pref.get(c[0], 9))
         via_b = sorted(_via_starts(board, net, pb, layers), key=lambda c: pref.get(c[0], 9))
         named = ((la, pa), (lb, pb))
-        tries = ([(x, y, RS.MAZE_STEP) for x in via_a for y in via_b]
-                 + [(x, named[1], RS.MAZE_STEP) for x in via_a]
-                 + [(named[0], y, RS.MAZE_STEP) for y in via_b]
+        # ⚠ NEAREST PAIRING FIRST, AND NOT EVERY PAIRING (optical +3V3D, 2026-10-05). The
+        # first path found is the one laid, and a rail's copper reaches dozens of vias: in
+        # arbitrary order the first success joined two islands 18 mm apart with 134 mm of
+        # track -- the MCU's whole supply through it, 170 mV down -- and the failures
+        # before it were long searches that ate the clock. Sorted by the straight line
+        # between the two starts, the first success is near the shortest there is.
+        def _gap(t):
+            (_la, a), (_lb, b) = t[0], t[1]
+            return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+        def _near(pairs, keep):
+            pairs = sorted(pairs, key=lambda t: (round(_gap(t), 2),
+                                                 pref.get(t[0][0], 9) + pref.get(t[1][0], 9)))
+            return pairs[:keep]
+
+        tries = (_near([(x, y, RS.MAZE_STEP) for x in via_a for y in via_b], 18)
+                 + _near([(x, named[1], RS.MAZE_STEP) for x in via_a], 6)
+                 + _near([(named[0], y, RS.MAZE_STEP) for y in via_b], 6)
                  + [(named[0], named[1], RS.MAZE_STEP), (named[0], named[1], 0.05)])
         res = None
         want_w = max(WIDTH, float(close_w.get(net, WIDTH)))
-        for width in ([want_w, WIDTH] if want_w > WIDTH else [WIDTH]):
+        # A STEP BETWEEN: a rail that will not go at its asked width is tried halfway down
+        # before the minimum. On optical two links of the MCU's supply ring fell straight
+        # from 0.5 to 0.2 mm and took the rail's drop over its limit.
+        _ladder = [want_w]
+        if want_w - WIDTH >= 0.2:
+            _ladder.append(round((want_w + WIDTH) / 2.0, 2))
+        if want_w > WIDTH:
+            _ladder.append(WIDTH)
+        for _i, width in enumerate(_ladder):
             for (la, pa), (lb, pb), step in tries:
+                # the clock again: one net's pairings can outlast the whole budget
+                if _time.time() - _t0 > _budget:
+                    break
                 res = RS.maze3d(model, layers, pa, la, pb, lb, w=width, step=step,
                                 reach=REACH)
                 if res is not None:
@@ -229,8 +274,8 @@ def main(stem):
             if res is not None:
                 break
             if width > WIDTH:
-                print("close_last: %s -- no path at the %.2f mm it asks for, trying %.2f"
-                      % (net, width, WIDTH))
+                print("close_last: %s -- no path at %.2f mm, trying %.2f"
+                      % (net, width, _ladder[_i + 1]))
         if res is None:
             print("close_last: %s -- no path between (%.2f, %.2f) and (%.2f, %.2f)"
                   % (net, pa[0], pa[1], pb[0], pb[1]))
