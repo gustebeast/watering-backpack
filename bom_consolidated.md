@@ -314,9 +314,14 @@ Fab: **JLCPCB**. Prefer Basic/Preferred library parts to avoid extended-part fee
   - **Set the order form from `ORDER.txt`:** 1 oz outer copper and 1.6 mm thickness
     are both ⚠ DESIGN DEPENDENCY — trace widths and the housing bay are sized to
     them. Lead-free HASL, green mask / white silk, and whichever of
-    Economic / Standard lists all 12 sourced SMT parts.
+    Standard (U2 is Standard-only; see docs/jlcpcb-quote.md),
+    with "Depanel boards & edge rail before delivery" TICKED.
   - **F2's blade is not a BOM line** — the holder is on the board and §5's owned
-    7460K45 goes in it. The five terminals and the buzzer are hand-soldered after.
+    7460K45 goes in it. The five terminals and the buzzer are placed by JLCPCB like
+    everything else -- all 59 placements are in the CPL. You solder nothing on
+    the board. The only two joints needing an iron are off-board and both are
+    on the level sensor: extending its lead (§4) and the NPN inverter that goes
+    in that lead at the J5 end (elec/CIRCUIT.md §7, finding 17).
 
 Everything below is the functional list behind that zip.
 

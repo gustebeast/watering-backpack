@@ -1035,17 +1035,37 @@ BOARD_NOTES = {
                    "pour on this board is sized against IPC-2221 at 1 oz.",
         "thick":   "1.6 mm. ⚠ DESIGN DEPENDENCY -- A14's via-in-land volume "
                    "check assumes it.",
-        "finish":  "Lead-free HASL. Nothing finer than a 1.27 mm SOIC; five "
-                   "terminals and a buzzer are hand-soldered afterwards.",
+        "finish":  "Lead-free HASL. Nothing finer on this board than a "
+                   "1.27 mm SOIC, so the cheaper finish costs nothing in "
+                   "yield. NOT because anything is hand-soldered: all 59 "
+                   "placements are in the CPL, the six through-hole ones "
+                   "included, and the fab bills them as hand-soldering and "
+                   "manual assembly.",
         "mask":    "Green, white silk. Highest contrast for the test-pad and "
                    "connector labels, which exist to be read during bring-up.",
-        "tier":    "Whichever of Economic / Standard lists all 12 sourced SMT "
+        "tier":    "STANDARD, measured rather than inferred: U2 is flagged "
+                   "Standard Only on the order page and Economic will not "
+                   "place it, which drags the whole board up a tier (about "
+                   "$69 of a $193.64 quote for five -- docs/jlcpcb-quote.md). "
+                   "Standard also pads the outline to 105 x 112 with two 5 mm "
+                   "rails, so TICK 'Depanel boards & edge rail before "
+                   "delivery' or the boards arrive too wide for the bay. "
+                   "Was: whichever of Economic / Standard lists all 12 sourced SMT "
                    "parts -- the DESIGN constrains neither. 59 placements, all "
                    "on top (single-sided, no second-side setup); 95 x 112 mm, "
                    "which is OUT of the <=100 x 100 tier deliberately and for "
                    "F2 (see the outline note), and still far above any "
-                   "assembly minimum; the 6 through-hole lines (BZ1, J1-J6, "
-                   "F2) are hand-soldered, so no THT assembly is ordered.",
+                   "assembly minimum. AND THE 6 THROUGH-HOLE LINES (BZ1, "
+                   "J1-J6, F2) ARE ORDERED ASSEMBLED, which this line used "
+                   "to deny -- it said they were hand-soldered afterwards "
+                   "and that no THT assembly was ordered. The CPL never "
+                   "agreed: all 59 placements are in it, and the quote "
+                   "bills them as Hand-soldering labor $3.61 plus Manual "
+                   "Assembly $2.56. The terminals and the buzzer were "
+                   "sourced on purpose -- they were the last entries to "
+                   "leave OPEN_VALUES -- which is only worth doing if the "
+                   "fab places them. Nothing on this board is soldered by "
+                   "hand after delivery.",
     },
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
     "layers": 2,
