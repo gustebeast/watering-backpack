@@ -990,16 +990,43 @@ def circuit():
 # its cable anchor.
 BOARD_W, BOARD_L = 95.0, 112.0
 HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
-# ⚠ 43, NOT 41, AND THE REASON IS UNDER THE BOARD. A mounting hole is also a
-# STANDOFF BOSS in the housing (src/housing.py derives one per hole from the
-# routed board, BOSS_D = 10.4 across), and a boss stands in the 4 mm between the
-# bay floor and the laminate -- which is exactly where a through-hole terminal's
-# solder tails stand. At 41 the boss edge passed 0.1 mm inside J2's VBAT tail:
-# 1.17 mm3 of interference, caught by tools/check_overlaps.py, and on a real
-# board it is a connector that holds the laminate off its own screws.
-# 43 leaves 2.25 mm of laminate round the hole (the assert below wants 1.5) and
-# clears that tail by 2.4 mm.
-HOLES = [(-43.0, -50.0), (43.0, -50.0), (-43.0, 50.0), (43.0, 50.0)]
+# ⚠ 43, NOT 41, AND THE REASON IS UNDER THE BOARD. A mounting point is also a
+# STANDOFF BOSS in the housing (src/housing.py puts one under each, BOSS_D = 10.4
+# across), and a boss stands in the 4 mm between the bay floor and the laminate --
+# which is exactly where a through-hole terminal's solder tails stand. At 41 the
+# boss edge passed 0.1 mm inside J2's VBAT tail: 1.17 mm3 of interference, caught
+# by tools/check_overlaps.py, and on a real board it is a connector that holds the
+# laminate off its own screws. 43 leaves 2.25 mm of laminate round a hole (the
+# assert below wants 1.5) and clears that tail by 2.4 mm. That is a MEASURED
+# clearance to a specific tail, which is why these stay at 43 and are not derived
+# from the laminate's corners -- a corner inset by the boss radius lands at 41.6.
+#
+# == ONE HOLE, THREE PADS, AND WHY THAT IS NOT A LOSS OF SUPPORT ==
+# The housing has fitted ONE M4 since it went to a lip and Z stops for retention
+# (src/housing.py pcb_screws: "The one M4"). The other three bosses never had a
+# bore or an insert -- they were already plain SUPPORT PADS, holding the laminate
+# off the bay floor and nothing else. So three of these four holes were drilled
+# for screws that do not exist, and all they did was eat the -Y edge.
+#
+# They are therefore split, not deleted. HOLES is drilled; SUPPORTS is not, and
+# the housing reads it from this board's own published notes and puts the same
+# boss under it. The board still rests on four pads at the same four places; what
+# goes away is three holes through the laminate and three screws nobody fitted.
+#
+# ⚠ WHY THE HOLE MOVED TO +Y, AND WHAT THAT GIVES UP. It was at (43, -50), the
+# -Y end, and src/housing.py argued for that corner explicitly: the cable bundle
+# leaves the -Y edge and a tugged cable is the only real pull this board sees off
+# its standoffs, so "the screw belongs nearest the load". That argument has been
+# GIVEN UP, deliberately, and it is a real trade and not a tidy-up: the one screw
+# now sits at the far corner from the cables, and a hard pull on the bundle is
+# resisted at the -Y end by the Z stops and the laminate's own stiffness rather
+# than by a fastener. What bought it is the -Y edge itself. Every field connector
+# lands there (the housing faces that edge down), J5 has to join them, and the
+# terminal bodies need 76.70 mm of a 95 mm edge. A hole at (43, -50) with its
+# 2.25 mm of laminate cuts the usable span to about 80.5 mm, which is 3.8 mm of
+# slack for five connectors; without it the span is 91.00 mm.
+HOLES = [(43.0, 50.0)]                         # drilled, and the one M4 goes here
+SUPPORTS = [(-43.0, -50.0), (43.0, -50.0), (-43.0, 50.0)]   # pads, NOT drilled
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
@@ -1068,6 +1095,10 @@ BOARD_NOTES = {
                    "hand after delivery.",
     },
     "cutouts": [{"xy": xy, "d": HOLE_D} for xy in HOLES],
+    # Not drilled, and not the board's business to draw -- but the board is
+    # where the 43 mm tail clearance was measured, so the board is where the
+    # positions live and the housing reads them from here.
+    "supports": [list(xy) for xy in SUPPORTS],
     "layers": 2,
     "thickness_mm": 1.6,
     # == PLACEMENT IS THE DESIGN, AND HERE IT IS THE CURRENT THAT DESIGNS IT ==
@@ -1754,9 +1785,15 @@ BOARD_NOTES = {
 # ── THE CHECKS ──────────────────────────────────────────────────────────────
 # Anything DRC cannot see, asserted here so a bad placement stops the generator
 # instead of surfacing later in the CAD's overlap gate.
-for _xy in HOLES:
+# Every mounting point, drilled or not: a support pad is still a boss under the
+# laminate, and a boss off the edge supports nothing.
+for _xy in HOLES + SUPPORTS:
     _edge = min(BOARD_W / 2.0 - abs(_xy[0]), BOARD_L / 2.0 - abs(_xy[1])) - HOLE_D / 2.0
-    assert _edge >= 1.5, "mounting hole at %s leaves %.2f mm of laminate" % (_xy, _edge)
+    assert _edge >= 1.5, "mounting point at %s leaves %.2f mm of laminate" % (_xy, _edge)
+assert len(HOLES) == 1, (
+    "the housing fits exactly one M4 (src/housing.py pcb_screws); %d holes are "
+    "drilled, so either a screw is missing or a hole is" % len(HOLES))
+assert not set(HOLES) & set(SUPPORTS), "a point cannot be both drilled and not"
 
 # The ESP32's antenna must overhang a board edge with copper keepout under it.
 _ANT = BOARD_W / 2.0 - BOARD_NOTES["placements"]["U2"][0]

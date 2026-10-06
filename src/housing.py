@@ -88,6 +88,9 @@ Run:  py -3.12 -m src.housing
 """
 from __future__ import annotations
 
+import io
+import json
+
 import cadquery as cq
 
 from cadkit.board_geom import Boards
@@ -542,23 +545,74 @@ def _hole_points():
     return out
 
 
+def _support_points():
+    """Every point the laminate RESTS on: the screw's hole, plus the pads.
+
+    A SUPPORT PAD IS A BOSS WITHOUT A HOLE, and it has to be read from the board
+    rather than typed here, for the reason at the top of this file: a typed copy
+    agrees with itself. But a pad is not board geometry -- nothing is cut for it
+    -- so it cannot come through geom.json, which is the routed copper and the
+    routed outline. It comes from the board's own published notes instead, which
+    elec/main.py writes in the same run that routes the board.
+
+    WHY THE BOARD OWNS THEM AT ALL, when they are housing features: the number
+    that fixes them is 43, and 43 is a measured clearance to J2's VBAT solder
+    tail (see elec/main.py). That measurement is on the board, so the board is
+    where it lives. Deriving these from the laminate's corners instead would put
+    them at 41.6 -- which is the exact position that was already caught driving
+    a boss 0.1 mm into that tail.
+    """
+    with io.open(str(F.OUT / "elec" / "out" / "main.board.json"),
+                 encoding="utf-8") as fh:
+        notes = json.load(fh)
+    pads = notes.get("supports")
+    assert pads, ("elec/out/main.board.json publishes no 'supports': either the "
+                  "board was generated before they existed or they were removed, "
+                  "and the laminate would rest on one pad")
+    out = [_screw_hole_point()]
+    for hx, hy in pads:
+        out.append((PCB_Y_C - hx, PCB_Z_C + hy))      # board +X -> -Y, +Y -> +Z
+    return out
+
+
 # ONE screw, at the corner furthest from the +Y retention lip. There were four,
 # one per corner, and three of them were holding a board that the lip and the Z
 # stops now hold for nothing: four blind bores, four heat-set inserts and four
 # screws, on a board that comes out for every firmware reflash until it has OTA.
 #
-# WHICH corner: -Y, because that is the end the lip does not reach, and the
-# BOTTOM one, because the cable bundle leaves from the bottom edge and a tugged
-# cable is the only real -X load this board sees. The screw belongs nearest the
-# load. The hole at (110.5, 31) is also clear of the terminal group, which stops
-# at y=123.7 -- the top -Y hole would have been just as clear, and the choice
-# between them is the cable, not the geometry.
+# WHICH corner: -Y, because that is the end the lip does not reach. And now the
+# TOP (+Z) one -- which REVERSES what this comment used to say, so here is what
+# it said and what it cost to give up.
+#
+# IT USED TO BE THE BOTTOM (-Z) CORNER, and the argument was the cable: the
+# bundle leaves the board's bottom edge, a tugged cable is the only real -X load
+# this board sees, and the screw belongs nearest the load. That still holds as
+# physics. What changed is that the bottom edge is now ALL field wiring. Every
+# connector lands there -- the housing faces that edge down on purpose -- and J5
+# has to join them, which needs the whole 95 mm: the terminal bodies are 76.70 mm
+# and a mounting hole at that corner cuts the usable span from 91.00 to about
+# 80.5. Three or four millimetres of slack across five screw terminals is not a
+# margin, it is a coincidence waiting to fail.
+#
+# SO THE TRADE, STATED PLAINLY: a hard pull on the cable bundle is now resisted
+# at the bottom end by the two Z stops and the laminate's own stiffness, not by a
+# fastener. The screw is 100 mm away at the other end of the same edge. That is
+# weaker than it was, and it is the price of putting every wire on one face.
 SCREW_HOLE = (0, 1)        # (index among _hole_points(): min y, min z)
 
 
 def _screw_hole_point():
-    """The one mounting hole that gets a screw: lowest y, lowest z."""
-    return min(_hole_points(), key=lambda p: (p[0], p[1]))
+    """The one DRILLED hole, which is the one that gets the screw.
+
+    The board drills exactly one hole now (elec/main.py HOLES) and publishes the
+    other three mounting points as SUPPORTS -- pads, not holes. So this is no
+    longer a choice among four; the assert says so, because a board that came
+    back with two drilled holes would otherwise silently take the lower one.
+    """
+    pts = _hole_points()
+    assert len(pts) == 1, (
+        "the board drills %d holes but the housing fits one M4: %s" % (len(pts), pts))
+    return pts[0]
 
 
 def pcb_screws():
@@ -701,7 +755,8 @@ _check_dock_orientation()
 # and a single screw does the fourth.
 #
 #   -X (off its standoffs)  the +Y LIP, and the one screw at the far corner
-#   +X (into the floor)     the four standoff bosses
+#   +X (into the floor)     four standoff bosses -- one under the drilled
+#                           hole, three under support pads
 #   +-Y                     the cavity walls, sized off the posed board
 #   +-Z                     four Z STOPS on the floor, at the laminate's edges
 #
@@ -823,8 +878,10 @@ def housing() -> cq.Workplane:
     inner = _slab(FLOOR_X + BOOL_OVERSHOOT, WALL_X - BOOL_OVERSHOOT,
                   Y_PCB0, Y_PCB1, BAY_Z0 + WALL, BAY_Z1 - WALL)
     h = h.union(outer.cut(inner))
-    # standoff bosses under the board's own holes
-    for hy, hz in _hole_points():
+    # standoff bosses under every mounting point -- the one drilled hole and the
+    # three support pads. Three of these never had a bore or an insert even when
+    # the board drilled four holes, so losing those holes loses no support.
+    for hy, hz in _support_points():
         h = h.union(cq.Workplane("YZ").workplane(offset=BOARD_X0)
                     .center(hy, hz).circle(BOSS_D / 2.0).extrude(STANDOFF))
     # the board's own retention: a hooked lip on the +Y wall and four Z stops
