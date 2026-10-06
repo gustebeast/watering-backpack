@@ -89,8 +89,14 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 3. Tubing & plumbing  *(🎒)*
 
-- [ ] 🎒 **Two tees — barb × barb × 1/2"-14 MNPT, 1/2" barbs — DECIDED
-  2026-10-05, NOT YET SOURCED.** §1's anti-parallel arrangement has needed them
+- [ ] 🎒 **Two tees — Avidity Science 1610-2845-011, $1.80 ea — SOURCED
+  2026-10-05.** barb × barb × 1/2" MPT, plastic, in stock —
+  https://www.avidityscience.com/fitting-barbed-tee-adapter-1-2-barb-x-1-2-barb-x-1-2-male-pipe-thread-plastic-1610-2845-011
+  ✅ **The barbs are for 1/2" ID tubing**, confirmed off the product page, which is
+  the one thing that had to be checked: irrigation-aisle "1/2 inch" barbs are sized
+  for 0.600" ID poly and would have been 2.5 mm oversize on 1/2" vinyl. Plastic, so
+  the male leg threads into the strainer's plastic FNPT without the brass-into-plastic
+  problem §2 ran into. Buy **2**. §1's anti-parallel arrangement has needed them
   since it was chosen; `src/plumbing.py` models both (`TANK_TEE` at x +73,
   `GREEN_TEE` at x −73) and `check_plumbing.py` routes six hoses through them — and
   this list had never carried either one. No CAD gate could catch that: a tee is a
@@ -164,7 +170,23 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 4. Sensing & UI  *(🎒)*
 
-- [ ] 🎒 **XKC-Y25-V (or similar) non-contact capacitive liquid level sensor — qty 1**
+- [ ] 🎒 **XKC-Y25 non-contact capacitive liquid level sensor — qty 1.**
+  ⚠ **THE VARIANT IS LOAD-BEARING AND THIS LINE USED TO NAME THE WRONG ONE.** It
+  said "XKC-Y25-V (or similar)"; "or similar" is wrong three ways and -V may be wrong
+  too. The board feeds this sensor from **VBAT behind F1 (~15–20 V)** and reads it on
+  **IO14 with R23, a 10k pull-up to 3V3** — which only keeps 18 V off the pin if the
+  output is a true **NPN open collector**. So:
+  - **5–24 V input.** Several listings are **5–12 V** sub-variants; 18 V kills those.
+  - **NPN open-collector output.** Not PNP (sources the supply into the pin), not
+    RS485 (no driver on this board), and **not necessarily -V**: the vendor describes
+    the -V's HIGH output as "5-24V", i.e. supply-referenced — see
+    WORK_V2_PUNCHLIST finding 17 before landing a wire on J5.
+  - **4 wires preferred** (V+, GND, OUT, MODE). J5 is a 4-way and `elec/main.py`
+    ties MODE to GND to select normally-closed, which is what the firmware's
+    `LEVEL_FULL_IS_LOW` encodes. A 3-wire part fixes the polarity in the part number
+    instead, and then the firmware constant has to match it.
+  Links (US): https://www.amazon.com/5V-24V-Non-Contact-Sensor-Detection-XKC-Y25/dp/B0H13BXYG3
+  · https://www.amazon.com/clp/B074PVF341 · https://www.newegg.com/p/1W7-00WA-021C6
   - Clamps to the **outside** of the tank wall; nothing penetrates the tank and nothing
     touches the water, which sidesteps the 44 mm opening entirely.
   - Power **directly from the battery rail** (5–24 V spec covers the pack's 18–20 V) —
@@ -271,7 +293,9 @@ Exact part numbers to be fixed at layout; this is the functional list.
 - 6-pin programming header with DTR/RTS. **No USB-C** — a connector is a water-ingress
   path outdoors, and OTA covers everything after bring-up.
 - Connectors: **push-in terminal blocks, not JST** — 5.08 mm for battery and each
-  pump (7.5 A), 3.5 mm for joystick (5-pos) and level sensor (4-pos). Every one of
+  pump (7.5 A), and 5.08 mm for the joystick (5-pos) and level sensor (4-pos) too —
+  this used to say 3.5 mm for those two and the next sentence has always
+  contradicted it; the board is 5.08 on all five. Every one of
   these is landed once at assembly, so JST's plug/unplug advantage doesn't apply,
   and a terminal is ONE part with no mating half to stock (PCB_README §3 warns that
   a joint where you supply both halves is where the catalogue is worst).
@@ -348,7 +372,7 @@ src.build` exports them all and prints the sizes against the 255 mm bed.
 |---|---|---|
 | `v2_housing` | 151 cm³ | battery mount + PCB case, one piece — the bay grew 12 mm in Z with the board (F2, the on-board blade fuse) |
 | `v2_housing_lid` | 66 cm³ | shoebox cover: 28.0 mm skirt on all four bay walls (F2 is the tallest part now, 21.6 mm, and SKIRT_D is derived from it), 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
-| `joystick_mount` | 7 cm³ | mounts on the shoulder strap |
+| `joystick_mount` | 7 cm³ | mounts on the shoulder strap. ✅ **ALREADY PRINTED AND ASSEMBLED** — owned as a finished part (owner, 2026-10-05), so neither it nor its five M2 fasteners is anything to buy. It stays in `printed_parts()` because the gates should keep measuring it; ~8.6 g of the filament figure below is already spent. |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
 
 `joystick_mount` and `dual_clamp_19` attach to things this model does not draw —

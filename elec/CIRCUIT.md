@@ -205,7 +205,10 @@ check in this repo would pass.
   Active, not passive: it needs DC, not a driven waveform. Not a speaker: that
   needs an amplifier.
   Filling happens with the **pump off** and the user standing at the tank, so it
-  does not have to out-shout anything; ~85 dB is ample. Sound port faces **down**
+  does not have to out-shout anything; the fitted part's **80 dB at 10 cm** is ample.
+  (This said "~85 dB" against a part rated 80 — the conclusion survives, the figure
+  was not the one on the BOM. 80 dB at 10 cm is ~60 dB at a metre, and it is a
+  2.7 kHz tone, which is where hearing is most sensitive.) Sound port faces **down**
   (it is also a water path).
 
 ## 6. Protection
