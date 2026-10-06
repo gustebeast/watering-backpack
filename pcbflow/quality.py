@@ -72,6 +72,9 @@ HINT = {
            "order really uses another fab or a costlier option, state its numbers in "
            "quality.fab with where they were read",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
+    "A13": "if the board is wrong, fix the generator (look for an index left over from "
+           "another loop); if the declaration is, correct quality.unconnected / "
+           "quality.net_groups to what the design MEANS, never to what was built",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
           "page in quality.pinouts -- by ref, value or footprint",
@@ -91,6 +94,7 @@ HARD = {
     "A10": ("cannot read the value",),
     "A11": ("",),
     "A12": ("ring", "hole", "track width", "pad gap"),
+    "A13": ("",),
 }
 
 
@@ -1193,6 +1197,147 @@ def fab_capability(ctx):
           fab["silk_height"], "smallest silk text")
     worst("silk text stroke", [(MM(t.GetTextThickness()), "'%s'" % n) for t, n in texts],
           fab["silk_stroke"], "thinnest silk stroke")
+    return out
+
+
+# ── A13: every pin and every channel is accounted for ────────────────────────────────
+# A netlist that is wrong but internally consistent routes clean and passes DRC: two
+# channels wired to the same four driver outputs are simply fewer nets. The only thing
+# that can see it is the number the DESIGN means, written down beside the board.
+def _expand(ctx, pattern):
+    """Pads ("REF.PIN") matching one fnmatch pattern over REF.PIN."""
+    import fnmatch
+    return sorted(k for k in ctx.pads if k.split(".")[-1] and fnmatch.fnmatchcase(k, pattern))
+
+
+def _unconnected(ctx):
+    """{"REF.PIN"} for every numbered pad of a part with three or more pin numbers that
+    has no net, or sits alone on its net."""
+    out = set()
+    for ref, fp in ctx.fps.items():
+        nums = {}
+        for pad in fp.Pads():
+            if pad.GetNumber():
+                nums.setdefault(pad.GetNumber(), []).append(pad)
+        if len(nums) < 3:
+            continue
+        for num, pads in nums.items():
+            nets = {q.GetNetname() for q in pads} - {""}
+            if not nets or all((r, n) == (ref, num) for x in nets
+                               for r, n, _p in ctx.by_net[x]):
+                out.add("%s.%s" % (ref, num))
+    return out
+
+
+def _nat(s):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", s)]
+
+
+@rule("A13")
+def accounted_for(ctx):
+    out = []
+    # 1. unconnected pins: the board's against the declaration, both ways
+    actual = _unconnected(ctx)
+    declared, why = set(), {}
+    for key, val in (ctx.q.get("unconnected", {}) or {}).items():
+        if isinstance(val, dict):
+            pins = val.get("pins", "")
+            pins = pins.split() if isinstance(pins, str) else [str(x) for x in pins]
+            reason = val.get("why", "")
+            refs = sorted({k.rsplit(".", 1)[0] for k in _expand(ctx, key + ".*")}) or [key]
+            hits = ["%s.%s" % (r, n) for r in refs for n in pins]
+            missing = [h for h in hits if h not in ctx.pads]
+            if missing:
+                out.append((key, False, "quality.unconnected names %s, which the board "
+                                        "does not have" % ", ".join(missing[:6])))
+            hits = [h for h in hits if h in ctx.pads]
+        else:
+            reason = val
+            hits = _expand(ctx, key)
+            if not hits:
+                out.append((key, False, "quality.unconnected has %r, which matches no pin "
+                                        "on the board: a stale declaration" % key))
+        if not str(reason).strip():
+            out.append((key, False, "quality.unconnected[%r] gives no reason" % key))
+        for h in hits:
+            declared.add(h)
+            why[h] = reason
+    for ref in sorted({k.rsplit(".", 1)[0] for k in actual - declared}, key=_nat):
+        pins = sorted((k.rsplit(".", 1)[1] for k in actual - declared
+                       if k.rsplit(".", 1)[0] == ref), key=_nat)
+        out.append((ref, False, "%s (%s): pin(s) %s connect to nothing and are not declared "
+                                "in quality.unconnected -- an idle pin on a part that was "
+                                "meant to be full is how a mis-indexed loop shows"
+                    % (ref, ctx.fps[ref].GetValue(), " ".join(pins))))
+    for k in sorted(declared - actual, key=_nat):
+        pad = ctx.pads[k]
+        out.append((k, False, "%s is declared unconnected and is on net %s"
+                    % (k, pad.GetNetname() or "(none)")))
+    if not (actual - declared) and not (declared - actual):
+        out.append(("unconnected", True, "%d unconnected pin(s), every one declared"
+                    % len(actual)))
+    # 2. functional groups: how many nets the design means, and how many pins on each
+    groups = ctx.q.get("net_groups")
+    if groups is None:
+        out.append((ctx.name, False,
+                    "%s declares no net_groups: say, for each repeated structure "
+                    "(channels, zones, sensors, ways of a connector), how many distinct "
+                    "nets its pins are on -- or [] with nothing repeated" % ctx.name))
+        return out
+    for g in groups:
+        name = g.get("name", "?")
+        if g.get("nets_like"):
+            rx = re.compile(g["nets_like"])
+            hit = sorted((n for n in ctx.by_net if rx.fullmatch(n)), key=_nat)
+            problems = []
+            if g.get("count") is not None and len(hit) != g["count"]:
+                problems.append("%d net(s) named like %s where %d are meant"
+                                % (len(hit), g["nets_like"], g["count"]))
+            if g.get("pads") is not None:
+                bad = [n for n in hit if len(ctx.by_net[n]) != g["pads"]]
+                if bad:
+                    problems.append("meant %d pads on each; %s" % (g["pads"], ", ".join(
+                        "%s has %d" % (n, len(ctx.by_net[n])) for n in bad[:6])))
+            if problems:
+                out.append((name, False, "net group %r: %s" % (name, "; ".join(problems))))
+            else:
+                out.append((name, True, "net group %r: %d net(s)" % (name, len(hit))))
+            continue
+        pats = g.get("pins", [])
+        pats = [pats] if isinstance(pats, str) else list(pats)
+        pads = sorted({k for pat in pats for k in _expand(ctx, pat)}, key=_nat)
+        if not pads:
+            out.append((name, False, "net group %r: %s matches no pin" % (name, pats)))
+            continue
+        nets = collections.Counter()
+        loose = []
+        for k in pads:
+            n = ctx.pads[k].GetNetname()
+            if n:
+                nets[n] += 1
+            else:
+                loose.append(k)
+        problems = []
+        if loose:
+            problems.append("%s on no net" % ", ".join(loose[:6]))
+        want = g.get("nets")
+        if want is not None and len(nets) != want:
+            problems.append("%d distinct net(s) where %d are meant" % (len(nets), want))
+        each = g.get("each")
+        if each is not None:
+            bad = sorted((n for n, c in nets.items() if c != each), key=_nat)
+            if bad:
+                problems.append("meant %d of these pins per net; %s"
+                                % (each, ", ".join("%s has %d" % (n, nets[n]) for n in bad[:6])))
+        if g.get("pins_count") is not None and len(pads) != g["pins_count"]:
+            problems.append("%d pin(s) match where %d are meant" % (len(pads), g["pins_count"]))
+        if problems:
+            out.append((name, False, "net group %r (%d pins): %s"
+                        % (name, len(pads), "; ".join(problems))))
+        else:
+            out.append((name, True, "net group %r: %d pin(s) on %d net(s)%s"
+                        % (name, len(pads), len(nets),
+                           ", %d per net" % each if each is not None else "")))
     return out
 
 
