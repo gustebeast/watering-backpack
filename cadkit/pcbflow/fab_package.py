@@ -356,11 +356,10 @@ def fab(board):
         csv.writer(g).writerows(rows)
 
     # ---- BOM, grouped by (value, footprint) the way JLCPCB reads it ----
-<<<<<<< HEAD
-    groups, open_real, open_generic, n_lines = {}, set(), set(), 0
-=======
-    groups, open_real, open_generic, uncoded = {}, set(), set(), []
->>>>>>> 81070f2cb91233796321fcedffdbfc9d03e8ee7f
+    # MERGE: both sides added a name and the body below uses BOTH -- upstream's
+    # `uncoded` list and this repo's `n_lines` counter. Taking either hunk whole
+    # would have raised NameError on the first board with an uncoded value.
+    groups, open_real, open_generic, n_lines, uncoded = {}, set(), set(), 0, []
     for ref, val, fp in _parts(stem):
         groups.setdefault((val, fp), []).append(ref)
     bom = os.path.join(d, "%s-bom.csv" % board)
@@ -376,15 +375,11 @@ def fab(board):
             # attribute never reaches it.
             if COPPER_ONLY.search(fp.split(":", 1)[0]):
                 continue
-<<<<<<< HEAD
             # Counted here and not as len(groups), which includes the copper-only
             # group just skipped: the ten test pads made the run report 30 BOM
             # lines for a 29-line BOM.
             n_lines += 1
-            code = LCSC.get(val, "")
-=======
-            code = code_for(val, fp)
->>>>>>> 81070f2cb91233796321fcedffdbfc9d03e8ee7f
+            code = code_for(val, fp)      # upstream's lookup; was LCSC.get(val, "")
             if not code:
                 uncoded.append((val, fp.split(":", 1)[1], sorted(refs)))
                 generic = bool(GENERIC.search(fp.split(":", 1)[1]) or GENERIC.search(fp))
@@ -492,14 +487,14 @@ def fab(board):
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for fn in sorted(os.listdir(d)):
             zf.write(os.path.join(d, fn), fn)
-<<<<<<< HEAD
-    return n, n_lines, sorted(open_real), sorted(open_generic), z, opts or {}
-=======
     if unchecked:
         print("  %s: %d placement(s) NOT fitted to the fab's footprint -- see "
               "ROTATION-CHECK.txt" % (board, len(unchecked)))
-    return n, len(groups), sorted(open_real), sorted(open_generic), z, opts or {}
->>>>>>> a62da5047a7bdbb51a823da9c4b82e5febf86b34
+    # n_lines, NOT len(groups): upstream reverted this and it is a real count bug,
+    # not a preference. len(groups) includes the copper-only group (the ten test
+    # pads), which reported 30 BOM lines for a 29-line BOM -- a number that goes
+    # on the order form.
+    return n, n_lines, sorted(open_real), sorted(open_generic), z, opts or {}
 
 
 def _check_gerbers(gdir, notes, board, pcb):
