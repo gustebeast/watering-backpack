@@ -804,3 +804,72 @@ OPEN and parts are being bought around it.** Doing it means re-routing a board t
 currently passes everything. Not doing it means a 92 mm four-conductor run across the
 face of the board inside a sealed box, on the one circuit whose whole protection
 story (F1, the PTC) is about that lead being the exposed one.
+
+---
+
+## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
+
+**Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full
+line items in [docs/jlcpcb-quote.md](docs/jlcpcb-quote.md)). The board priced at
+**$193.64 for 5** — $38.73 each, assembled.
+
+The upload itself validated cleanly and that is worth saying first: 2 layers, 112 x 95
+mm, and **34 of 34 BOM rows matched the code we gave**, none guessed by the fab's
+matcher. That is the `REQUIRE_CODES` gate paying for itself the day after it was fed.
+
+**U2, the ESP32-WROOM-32E (C701342), is flagged "Standard Only".** JLCPCB will not
+place it on Economic assembly, and the form will not let the project advance until
+either the part is deselected or the whole board moves to Standard. Standard then
+charges, in the quote's own lines:
+
+| | Standard | Economic |
+|---|---|---|
+| Setup fee | **$25.75** | ~$8.24 (measured on the pedal steel project) |
+| Feeders Loading | **$43.40** | *this line does not exist* |
+| X-Ray Inspection | **$8.25** | — |
+| Components, same BOM | **$88.11** | ~$68 (Standard buys in bigger multiples) |
+| Board outline | **105 x 112** (two 5 mm rails added) | 95 x 112 |
+
+**Accepted, not fixed, and measured rather than lumped:** about $69 of the total is
+attributable to that one part. The alternative is Economic plus hand-soldering a
+25.5 x 18 mm castellated module five times, and assembled boards were the point.
+`ORDER.txt` already said "whichever of Economic / Standard lists all the sourced SMT
+parts", so the tier was anticipated — what was not anticipated is the size of it.
+
+**The one real saving this surfaced is the opposite of the obvious one.** Feeders cost
+about **$1.28 per distinct part number**, so BOM LINES are the cost driver, not parts.
+R2's 29k4 is the only Extended passive and looked like an easy win; replacing it with
+an all-Basic 51k/15k divider would make the BOM one line LONGER and cost about $1.28
+plus a re-route to save $0.00. **Do not do it.** Recorded beside the part in
+`elec/fab.py` so it is not re-derived.
+
+**And the via question is closed.** The suspicion was a 0.25 mm via surcharge. The
+board's 86 vias are already 0.6 mm on a 0.3 mm drill, and the quote says
+`Via Covering $0.00`. Nothing to recover.
+
+## 23. The edge rails will arrive attached unless the order says otherwise
+
+**Open, and it is an order-form action rather than a design change.** Standard PCBA
+pads the outline to **105 x 112 mm by adding two 5 mm rails on the 95 mm sides** — the
+form states this itself. The housing bay is cut for a 95 mm board.
+
+**"Depanel boards & edge rail before delivery" is under Advanced Options and is not
+currently in `ORDER.txt`.** If it is missed, five boards arrive 10 mm too wide for the
+bay they were designed into, and trimming a rail off a finished assembled board by hand
+is how an edge trace gets cut.
+
+## 24. Every orientation-critical part is unmeasured, and a render is the only evidence
+
+**Open.** `ROTATION-CHECK.txt` lists **24 parts under "NOT CORRECTED ... not measured:
+run the project's fab.py --frames"** — every connector (J1-J6), both electrolytics,
+all six diodes, both TO-252 MOSFETs, both TO-263 Schottkys, the fuse holder, the
+buzzer, and both ICs. Nothing has been fitted to the fab's own footprint frames.
+
+The placement preview was looked at, which is what `ORDER.txt` demands, and nothing was
+visibly wrong: C1 and C2 both show `+` on the same side as each other and as the silk,
+the terminal rows sit on their pads, U2's antenna leaves the laminate. **But a person
+looking at a render is a weaker check than a pad fit**, and this is the failure mode
+that the pedal steel project calls "the classic way to lose a JLCPCB assembly run".
+
+`fab_frames.derive` needs network access to the EasyEDA library and has not been run
+for this project's parts. It should be, before paying.
