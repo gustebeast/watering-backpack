@@ -305,7 +305,7 @@ class Boards:
     def silk_boxes(self, board: str, side: str = "F"):
         """[(x0, x1, y0, y1)] of every board-level label on that side, in solid()'s frame."""
         return [tuple(lab["box"]) for lab in self.load(board).get("silk", [])
-                if lab["side"] == side]
+                if lab["side"] == side and lab.get("kind") != "ref"]
 
     # ── where things are ─────────────────────────────────────────────────────────
     def mouth(self, board: str, ref: str) -> dict:
@@ -405,16 +405,22 @@ class Boards:
             raise KeyError("%s has none of %s" % (board, sorted(want)[:6]))
         return out
 
-    def silk(self, board: str, side: str = "F"):
+    def silk(self, board: str, side: str = "F", refs: bool = True):
         """The board's own lettering as ONE part, in solid()'s frame -- separate, so a
         viewer can colour it ink-white against the mask and hide it. Read from the routed
         board, so it cannot say something the fab's ink does not. None where the board
-        has no lettering on that side."""
+        has no lettering on that side.
+
+        `refs=False` leaves out the footprints' own designators (the entries the exporter
+        marks "kind": "ref") and keeps the board-level text: a board with a designator
+        beside every passive is a few hundred small text solids, which a large assembly
+        may not want to carry. Designators laid by kicad_silk's `silk_refs` are
+        board-level text and always drawn."""
         g = self.load(board)
         t = g["thickness_mm"]
         out = []
         for lab in g.get("silk", []):
-            if lab["side"] != side:
+            if lab["side"] != side or (not refs and lab.get("kind") == "ref"):
                 continue
             lines = lab["text"].split("\n")
             pitch = lab["size"] * 1.62                     # KiCad's line spacing
