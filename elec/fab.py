@@ -207,6 +207,125 @@ LCSC = {
                                     # A first pass that omitted the source branch said
                                     # 2.1x OVER and was wrong; it is recorded because
                                     # the omission is the easy mistake to repeat.
+
+    # -- THE GENERIC PASSIVES, sourced 2026-10-06 -----------------------------
+    # These sixteen lines used to be blank on purpose: a 0603 100k was treated as
+    # something the fab picks at order time. cadkit's fab_package now requires a
+    # code for EVERY BOM row (REQUIRE_CODES), and the reason is specific rather
+    # than tidy-minded -- a blank LCSC field is filled by JLCPCB's own matcher
+    # from the footprint TEXT, which has turned an 0402 into an 01005 that
+    # Economic assembly then placed zero of, silently. So the sixteen are read
+    # off the parts library like any other part.
+    #
+    # ⚠ AND THIS IS WHAT THE REPO ALREADY KNEW IT NEEDED. The note under
+    # OPEN_VALUES below ends "reading the generic list by eye before an order is
+    # the only thing that has ever caught these -- four times out of four". That
+    # eye-read is now a gate. Nothing on this board was wrong when the gate
+    # arrived, but the two lines carrying a ⚠ here are both things only reading
+    # the parts library turned up.
+    #
+    # They are keyed by (value, land). The plain-string keys above still work --
+    # code_for tries the tuple first and falls back -- but new entries are tuples.
+    #
+    # Stock and price are from 2026-10-06 and are a snapshot, not a promise.
+    # LIBRARY TYPE is the one that costs money: a Basic part comes off a feeder
+    # JLCPCB already has mounted, an Extended part is a per-part-number setup fee
+    # on Economic assembly. Fifteen of these sixteen are Basic.
+    ("100k",     "R_0603_1608Metric"): "C25803",   # Basic. UNI-ROYAL 0603WAF1003T5E,
+                                    # 1%, 100ppm, 22.0M in stock, $0.0031.
+                                    # R1/R6/R7/R20.
+    ("10k",      "R_0603_1608Metric"): "C25804",   # Basic. 0603WAF1002T5E, 1%,
+                                    # 29.5M, $0.0018. R3 (EN pull-up), R23 (the
+                                    # level sensor's pull-up).
+    ("1k",       "R_0603_1608Metric"): "C21190",   # Basic. 0603WAF1001T5E, 1%,
+                                    # 21.3M, $0.0026. R22/R24/R25.
+    ("18k",      "R_0603_1608Metric"): "C25810",   # Basic. 0603WAF1802T5E, 1%,
+                                    # 820k, $0.0040. R21, the VBAT divider bottom.
+    ("10R",      "R_0603_1608Metric"): "C22859",   # Basic. 0603WAF100JT5E, 1% but
+                                    # ±400ppm/C, 7.9M, $0.0032. R4/R5 are gate
+                                    # resistors -- they set a slew rate, not a
+                                    # ratio -- so the loose tempco is what a Basic
+                                    # feeder costs here, not a compromise.
+    ("49k9",     "R_0603_1608Metric"): "C23184",   # Basic. 0603WAF4992T5E, 1%,
+                                    # 100ppm, 1.78M, $0.0029. R8 sets the buck's
+                                    # 500 kHz off the datasheet's RT table, so the
+                                    # 1% and the 100ppm are both doing work.
+    ("29k4",     "R_0603_1608Metric"): "C22974",   # ⚠ EXTENDED -- the only one among
+                                    # this board's passives. UNI-ROYAL
+                                    # 0603WAF2942T5E, 1%, 100ppm, 81.5k in stock,
+                                    # $0.0020. The PART is two tenths of a cent;
+                                    # the LIBRARY TYPE is what costs. 29k4 is E96,
+                                    # and nothing near it is stocked Basic, because
+                                    # R2 is the buck's feedback bottom leg and
+                                    # 0.75 x (1 + 100/29.4) is what puts the rail
+                                    # at 3.300 V.
+                                    #
+                                    # There IS an all-Basic escape, and it is
+                                    # written down rather than taken: 51k/15k and
+                                    # 68k/20k are both E24 pairs, both give a ratio
+                                    # of exactly 3.4, and both land on 3.300 V to
+                                    # the same three figures. Either one means
+                                    # re-routing to change one resistor, and trades
+                                    # one Extended line for two new Basic ones
+                                    # (100k stays for R6/R7/R20), so the BOM gets
+                                    # LONGER by a line. Whether that is worth it
+                                    # depends on the extended-part fee the quote
+                                    # actually charges, which is a measurement and
+                                    # not a guess -- docs/jlcpcb-quote.md.
+    ("1k5",      "R_0805_2012Metric"): "C4310",    # Basic. 0805W8F1501T5E, 1%,
+                                    # 100ppm, 750k, $0.0035. R9 is 0805 for the
+                                    # dissipation, not for the tolerance.
+    ("100n/50V", "C_0603_1608Metric"): "C14663",   # Basic. CC0603KRX7R9BB104,
+                                    # 100nF 50V X7R ±10%, 62.7M, $0.0123. X7R is
+                                    # what is stocked Basic at this value, and it
+                                    # is also what decoupling wants.
+    ("10n",      "C_0603_1608Metric"): "C57112",   # Basic. 0603B103K500NT, 10nF
+                                    # 50V X7R ±10%, 6.6M, $0.0108. C14 is the
+                                    # buck's soft-start and the 2.5 ms ramp IS its
+                                    # capacitance, so 50 V of rating on a 3.3 V
+                                    # node is the point: the DC-bias loss that
+                                    # would move that ramp is negligible there.
+    ("1u",       "C_0603_1608Metric"): "C15849",   # Basic. CL10A105KB8NNNC, 1uF
+                                    # 50V X5R ±10%, 7.1M, $0.0144. C8, the EN RC.
+    ("10u/25V",  "C_0805_2012Metric"): "C15850",   # Basic. CL21A106KAYNNNE, 10uF
+                                    # 25V X5R ±10%, 4.8M, $0.0651. C5/C6/C13/C16:
+                                    # +3V3 bulk, MCU bulk, VGATE and the joystick
+                                    # rail. The highest node is VGATE at 10 V,
+                                    # which is the 2.5x that CAP_VGATE's comment in
+                                    # main.py chose the value string for.
+    ("10u/50V",  "C_1206_3216Metric"): "C13585",   # Basic. CL31A106KBHNNNE, 10uF
+                                    # 50V X5R ±10%, 2.4M, $0.2655 -- the dearest
+                                    # passive here by 4x, and there are four
+                                    # (C17/C18/C20/C21). They sit on VBAT at 20 V,
+                                    # 40% of rating, where a 1206 X5R keeps roughly
+                                    # half its marked value. That is the known cost
+                                    # of a ceramic on a 20 V rail, and it is why
+                                    # the 100u/50V electrolytics above are the ones
+                                    # carrying the ripple.
+    ("22u/16V",  "C_1206_3216Metric"): "C12891",   # ⚠ THE PART IS 25 V AND THE
+                                    # VALUE STRING SAYS 16. Basic CL31A226KAHNNNE,
+                                    # 22uF 25V X5R ±10%, 726k, $0.1733. No 16 V
+                                    # 1206 22uF is stocked Basic. 25 V is a
+                                    # SUPERSET of the requirement, so this
+                                    # over-satisfies it rather than bending it, and
+                                    # on a 3.3 V rail (C4/C19 are the buck's output
+                                    # caps) 25 V is 7.6x, so it also keeps more of
+                                    # its capacitance than the 16 V part would. The
+                                    # value string stays at 16V because that is the
+                                    # REQUIREMENT; this line is where the part beats
+                                    # it. A later reader comparing the two should
+                                    # not "fix" the string.
+    ("4u7/50V",  "C_1206_3216Metric"): "C29823",   # Basic. 1206B475K500NT, 4.7uF
+                                    # 50V X7R ±10%, 574k, $0.1671. C15 is the
+                                    # buck's INPUT cap and carries the switching
+                                    # ripple, so X7R over X5R matters here more
+                                    # than anywhere else on the board.
+    ("1N4148W",  "D_SOD-123"):        "C81598",    # Basic. 1N4148W, 75 V, 150 mA,
+                                    # 4 ns, 5.1M, $0.0123. D4 is the buzzer's
+                                    # flyback clamp. The value is already a part
+                                    # number, so this entry is only pinning the land
+                                    # -- which is exactly the case the note under
+                                    # OPEN_VALUES warns D_SOD can get wrong.
 }
 
 # Values that are placed but not yet sourced. A value that is neither in LCSC, nor a
