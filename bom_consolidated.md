@@ -546,6 +546,10 @@ There is one bore now.*
   - Driven via transistor: GPIO →[1kΩ]→ 2N3904 base; emitter→GND; collector→SSR ctrl(−); ctrl(+)→+5V.
 - [x] 🐱 **Interlink FSR 406** — DK# 1027-1002-ND, MPN 30-73258, $10.08
 - [x] 🐱 **2N3904**, **10 kΩ**, **1 kΩ** resistors — $0.34 total
+  - 🎒 **The backpack now needs one of each too, and they are already here.** The
+    level sensor drives its output to VBAT, so an NPN inverter goes in its lead to
+    keep 18 V off IO14 — **2N3904 + 10 kΩ**, nothing bought. §4's sensor entry and
+    WORK_V2_PUNCHLIST finding 17.
 
 ---
 
