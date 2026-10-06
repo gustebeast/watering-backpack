@@ -540,59 +540,71 @@ If the number comes back near 100 mm, the fix is to teach the checker about inli
 fittings rather than to eyeball it; if it comes back at 60 or 70, the honest thing is
 still to record the figure here so the next person does not re-derive it.
 
-### 17 — the level sensor's output type is an 18 V question, and the BOM named the part loosely
+### 17 — the level sensor drives its output to the SUPPLY, and the board assumed otherwise
 
-Found while sourcing a US link for the sensor, which is the only reason it surfaced:
-nothing in the repo reads a vendor page, so nothing here could have caught it.
+Found while sourcing a US link, which is the only reason it surfaced: nothing in this
+repo reads a vendor page, so no gate here could have caught it.
 
-**What the board does.** `elec/main.py` feeds J5's V+ from **VBAT behind F1**, so the
-sensor runs at the pack voltage, ~15–20 V. It reads the output on **IO14** with
-**R23, a 10k pull-up to 3V3**, and the comment beside R23 says exactly what that
-rests on:
+**What the board assumes.** `elec/main.py` feeds J5's V+ from **VBAT behind F1** — the
+pack, 15 to 20 V — and reads the output on **IO14** through **R23, a 10k pull-up to
+3V3**. R23's comment says what that rests on:
 
 > *"Level sensor: runs at VBAT and its output is OPEN-COLLECTOR, so this pull-up to
 > 3V3 is what keeps 18 V out of the GPIO. Push-pull mode would destroy it."*
 
-`elec/CIRCUIT.md` §7 says the same and calls it load-bearing: *"an open-collector
-output only ever pulls down, so the GPIO sees a safe level with no divider.
-Configured push-pull it would put 18 V into a pin."* That is a correct argument.
+`CIRCUIT.md` §7 makes the same argument and calls it load-bearing. The argument is
+sound. **The premise is false.**
 
-**What the vendor says about the part the BOM named.** The BOM asked for
-"XKC-Y25-**V** (or similar)". Trumsense's own page for the **-V** lists four wires
-(brown VCC, yellow OUT, black M, blue GND — which matches J5's four ways exactly)
-and then gives the output as:
+**What the parts actually specify.** Two pages, read 2026-10-05:
 
-> HIGH output: **"5-24V"**, i.e. referenced to the supply.
+| source | input voltage | output HIGH |
+|---|---|---|
+| Amazon B074PVF341, titled "XKC-Y25-**NPN** … DC **5-24V**" | its own spec table says **DC 5~12V** | **"InVCC"** |
+| Trumsense, manufacturer page for the **-V** | **DC 5-24V** | **"5-24V"** |
 
-With the black wire tied LOW — which is what this board does — the same page says
-yellow becomes the *"negative output signal wire"* and goes *"low level when the
-object is sensed (NPN disconnect)"*. That phrasing reads like an open collector
-sinking to GND, which would be safe. But it is a reading, not a specification, and
-if the part has an internal pull-up to Vcc then "open collector" and "18 V on the
-line" are both true at once, and R23 loses to it.
+Both say the HIGH level is the **supply rail**. So "NPN" on these modules does not mean
+a bare open collector reaching the pin — there is an internal pull-up to Vcc, and R23
+loses to it. **At 18 V of supply, IO14 sees 18 V.** That is the destructive case
+CIRCUIT.md names, and it is the default behaviour of the whole family, not a
+mis-configuration.
 
-**So the design's one safety argument for this input depends on a property of a
-bought part that nobody has confirmed.** No gate can close this: every gate here
-reads the board, and this lives in a vendor's web page.
+And the listing titled 5-24V contradicts itself in its own specification table at
+5~12V — which would have been destroyed by this board's supply even if the output had
+been safe. **Two independent disqualifications in one listing.** A second listing
+(B0GZ257F8T, "XKC-Y25-NPN-24V") is $44.68 with zero reviews and a 2-to-3-week ship,
+and is not worth the risk premium.
 
-**Three things follow, in order of how cheap they are:**
+**THE FIX, and it is two components in the sensor lead.** An NPN inverter makes the
+sensor look like exactly what the board was designed for:
 
-1. **Buy the variant that is unambiguous.** The **XKC-Y25-NPN** is an open-collector
-   part by name, which is what the circuit was designed around. Same family, same
-   price, usually the same listing's dropdown. ALSO: several listings are **5–12 V**
-   sub-variants — 18 V destroys those, and the dropdown is where that choice hides.
-2. **Measure before landing the wire on J5.** Power the sensor from a bench supply at
-   18 V with MODE at GND, and put a meter on the yellow wire with nothing else
-   attached. Dry and wet. If either state reads above ~4 V with no pull-up, the
-   output is not an open collector and it must not touch IO14 bare.
-3. **If it fails that test the fix is in the wiring, not the board.** Two resistors
-   at the sensor end make a divider; R23 stays and just loads it slightly. The board
-   does not have to change and does not have to be re-ordered — which is the reason
-   this is a finding and not a blocker on the fab order.
+    sensor yellow (OUT) ─├ 22k ──── B
+                               NPN (MMBT3904 / 2N3904, both already on this BOM)
+    J5 OUT ───────────────── C          E ──── GND
 
-⚠ **A 3-wire NPN part is acceptable but moves the polarity.** J5's MODE position is
-tied to GND on the board to select normally-closed, and the firmware encodes that in
-`LEVEL_FULL_IS_LOW` (`firmware/src/main.cpp`). A 3-wire part fixes NO/NC in the part
-number instead, so whichever it is, that constant has to be checked against it.
-`tools/check_level_alarm.py` already knows a disconnected sensor reads HIGH through
-R23; it does not know which way the sensor itself is wired.
+- **R23 is the collector pull-up**, used exactly as designed. The pin cannot exceed
+  3V3 no matter what the sensor does, so this is immune to the variant question
+  entirely — and to the next listing that contradicts itself.
+- **Base drive is not marginal.** 22k gives Ib 0.65 mA at 15 V and 0.88 mA at 20 V;
+  at hFE 100 that is 65–88 mA of sink against the **0.33 mA** R23 actually needs
+  (3.3 V / 10k). Saturated by a factor of ~200 at the bottom of the pack.
+- **Then tie the sensor's black MODE wire to VBAT rather than to J5's MODE
+  terminal**, and the inversion cancels: MODE high → yellow goes HIGH when liquid is
+  sensed → the NPN pulls IO14 LOW when liquid is sensed → which is exactly what
+  `LEVEL_FULL_IS_LOW` already encodes. **No firmware change, no board change, no
+  re-order.** J5's MODE terminal is left empty; it is only tied to GND on the board
+  and nothing needs it.
+
+**So what to buy is now simple, and it is the part the BOM originally named.** The
+**-V** is the variant rated **5–24 V**, which is the only spec that still matters once
+the inverter is in the lead — ironically the "NPN"-titled listing is the 5–12 V one.
+Confirm 5–24 V **in the spec table, not the title**, and ignore the output type.
+
+⚠ **The connector gets cut off, so the WIRE COLOURS become the only identification.**
+The owner is cutting the supplied pigtail to get the cable length right (2026-10-05),
+which is correct for a sealed run — but it also throws away the one thing that made
+the pinout self-evident. From the manufacturer page: **brown = VCC, blue = GND,
+yellow = OUT, black = M (mode)**. Verify with a meter on the part in hand before
+trusting a colour, because these are re-sold by many houses.
+
+⚠ **`CIRCUIT.md` §7 said "JST-PH to the XKC-Y25" and that was never what this board
+has.** J5 is a 4-way 5.08 mm screw terminal, like the other four. Corrected.

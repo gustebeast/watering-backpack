@@ -90,9 +90,22 @@ bought and are on the shelf, and the reasoning is worth keeping.
 ## 3. Tubing & plumbing  *(🎒)*
 
 - [ ] 🎒 **Two tees — Avidity Science 1610-2845-011, $1.80 ea — SOURCED
-  2026-10-05.** barb × barb × 1/2" MPT, plastic, in stock —
-  https://www.avidityscience.com/fitting-barbed-tee-adapter-1-2-barb-x-1-2-barb-x-1-2-male-pipe-thread-plastic-1610-2845-011
-  ✅ **The barbs are for 1/2" ID tubing**, confirmed off the product page, which is
+  2026-10-05 — and RE-SOURCED on shipping.**
+  - ✅ **BUY: U.S. Plastic item 62128, $0.91 ea** — 1/2" NPT × 1/2" hose ID × 1/2"
+    hose ID, black HDPE, 125 psi with clamps, −65 to 190 °F, in stock —
+    https://www.usplastic.com/catalog/item.aspx?itemid=27820
+    The thread is **MALE**: the page title does not say so, but the family it sits
+    in is "Black HDPE Hose Barb x **Male** Threaded Tees". Plastic, so it threads
+    into the strainer's plastic FNPT without §2's brass-into-plastic problem.
+  - Avidity Science 1610-2845-011 was the first pick at $1.80 ea and is a fine
+    part — **rejected on freight, not on merit**: UPS only, $20 to ship $3.60 of
+    fittings. Kept here because if US Plastic is out of stock it is the
+    known-good alternative —
+    https://www.avidityscience.com/fitting-barbed-tee-adapter-1-2-barb-x-1-2-barb-x-1-2-male-pipe-thread-plastic-1610-2845-011
+  - 📦 **Worth putting on the same US Plastic order**: item 37861, 1/2" MNPT ×
+    1/2" hose barb PVC adapter — that is the hose end of the Uniseal's PVC stub
+    (§3 below), so one order's freight covers both jobs.
+  ✅ **Both are specified for 1/2" ID tubing**, confirmed off the product pages, which is
   the one thing that had to be checked: irrigation-aisle "1/2 inch" barbs are sized
   for 0.600" ID poly and would have been 2.5 mm oversize on 1/2" vinyl. Plastic, so
   the male leg threads into the strainer's plastic FNPT without the brass-into-plastic
