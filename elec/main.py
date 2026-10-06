@@ -1531,6 +1531,83 @@ BOARD_NOTES = {
         # doubled it and buried the circuit. That module also carries an
         # OPEN dict saying, item by item, what is MISSING for the ones
         # that are not signed, which is the half that is easy to fudge.
+        # ── A13: the pins this design means to leave idle ────────────────
+        # Every one is a module pin, and the module has far more IO than a
+        # two-pump controller needs. The ones that matter are not the spares:
+        # three of these are STRAPPING pins where leaving the pin alone IS the
+        # requirement (M8), and six are the module's own flash bus, where using
+        # the pin would stop the part booting. Written out one by one because
+        # "the rest are spare" is exactly the sentence that hides the one that
+        # was not.
+        "unconnected": {
+            # Strapping pins. The WROOM-32E datasheet v2.1 table 4 says the
+            # internal 45k pulls set the default when a pin is "not connected
+            # to any circuit", so open is a DEFINED state here, not a float.
+            "U2.14": "MTDI/IO12 strap: open keeps the internal VDD_SDIO at "
+                     "3.3 V. Pulling it UP selects 1.8 V and the module's own "
+                     "flash stops reading -- doing nothing is the requirement",
+            "U2.23": "MTDO/IO15 strap: open leaves U0TXD boot printing on, "
+                     "which is the only console this board has (J6)",
+            "U2.24": "IO2 strap: internal pull-down, default 0, and table 6 "
+                     "gives SPI Boot for IO0=1 at any IO2",
+            "U2.29": "IO5 strap: internal pull-up, default 1; nothing here "
+                     "uses SDIO",
+            # The module's internal SPI flash. These are not spare at all.
+            "U2.17": "SD2 -- the module's internal flash bus, not ours to use",
+            "U2.18": "SD3 -- internal flash bus",
+            "U2.19": "CMD -- internal flash bus",
+            "U2.20": "CLK -- internal flash bus",
+            "U2.21": "SD0 -- internal flash bus",
+            "U2.22": "SD1 -- internal flash bus",
+            # Genuinely spare IO, left floating as inputs.
+            "U2.4":  "SENSOR_VP/IO36, spare ADC1 input",
+            "U2.5":  "SENSOR_VN/IO39, spare ADC1 input",
+            "U2.8":  "IO32, spare",
+            "U2.9":  "IO33, spare",
+            "U2.16": "IO13, spare",
+            "U2.26": "IO4, spare",
+            "U2.27": "IO16, spare",
+            "U2.28": "IO17, spare",
+            "U2.30": "IO18, spare",
+            "U2.31": "IO19, spare",
+            "U2.33": "IO21, spare",
+            "U2.36": "IO22, spare",
+            "U2.37": "IO23, spare",
+            "U2.32": "NC on the module -- bonded to nothing inside",
+        },
+        # ── A13: the repeated structure is the two pump channels ─────────────
+        # The design says TWO independent pumps, and every number below is 2
+        # because of that -- not because the board was measured. A generator
+        # loop that reused channel A's net for channel B would route clean, pass
+        # DRC and pass every other rule here, because all of those ask whether
+        # the board agrees with its own netlist. These are the numbers that can
+        # disagree with it.
+        #
+        # ⚠ THE FOURTH GROUP IS THE ONE WITH HISTORY. D2/D3 are TO-263-2, a
+        # three-pad land whose pads 1 and 3 are both anode leads; declaring the
+        # part ["A", "K"] once left PAD 3 WITH NO NET, so half of a 7.5 A
+        # freewheel diode was never connected and nothing said a word. "each": 4
+        # is what makes that countable: drain + both anodes + the terminal.
+        "net_groups": [
+            {"name": "pump channels -- MCU PWM into each gate driver",
+             "pins": ["U3.3", "U4.3"], "nets": 2, "each": 1, "pins_count": 2},
+            {"name": "pump channels -- driver output into its own gate resistor",
+             "pins": ["U3.5", "U4.5", "R4.1", "R5.1"],
+             "nets": 2, "each": 2, "pins_count": 4},
+            {"name": "pump channels -- the gate node at each FET",
+             "pins": ["R4.2", "R5.2", "Q1.1", "Q2.1", "R6.1", "R7.1"],
+             "nets": 2, "each": 3, "pins_count": 6},
+            {"name": "pump channels -- each FET drain is its own motor leg",
+             "pins": ["Q1.2", "Q2.2", "D2.1", "D2.3", "D3.1", "D3.3",
+                      "J2.2", "J3.2"],
+             "nets": 2, "each": 4, "pins_count": 8},
+            {"name": "pump channels -- both freewheel cathodes return to VBAT",
+             "pins": ["D2.2", "D3.2"], "nets": 1, "each": 2, "pins_count": 2},
+            {"name": "pump channels -- both FET sources return to the one ground",
+             "pins": ["Q1.3", "Q2.3"], "nets": 1, "each": 2, "pins_count": 2},
+            {"name": "pump channels -- the high side of both motors is one rail",
+             "pins": ["J2.1", "J3.1"], "nets": 1, "each": 2, "pins_count": 2},
+        ],
         "manual": QUALITY_MANUAL,
         "waive": {
             "A8:U1": "the six vias ARE in the pad, but they are footprint PADS "
