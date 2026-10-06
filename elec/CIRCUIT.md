@@ -176,18 +176,36 @@ check in this repo would pass.
   so the output stays inside ADC range. **RC filter at the ADC pin**: this is the
   only noise defence available, since there is no joystick board to buffer at the
   source. ~1 kΩ + 100 nF (≈1.6 kHz corner — far above a hand, far below switching).
-- **Tank level** — JST-PH to the XKC-Y25. Powered from **VBAT**; output configured
-  **NPN open-collector** and pulled up to 3V3 on this board.
-  *Open-collector is load-bearing:* the sensor runs at 18 V, and an
-  open-collector output only ever pulls down, so the GPIO sees a safe level with
-  no divider. Configured push-pull it would put 18 V into a pin.
+- **Tank level** — **J5, a 4-way 5.08 mm screw terminal** like the other four. (This
+  said "JST-PH" and the board has never had one.) Powered from **VBAT** behind F1,
+  and read on IO14 through **R23, a 10k pull-up to 3V3**.
+  ⚠ **THE PULL-UP IS NOT SUFFICIENT ON ITS OWN, and this entry used to claim it was.**
+  It read: *"output configured NPN open-collector … the GPIO sees a safe level with
+  no divider."* The argument is right and the premise is wrong — the XKC-Y25 family
+  specifies its HIGH output as **InVCC**, the supply rail, so at 18 V it would drive
+  18 V into IO14 and R23 would lose to its internal pull-up. **An NPN inverter goes
+  in the sensor lead** (22k base, emitter to GND, collector to J5's OUT, R23 as the
+  collector pull-up), which caps the pin at 3V3 whatever the sensor does. With the
+  sensor's MODE wire tied to **VBAT** rather than GND the inversion cancels and
+  `LEVEL_FULL_IS_LOW` still holds. Sizing, polarity and what to buy:
+  `WORK_V2_PUNCHLIST.md` finding 17.
 
-  **MODE → GND, and that sets the polarity.** `elec/main.py` shorts the sensor's
-  MODE wire to GND (`gnd += j_lvl["GND"], j_lvl["MODE"]`), which selects the
-  part's **normally-closed** mode: *no liquid → output HIGH, liquid → output
-  LOW*. MODE left floating selects normally-open instead, which inverts it. So
-  on this board **a LOW on IO14 means liquid at the sensor**, which is what
-  `LEVEL_FULL_IS_LOW` in the firmware encodes.
+  **MODE sets the polarity, and with the inverter it goes to VBAT, not GND.** The
+  board ties J5's MODE terminal to GND (`gnd += j_lvl["GND"], j_lvl["MODE"]`),
+  which selects the part's normally-closed mode: *no liquid → output HIGH, liquid
+  → output LOW*. That was the right choice when the output was believed to reach
+  the pin directly. **It is the wrong one through an inverting stage**, which flips
+  it again. So the sensor's black wire lands on **VBAT** alongside brown, J5's MODE
+  terminal is left EMPTY, and the chain reads: liquid → yellow HIGH → NPN on →
+  **IO14 LOW**. `LEVEL_FULL_IS_LOW` in the firmware is then still correct and
+  nothing in `firmware/` changes.
+  *The board's MODE-to-GND tie is vestigial now and deliberately left alone:* it is
+  a terminal shorted to the GND plane, so an empty terminal costs nothing, and
+  removing it would mean re-routing an orderable board to delete a wire nobody
+  lands. The alternative — black on J5's MODE as originally drawn, and
+  `LEVEL_FULL_IS_LOW` flipped to false — is equally correct and is one boolean.
+  Either way the pin is capped at 3V3 by the inverter; this choice is only about
+  which of the two files does not change.
 
   The vendor warning not to "use the black wire as GND" is about not using MODE
   as the power *return* in place of the blue wire — shorting it to GND to pick
