@@ -31,7 +31,10 @@ FRAME: board-centred millimetres (the centre of the Edge.Cuts bounding box), +X 
                    they differ for asymmetric pads: 0.228 mm on a SOT-23-5, 3.75 on a JST
                    header), rot, side, fab (the F.Fab BODY box: [x0, x1, y0, y1]), crtyd,
                    tht (the box round its through-hole pads, or null for pure SMD)
-    silk[]         board-level text only: text, side, centre, size, angle, box
+    silk[]         the lettering the fab prints: text, side, centre, size, angle, box.
+                   Board-level text (the name, test-pad nets, pinouts, and the
+                   designators kicad_silk lays with `silk_refs`), plus -- marked
+                   "kind": "ref" -- every footprint designator KiCad itself shows in ink
 
 A footprint with no F.Fab outline gets `fab: null`; the CAD then has to say what to do
 about it rather than quietly use the courtyard, which is the keep-out and not the part.
@@ -112,16 +115,17 @@ def read(stem):
             "tht": _tht_bbox(fp, cx, cy),
         })
     out["footprints"].sort(key=lambda f: f["ref"])
-    # the board's own lettering, so the CAD can draw it as a part of its own. Board-level
-    # text only -- footprint silk is not lettering.
+    # the board's lettering, so the CAD can draw it as a part of its own: what the fab
+    # will print, and nothing it will not. Board-level text first (name, test pads,
+    # pinouts, kicad_silk's designators); then each footprint's OWN designator where it
+    # is visible on a silkscreen layer -- a board that keeps its references in ink shows
+    # them in the CAD too. A footprint's outline graphics are not lettering and stay out.
     out["silk"] = []
-    for d in board.GetDrawings():
-        if d.GetClass() != "PCB_TEXT" or d.GetLayerName() not in ("F.Silkscreen",
-                                                                  "B.Silkscreen"):
-            continue
+
+    def _letter(d, kind=None):
         bb = d.GetBoundingBox()
-        out["silk"].append({
-            "text": d.GetText(),
+        lab = {
+            "text": d.GetShownText(True) if kind else d.GetText(),
             "side": "F" if d.GetLayerName() == "F.Silkscreen" else "B",
             "x": round(bb.GetCenter().x / 1e6 - cx, 3),
             "y": round(-(bb.GetCenter().y / 1e6 - cy), 3),
@@ -130,8 +134,20 @@ def read(stem):
             "box": [round(bb.GetLeft() / 1e6 - cx, 3), round(bb.GetRight() / 1e6 - cx, 3),
                     round(-(bb.GetBottom() / 1e6 - cy), 3),
                     round(-(bb.GetTop() / 1e6 - cy), 3)],
-        })
-    out["silk"].sort(key=lambda t: (t["side"], t["text"]))
+        }
+        if kind:
+            lab["kind"] = kind
+        return lab
+
+    for d in board.GetDrawings():
+        if d.GetClass() == "PCB_TEXT" and d.GetLayerName() in ("F.Silkscreen",
+                                                               "B.Silkscreen"):
+            out["silk"].append(_letter(d))
+    for fp in board.GetFootprints():
+        r = fp.Reference()
+        if r.IsVisible() and r.GetLayerName() in ("F.Silkscreen", "B.Silkscreen"):
+            out["silk"].append(_letter(r, "ref"))
+    out["silk"].sort(key=lambda t: (t["side"], t.get("kind", ""), t["text"]))
     return out
 
 
