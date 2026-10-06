@@ -4,6 +4,7 @@ already on disk:
 
     "C:/Program Files/KiCad/10.0/bin/python.exe" cadkit/kicad_silk.py elec/out/controller
     ... cadkit/kicad_silk.py --rev r2 --dark D,Q elec/out/sensor elec/out/panel
+    ... cadkit/kicad_silk.py --refs all elec/out/breakout        # a designator per part
 
 Run it BEFORE `cadkit/kicad_geom.py`: the exporter carries this lettering into the geom
 file, and `cadkit.board_geom.Boards.silk()` draws it in the CAD as a part of its own.
@@ -24,7 +25,18 @@ them that are NOT about placement:
   * WHAT A CONNECTOR PIN CARRIES. Each connector (ref J<n>) of LEGEND_MAX_PINS or fewer
     gets its pinout printed -- on the back for choice, where the through-hole tails are.
 
-WHAT IT DOES NOT DO: put a designator beside every passive.
+  * WHICH PART IS WHICH, when the board asks for it. `silk_refs` in the board's notes
+    (or `--refs`) prints each part's designator beside it: `true` / `all` for every part,
+    or a list of reference prefixes (["U", "Q", "D", "SW"]). Off by default, because on
+    a dense board most of them have no site and an assembly house places from the
+    position file; ON for a board that is assembled, reworked or probed by hand. Parts
+    with the most pads are given their sites first, a designator goes down only within
+    REF_REACH of its own part (one that drifts beside a neighbour is worse than none)
+    and only at the legible size, and the ones with no site are counted, not squeezed in.
+    Like every other label these are board-level text, so the geom exporter carries them
+    and `Boards.silk()` draws them in the CAD.
+
+WHAT IT DOES NOT DO BY DEFAULT: put a designator beside every passive.
 
 EVERY LABEL IS SEARCHED FOR A FREE SITE AND DROPPED IF THERE IS NONE. A label is placed
 only where its whole box clears every pad, hole, via, part and other label on that side,
@@ -35,7 +47,9 @@ before and after and compare.
 `--dark P1,P2`: reference PREFIXES of parts no ink may come near (optical sensors on a
 board ordered in black mask to keep stray light down).
 Without it, a `<stem>.board.json` beside the board supplies
-them from its "strip_silk" list (what a pcbflow-generated board carries).
+them from its "strip_silk" list (what a pcbflow-generated board carries). The same notes
+supply `silk_rev` (the revision, when `--rev` is not given), `silk_refs`, `silk_labels`
+and `silk_name`.
 
 IDEMPOTENT: it deletes the board-level silkscreen text it finds first and lays the set
 again. The board's NAME is the stem's basename, upper-cased, underscores as spaces.
@@ -65,6 +79,9 @@ SIZE_SMALL = 0.8
 LEGEND_MAX_PINS = 8        # a 2x20 gets its name only
 OPTICS_CLR = 12.0          # no label this close to a part whose own silk was stripped
 OPTICS_NAME_CLR = 30.0     # ...and the board's name, which can go anywhere, further still
+SIZE_REF = 1.0             # a designator is printed legibly or not at all
+REF_REACH = 2.0            # mm past the part's own half-diagonal: beside it, or nowhere
+REF_SKIP = ("TP", "H", "MH", "FID", "REF", "G", "LOGO")   # no part there to name
 
 
 def _box(item):
@@ -217,14 +234,28 @@ def _net(pad):
     return n if n and not n.startswith("unconnected") else ""
 
 
-def silk(stem, rev=REV, dark=(), labels=None, short=None):
-    """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site."""
+def _want_ref(refs, ref):
+    """Does `silk_refs` (True / "all" / a list of prefixes) ask for this designator?"""
+    if not refs or ref.startswith(REF_SKIP) or not ref.rstrip("0123456789"):
+        return False
+    if refs is True or refs == "all" or "all" in refs:
+        return True
+    return ref.rstrip("0123456789") in tuple(refs)
+
+
+def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
+    """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site
+    (designators asked for by `refs` are reported but not returned: on a dense board
+    most of them having no site is the expected result, not a finding)."""
     if os.path.isfile(stem + ".board.json"):
         import json
         with open(stem + ".board.json", encoding="utf-8") as fh:
             _notes = json.load(fh)
         labels = _notes.get("silk_labels", {}) if labels is None else labels
         short = _notes.get("silk_name") if short is None else short
+        refs = _notes.get("silk_refs") if refs is None else refs
+        rev = _notes.get("silk_rev") if rev is None else rev
+    rev = rev or REV
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
     name = os.path.basename(stem)
     old = [d for d in board.GetDrawings()
@@ -330,10 +361,35 @@ def silk(stem, rev=REV, dark=(), labels=None, short=None):
         else:
             missed.append(ref + " pinout")
 
+    # 4. a designator beside each part, where the board asked for them (`silk_refs`).
+    #    LAST, so no designator takes a site a test pad's net or a pinout needed, and
+    #    the parts with the most pads first: U3 matters more than R17.
+    ref_done, ref_missed = [], []
+    named = set(wanted) | {x.split("=")[0] for x in done}
+    for fp in sorted(fps, key=lambda f: (-len(list(f.Pads())), f.GetReference())):
+        ref = fp.GetReference()
+        if not _want_ref(refs, ref) or any(ref.startswith(q) for q in dark):
+            continue
+        s = sides[fp.IsFlipped()]
+        if ref in named or (ref.startswith("J") and ref[1:].isdigit()):
+            continue                         # steps 1b and 3 have already named it
+        if fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer:
+            continue                         # its own designator is already in ink
+        b = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd).BBox()
+        half = max(b.GetWidth(), b.GetHeight(), MM(1.0)) / 2e6
+        if s.place(ref, SIZE_REF, fp.GetPosition(), half * 1.42 + REF_REACH):
+            ref_done.append(ref)
+        else:
+            ref_missed.append(ref)
+
     for d in old:                           # after every read; the save is next
         board.Remove(d)
     board.Save(stem + ".kicad_pcb")
     print("%s: %d label(s) -- %s" % (name, len(done), ", ".join(done)))
+    if ref_done or ref_missed:
+        print("  designators: %d of %d placed%s" % (
+            len(ref_done), len(ref_done) + len(ref_missed),
+            "; no site beside: " + ", ".join(sorted(ref_missed)) if ref_missed else ""))
     if missed:
         print("  no free site for: %s" % ", ".join(missed))
     small = sides[False].small + sides[True].small
@@ -347,12 +403,14 @@ def main(argv):
     """One board per PROCESS: board.Remove() on the old labels can leave pcbnew's SWIG
     layer handing back a bare SwigPyObject from the NEXT LoadBoard (seen on the ninth of
     ten boards in one run), so several stems are fanned out to child processes."""
-    rev, dark, stems, i = REV, (), [], 0
+    rev, dark, refs, stems, i = None, (), None, [], 0
     while i < len(argv):
-        if argv[i] in ("--rev", "--dark"):
+        if argv[i] in ("--rev", "--dark", "--refs"):
             val = argv[i + 1]
             if argv[i] == "--rev":
                 rev = val
+            elif argv[i] == "--refs":
+                refs = "all" if val == "all" else [p for p in val.split(",") if p]
             else:
                 dark = tuple(p for p in val.split(",") if p)
             i += 2
@@ -360,18 +418,23 @@ def main(argv):
             stems.append(argv[i][:-10] if argv[i].endswith(".kicad_pcb") else argv[i])
             i += 1
     if not stems:
-        raise SystemExit("usage: kicad_silk.py [--rev rN] [--dark P1,P2] <stem> [...]")
+        raise SystemExit("usage: kicad_silk.py [--rev rN] [--dark P1,P2] "
+                         "[--refs all|U,Q,D] <stem> [...]")
     if len(stems) == 1:
         if not dark and os.path.isfile(stems[0] + ".board.json"):
             # a generated board says it in its own notes (pcbflow BOARD_NOTES "strip_silk")
             import json
             with open(stems[0] + ".board.json", encoding="utf-8") as fh:
                 dark = tuple(json.load(fh).get("strip_silk", ()))
-        silk(stems[0], rev, dark)
+        silk(stems[0], rev, dark, refs=refs)
         return 0
     import subprocess
     for stem in stems:
-        cmd = [sys.executable, os.path.abspath(__file__), "--rev", rev]
+        cmd = [sys.executable, os.path.abspath(__file__)]
+        if rev:
+            cmd += ["--rev", rev]
+        if refs:
+            cmd += ["--refs", "all" if refs == "all" else ",".join(refs)]
         if dark:
             cmd += ["--dark", ",".join(dark)]
         p = subprocess.run(cmd + [stem], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
