@@ -938,7 +938,7 @@ def circuit():
 
     # ── Tank-full buzzer. Active (needs DC, not a waveform); ~30 mA is past a GPIO.
     bz  = gen.part("BZ1", "3V-ACTIVE", "Buzzer_Beeper:Buzzer_12x9.5RM7.6", ["+", "-"],
-                   "tank full — filling happens with the pump OFF, so 85 dB is ample")
+                   "tank full -- pump is OFF while filling, so 80 dB at 10 cm is ample")
     q_b = gen.part("Q3", "MMBT3904", "Package_TO_SOT_SMD:SOT-23", {1: "B", 2: "E", 3: "C"},
                    "buzzer driver")
     r_b = gen.part("R24", "1k", "Resistor_SMD:R_0603_1608Metric", 2, "buzzer base")

@@ -539,3 +539,60 @@ length on a run — so it will keep passing whatever the measurement turns out t
 If the number comes back near 100 mm, the fix is to teach the checker about inline
 fittings rather than to eyeball it; if it comes back at 60 or 70, the honest thing is
 still to record the figure here so the next person does not re-derive it.
+
+### 17 — the level sensor's output type is an 18 V question, and the BOM named the part loosely
+
+Found while sourcing a US link for the sensor, which is the only reason it surfaced:
+nothing in the repo reads a vendor page, so nothing here could have caught it.
+
+**What the board does.** `elec/main.py` feeds J5's V+ from **VBAT behind F1**, so the
+sensor runs at the pack voltage, ~15–20 V. It reads the output on **IO14** with
+**R23, a 10k pull-up to 3V3**, and the comment beside R23 says exactly what that
+rests on:
+
+> *"Level sensor: runs at VBAT and its output is OPEN-COLLECTOR, so this pull-up to
+> 3V3 is what keeps 18 V out of the GPIO. Push-pull mode would destroy it."*
+
+`elec/CIRCUIT.md` §7 says the same and calls it load-bearing: *"an open-collector
+output only ever pulls down, so the GPIO sees a safe level with no divider.
+Configured push-pull it would put 18 V into a pin."* That is a correct argument.
+
+**What the vendor says about the part the BOM named.** The BOM asked for
+"XKC-Y25-**V** (or similar)". Trumsense's own page for the **-V** lists four wires
+(brown VCC, yellow OUT, black M, blue GND — which matches J5's four ways exactly)
+and then gives the output as:
+
+> HIGH output: **"5-24V"**, i.e. referenced to the supply.
+
+With the black wire tied LOW — which is what this board does — the same page says
+yellow becomes the *"negative output signal wire"* and goes *"low level when the
+object is sensed (NPN disconnect)"*. That phrasing reads like an open collector
+sinking to GND, which would be safe. But it is a reading, not a specification, and
+if the part has an internal pull-up to Vcc then "open collector" and "18 V on the
+line" are both true at once, and R23 loses to it.
+
+**So the design's one safety argument for this input depends on a property of a
+bought part that nobody has confirmed.** No gate can close this: every gate here
+reads the board, and this lives in a vendor's web page.
+
+**Three things follow, in order of how cheap they are:**
+
+1. **Buy the variant that is unambiguous.** The **XKC-Y25-NPN** is an open-collector
+   part by name, which is what the circuit was designed around. Same family, same
+   price, usually the same listing's dropdown. ALSO: several listings are **5–12 V**
+   sub-variants — 18 V destroys those, and the dropdown is where that choice hides.
+2. **Measure before landing the wire on J5.** Power the sensor from a bench supply at
+   18 V with MODE at GND, and put a meter on the yellow wire with nothing else
+   attached. Dry and wet. If either state reads above ~4 V with no pull-up, the
+   output is not an open collector and it must not touch IO14 bare.
+3. **If it fails that test the fix is in the wiring, not the board.** Two resistors
+   at the sensor end make a divider; R23 stays and just loads it slightly. The board
+   does not have to change and does not have to be re-ordered — which is the reason
+   this is a finding and not a blocker on the fab order.
+
+⚠ **A 3-wire NPN part is acceptable but moves the polarity.** J5's MODE position is
+tied to GND on the board to select normally-closed, and the firmware encodes that in
+`LEVEL_FULL_IS_LOW` (`firmware/src/main.cpp`). A 3-wire part fixes NO/NC in the part
+number instead, so whichever it is, that constant has to be checked against it.
+`tools/check_level_alarm.py` already knows a disconnected sensor reads HIGH through
+R23; it does not know which way the sensor itself is wired.
