@@ -858,7 +858,10 @@ currently in `ORDER.txt`.** If it is missed, five boards arrive 10 mm too wide f
 bay they were designed into, and trimming a rail off a finished assembled board by hand
 is how an edge trace gets cut.
 
-## 24. Every orientation-critical part is unmeasured, and a render is the only evidence
+## 24. CLOSED — the frames are measured: 17 placements corrected, 0 unfitted
+
+*(Raised as "every orientation-critical part is unmeasured, and a render is the
+only evidence". It was, and the render was mine, and it was wrong — see below.)*
 
 **MEASURED 2026-10-06 — and twelve of them were wrong.** `fab_frames.derive` now
 runs, and what it found would have ruined the assembly:
