@@ -32,10 +32,12 @@ WHAT A PAD FIT CANNOT SEE, and what is done about it:
   * A part the fab's library numbers differently from ours (the fit's residual is large).
     It is left as KiCad wrote it and LISTED, so a person looks at exactly those.
   * Parts on the BACK of the board are measured in the part's own frame (KiCad flips a
-    footprint top to bottom, so its y is negated before the fit) and the angle correction
-    is subtracted rather than added. That is exact for a fab that reads a back-side
-    angle the way KiCad writes one; it is said beside each such part in the report, so
-    the first back-side order is looked at with that in mind.
+    footprint top to bottom, so its y is negated before the fit); the angle correction
+    is subtracted rather than added, and the result is turned half round, because the
+    fab turns a part over left to right where KiCad turns it top to bottom. Seen in the
+    fab's previewer for parts whose KiCad angle and frame rotation are 0 or 180 apart;
+    a back-side part where they are 90 apart has not been on an order page yet, and the
+    report says "back side" beside every such part so it is looked at.
 """
 from __future__ import annotations
 
@@ -235,7 +237,13 @@ def apply(pcb, rows, code_of, table, turn=None):
         sy = dx * math.sin(k) + dy * math.cos(k)
         old = float(row[4])
         extra, why = turn.get(code, (0, ""))
-        new = (old + (-1 if back else 1) * (e["rot"] + extra)) % 360.0
+        # BACK SIDE: the frame rotation is subtracted (the part is seen from behind) AND the
+        # whole angle is turned half round. KiCad turns a footprint over top to bottom and
+        # the fab's placement turns it over left to right; the two differ by a half turn.
+        # Seen on a real order page 2026-10-06: without the half turn every connector on
+        # an all-back-side board previewed with its body where its mouth should be.
+        new = ((old - (e["rot"] + extra) + 180.0) if back
+               else (old + e["rot"] + extra)) % 360.0
         row[1], row[2] = "%.6f" % (float(row[1]) + sx), "%.6f" % (float(row[2]) + sy)
         row[4] = "%.6f" % new
         if e["rot"] or extra or math.hypot(sx, sy) > 0.05:
