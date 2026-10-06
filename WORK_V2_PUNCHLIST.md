@@ -860,16 +860,64 @@ is how an edge trace gets cut.
 
 ## 24. Every orientation-critical part is unmeasured, and a render is the only evidence
 
-**Open.** `ROTATION-CHECK.txt` lists **24 parts under "NOT CORRECTED ... not measured:
-run the project's fab.py --frames"** — every connector (J1-J6), both electrolytics,
-all six diodes, both TO-252 MOSFETs, both TO-263 Schottkys, the fuse holder, the
-buzzer, and both ICs. Nothing has been fitted to the fab's own footprint frames.
+**MEASURED 2026-10-06 — and twelve of them were wrong.** `fab_frames.derive` now
+runs, and what it found would have ruined the assembly:
 
-The placement preview was looked at, which is what `ORDER.txt` demands, and nothing was
-visibly wrong: C1 and C2 both show `+` on the same side as each other and as the silk,
-the terminal rows sit on their pads, U2's antenna leaves the laminate. **But a person
-looking at a render is a weaker check than a pad fit**, and this is the failure mode
-that the pedal steel project calls "the classic way to lose a JLCPCB assembly run".
+| part | was | corrected to |
+|---|---|---|
+| **J4** (5-way field terminal) | — | origin **+10.16 mm** |
+| **J5** (4-way, level sensor) | — | origin **+7.62 mm** |
+| **J6** (programming header) | 90° | **0°**, origin +6.35 mm |
+| **U2** (ESP32-WROOM-32E) | 270° | **180°**, origin +3.68 mm |
+| **U1** (LMR14020 buck) | 0° | **270°** |
+| **U3, U4** (UCC27517 gate drivers) | 0° | **180°** |
+| **Q3** (MMBT3904) | 0° | **180°** |
+| J1, J2, J3 (2-way terminals) | — | origin +2.54 mm each |
+| BZ1 (buzzer) | — | origin +3.80 mm |
 
-`fab_frames.derive` needs network access to the EasyEDA library and has not been run
-for this project's parts. It should be, before paying.
+**13 of 59 placements changed.** The origin shifts are arithmetic, not noise, and
+they are the exact failure the module's docstring predicts: KiCad puts a connector's
+origin on **pin 1** and the fab's library puts it at the **row centre**. J4's 10.16 =
+(5−1)×5.08/2; J5's 7.62 = (4−1)×5.08/2; J6's 6.35 = (6−1)×2.54/2. J4 was two whole
+pitches off its own pads.
+
+**⚠ AND THE RENDER-READ THAT SAID OTHERWISE WAS MINE, AND IT WAS WRONG.** Finding 24
+was first written saying the JLCPCB 3D preview had been looked at and "nothing was
+visibly wrong". The preview was rendered from the UNCORRECTED placement file, so
+twelve parts were not on their pads when I said they were. A 90° ESP32 and a
+10 mm terminal offset were on the screen and I read past them. That is the whole
+case for M2's rule in `cadkit/PCB_QUALITY.md`, now proven on this board rather than
+quoted: **a person looking at a render is not a measurement.**
+
+**What it took to get the number, which is its own finding.** The endpoint cadkit
+shipped — `easyeda.com/api/products/<code>/components` — has been 403 at CloudFront's
+edge for everyone, and `derive` handled that by logging each failure and then saving
+an EMPTY table, which reads as "nothing needed measuring". Fixed in canonical cadkit
+(`ec2c852`) against `pro.easyeda.com`, propagated to all 11 consumers. The report's
+own instruction was also wrong: it said to run `fab.py --frames`, a flag no project
+implements.
+
+**STILL OPEN — 5 placements the fit could not resolve**, and these are the ones that
+now need a person:
+
+| part | residual | why it matters |
+|---|---|---|
+| **Q1, Q2** — TO-252 MOSFETs | 2.72 mm | the pump switches, 7.5 A each |
+| **D2, D3** — TO-263 Schottkys | 0.96 mm | the freewheel path |
+| **F2** — blade fuse holder | 2.90 mm | the battery feed |
+
+A residual that large means the fab's library numbers the lands differently from ours
+— on a TO-252/TO-263 the tab is the usual culprit (numbered 2 or 4, or split into
+several lands). Fitting by number would turn the part to suit the numbers, so the
+module refuses and lists them instead. Each needs its pin 1 / tab read off the fab's
+own library or previewer and compared with ours.
+
+**AND M2 STILL APPLIES ON TOP OF THE TWELVE THAT DID FIT.** A frame fitted by pad
+NUMBER is not evidence of orientation: for the polarised parts — C1 and C2, and
+D1/D4/D5/D6 — the fab may number the same two lands the other way, and the fit then
+turns the part to suit. Those six want their pin 1 / cathode mark checked against the
+fab's previewer before anyone pays.
+
+**⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
+uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
+must be re-uploaded before ordering.
