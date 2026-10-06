@@ -89,36 +89,35 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 3. Tubing & plumbing  *(🎒)*
 
-- [ ] 🎒 **Two tees — Avidity Science 1610-2845-011, $1.80 ea — SOURCED
-  2026-10-05 — and RE-SOURCED on shipping.**
-  - ✅ **BUY: U.S. Plastic item 62128, $0.91 ea** — 1/2" NPT × 1/2" hose ID × 1/2"
-    hose ID, black HDPE, 125 psi with clamps, −65 to 190 °F, in stock —
-    https://www.usplastic.com/catalog/item.aspx?itemid=27820
-    The thread is **MALE**: the page title does not say so, but the family it sits
-    in is "Black HDPE Hose Barb x **Male** Threaded Tees". Plastic, so it threads
-    into the strainer's plastic FNPT without §2's brass-into-plastic problem.
-  - Avidity Science 1610-2845-011 was the first pick at $1.80 ea and is a fine
-    part — **rejected on freight, not on merit**: UPS only, $20 to ship $3.60 of
-    fittings. Kept here because if US Plastic is out of stock it is the
-    known-good alternative —
+- [x] 🎒 **Two tees — U.S. Plastic item 62128, $0.91 ea — ORDERED 2026-10-06** —
+  https://www.usplastic.com/catalog/item.aspx?itemid=27820
+  1/2" NPT × 1/2" hose ID × 1/2" hose ID, black HDPE, 125 psi with clamps,
+  −65 to 190 °F. Qty **2**, one per tee, $1.82 the pair.
+  - **The thread is MALE**, which is the whole point and the page title does not say
+    so: the product family it sits in is *"Black HDPE Hose Barb x **Male** Threaded
+    Tees"*. Plastic, so the male leg threads into the strainer's plastic FNPT without
+    §2's brass-into-plastic problem.
+  - ✅ **The barbs are specified for 1/2" HOSE ID**, which was the one thing that had
+    to be checked before ordering: irrigation-aisle "1/2 inch" barbs are sized for
+    0.600" ID poly and would have been ~2.5 mm oversize on 1/2" vinyl. Worth ten
+    seconds with a caliper on arrival anyway.
+  - *Rejected on freight, not on merit:* **Avidity Science 1610-2845-011**, $1.80 ea,
+    the first pick and a good part — UPS only, $20 to ship $3.60 of fittings. Kept as
+    the known-good alternative if 62128 ever goes out of stock —
     https://www.avidityscience.com/fitting-barbed-tee-adapter-1-2-barb-x-1-2-barb-x-1-2-male-pipe-thread-plastic-1610-2845-011
-  - 📦 **Worth putting on the same US Plastic order**: item 37861, 1/2" MNPT ×
-    1/2" hose barb PVC adapter — that is the hose end of the Uniseal's PVC stub
-    (§3 below), so one order's freight covers both jobs.
-  ✅ **Both are specified for 1/2" ID tubing**, confirmed off the product pages, which is
-  the one thing that had to be checked: irrigation-aisle "1/2 inch" barbs are sized
-  for 0.600" ID poly and would have been 2.5 mm oversize on 1/2" vinyl. Plastic, so
-  the male leg threads into the strainer's plastic FNPT without the brass-into-plastic
-  problem §2 ran into. Buy **2**. §1's anti-parallel arrangement has needed them
-  since it was chosen; `src/plumbing.py` models both (`TANK_TEE` at x +73,
-  `GREEN_TEE` at x −73) and `check_plumbing.py` routes six hoses through them — and
-  this list had never carried either one. No CAD gate could catch that: a tee is a
-  bought fitting and the gates measure printed geometry.
+  - 📦 **Same order, if it is not too late:** item 37861, 1/2" MNPT × 1/2" hose barb
+    PVC adapter — the hose end of the Uniseal's PVC stub (§3 below). One freight
+    charge would have covered both jobs.
+  - **Why this list needed them at all, recorded because nothing else catches it:**
+    §1's anti-parallel arrangement has needed two tees since it was chosen,
+    `src/plumbing.py` models both (`TANK_TEE` at x +73, `GREEN_TEE` at x −73) and
+    `check_plumbing.py` routes six hoses through them — and this list had never
+    carried either one. No CAD gate could catch it: a tee is a bought fitting and the
+    gates measure printed geometry. WORK_V2_PUNCHLIST finding 14.
   - **The male leg is what the decision bought.** The owner chose the two bought
     Seaflo 51S01 strainers over the printed screen (WORK_V2_PUNCHLIST 13), and
     finding 13a shows both strainers face their **FNPT** end at the tee — so one
     male-threaded leg screws straight into each, with no adapter and no hose stub.
-  - **The two barbs are 1/2"**, to match everything else on the main run.
   - **Nothing else is needed.** The strainers' MNPT ends take parts already in the
     drawer: the **owned McMaster 5346K56** (FNPT × 3/8" barb) on the green side,
     which is also the 1/2" → 3/8" step at the probe, and a **spare

@@ -166,6 +166,34 @@ def is_dirty() -> bool:
     return bool(git("status", "--porcelain"))
 
 
+def _conflict_marked(ref: str = "") -> list:
+    """Tracked text files that still carry merge-conflict markers, in the work tree or in
+    `ref`. A resolved-by-accident merge is otherwise an ordinary commit: `git add -A`
+    stages the markers and nothing downstream objects until a build trips on them."""
+    args = ["grep", "-I", "-l", "-E", "^(<<<<<<<|>>>>>>>) "]
+    if ref:
+        args.append(ref)
+    out = git(*args, check=False)
+    return sorted(l.split(":", 1)[-1] if ref else l for l in out.splitlines() if l.strip())
+
+
+def _refuse_conflicts(what: str, ref: str = ""):
+    unmerged = [] if ref else sorted(set(
+        l.split()[-1] for l in git("ls-files", "-u").splitlines()))
+    marked = _conflict_marked(ref)
+    if not (unmerged or marked):
+        return
+    print(f"{what} REFUSED: unresolved merge conflicts"
+          + (f" in {ref}" if ref else "") + ".")
+    for f in unmerged:
+        print(f"  unmerged:         {f}")
+    for f in marked:
+        if f not in unmerged:
+            print(f"  conflict markers: {f}")
+    print("Resolve them (delete the <<<<<<< / ======= / >>>>>>> lines), commit, and retry.")
+    raise SystemExit(1)
+
+
 # ── contributor commands ──────────────────────────────────────────────────────
 def cmd_join(name: str):
     branch = f"agent/{name}"
@@ -189,6 +217,10 @@ def cmd_submit(summary: str):
     if not branch.startswith("agent/"):
         raise SystemExit(f"submit must run on an agent/<name> branch (on '{branch}'). "
                          f"Run `join <name>` first and work in that worktree.")
+    # BEFORE the add/commit below: a `sync` that hit conflicts leaves the tree dirty, and
+    # committing that dirt is how a merge request went out with the markers still in it
+    # (2026-10-05, `sync && submit` chained -- sync used to exit 0 on conflicts).
+    _refuse_conflicts("submit")
     if is_dirty():
         git("add", "-A")
         git("commit", "-m", summary)
@@ -212,6 +244,7 @@ def cmd_sync():
     git("merge", "main", "-m", "Merge main into " + cur_branch(), check=False)
     if is_dirty() or git("ls-files", "-u"):
         print("CONFLICTS while merging main -- resolve, `git add -A`, `git commit`.")
+        raise SystemExit(1)      # non-zero, so `sync && submit` stops here
     else:
         print(f"{cur_branch()} is up to date with main.")
 
@@ -519,6 +552,7 @@ def cmd_take(name: str):
                        "people's work by `sync`ing main, never by merging their branch. "
                        "Two agents integrating independently produce two different "
                        "'main's, and neither is the one that gets built and pushed.")
+    _refuse_conflicts("take", branch)      # never merge a tree that carries markers
     git("merge", "--no-ff", branch, "-m", f"Merge {branch}", check=False)
     if git("ls-files", "-u"):
         print(f"CONFLICTS merging {branch}. Resolve the files below, then:\n"
