@@ -432,10 +432,23 @@ access the bring-up will need.
   connector's own mating face. Check the cable type (straight vs crossed, ribbon pin 1
   stripe), that an unshrouded or unkeyed connector cannot be plugged reversed or offset
   without marking, and that the pin order is held in ONE shared constant, not typed twice.
+  **Nets follow the footprint's own maker's drawing, and a mating part's numbering is
+  translated explicitly.** Where the other half is somebody else's product (a power
+  supply's plug, a module's header, a computer's port, a cable with its own contact
+  order), its pin numbers are NOT the numbers on our pads: two makers of the same
+  interface number the same contacts differently. Read both drawings, write the table
+  physical position -> our pad -> net at the connector, and say which document each
+  column came from. "Pin 1 +V" copied from the mating part's sheet onto our pad 1 is
+  the fault this line exists for.
 - **M2 — Polarised two-pad parts face the right way.** Diodes, LEDs, TVS, electrolytic and
   tantalum capacitors: the cathode/negative pin in the generator is the pad the footprint
   numbers as that pin (KiCad diodes: pad 1 = K), and the part's reel orientation is in the
   rotation check for the fab.
+  A placement frame fitted by pad NUMBER is not evidence of orientation: the fab's library
+  may number the same lands the other way (or split a terminal into two lands), and the
+  fit then turns the part to suit the numbers. For every polarised part record which
+  terminal the fab's footprint calls pin 1, from its library or from the mark its
+  previewer draws, against the terminal our pad 1 is.
 - **M3 — The return path matches the supply path.** For each `power_paths` entry, the
   ground return from the load back to the entry is a pour or copper at least as wide, and
   does not neck through a single via or a slot in the plane. High-current returns do not
@@ -689,4 +702,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-06 | a control board, in a dry run of the fab's order page | generic passives were sent with no part number, "chosen at order time"; the fab's matcher read KiCad's `C_0402_1005Metric` as 01005 and picked parts its cheaper assembly service does not place, so they came up unselected at quantity 0 and the order would have built the board without them | M30 extended; `fab_package` refuses an uncoded row, keys passives on (value, footprint) and writes the plain package name |
 | 2026-10-06 | five boards walked through the fab's order page | the placement file carried our footprints' origins and angles and the fab places its own: a 1x20 header previewed 24 mm off its holes (our origin is pin 1, theirs the middle), and a right-angle two-row header previewed with its pins pointing into the board (the two libraries number its rows opposite ways, which no pad fit can see). The form also kept the previous board's paid options | M30 extended; `pcbflow/fab_frames.py` (new) writes the placement file in the fab's frames and the package lists what it could not measure |
 | 2026-10-06 | ten more boards walked through the fab's order page to the quote | (1) every part on an all-back-side board previewed a half turn out: the fab turns a back-side part over left to right, KiCad top to bottom. (2) two BOM rows naming one part number left one row at quantity 0. (3) a row whose designators mix prefixes arrives unticked. (4) the assembly TIER is decided by things that are not in the BOM: back-side assembly, a black solder mask and one "Standard only" part each force the dearer tier | `fab_frames.apply` turns back-side parts half round; the package writes one BOM row per part number and lists the rows that have to be ticked; M30 names the tier |
-
+| 2026-10-06 | a 24 V inlet and twenty photodiodes, both found in the fab's previewer | (1) the inlet's nets were assigned from the SUPPLY's pin table onto the JACK's pad numbers; the two makers number the four contacts differently and the board shorted the supply. (2) the photodiode's footprint numbered anode 1, the maker and the fab number the cathode lands 1 and 4, and the placement frame had been matched by number: all twenty a half turn out | M1 names the translation and asks for the position -> pad -> net table; M2 says a number fit is not orientation evidence |
