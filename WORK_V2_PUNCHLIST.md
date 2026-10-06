@@ -897,26 +897,36 @@ an EMPTY table, which reads as "nothing needed measuring". Fixed in canonical ca
 own instruction was also wrong: it said to run `fab.py --frames`, a flag no project
 implements.
 
-**STILL OPEN — 5 placements the fit could not resolve**, and these are the ones that
-now need a person:
+**THE LAST FIVE ARE CLOSED TOO — 17 corrected, 0 not fitted.** Each refusal had a
+different cause and not one of them was an orientation problem. The fit matches pads
+by NUMBER and refuses on a large residual, which is right — fitting disagreeing
+numbering turns the part to suit the numbers — but a machine places a BODY, so each
+was re-fitted on pad POSITION at the four rotations.
 
-| part | residual | why it matters |
-|---|---|---|
-| **Q1, Q2** — TO-252 MOSFETs | 2.72 mm | the pump switches, 7.5 A each |
-| **D2, D3** — TO-263 Schottkys | 0.96 mm | the freewheel path |
-| **F2** — blade fuse holder | 2.90 mm | the battery feed |
+| part | cause of the refusal | correction | residual |
+|---|---|---|---|
+| **Q1, Q2** TO-252 | our land has a **middle lead pad** (numbered 2, the drain, same net as the tab); the fab's footprint has none — it merges that lead into the tab, so matching it charged 2.43 mm for a pad that is missing nothing | **90°**, −1.74 mm | 0.31 mm leads, 0.62 tab — **all along x, 0 across**: 14 % of a 2.20 mm lead's *length* |
+| **D2, D3** TO-263 | none — the numbering already agreed at 180°. The residual is **land design**: the fab draws the tab 1.44 mm further from the leads than we do | **180°**, −2.84 mm | 0.48 mm leads, 0.96 tab — all along x: 10 % of a 4.60 mm lead, 10 % of a 9.40 mm tab, 0 % across |
+| **F2** fuse holder | our eight holes carry **two** numbers (one per terminal, four holes each) and the fab numbers them 1–8, so fewer than two numbers are shared | **180°**, +6.40 / −1.27 mm | **0.016 mm** on seven of eight, 0.111 on the last |
 
-A residual that large means the fab's library numbers the lands differently from ours
-— on a TO-252/TO-263 the tab is the usual culprit (numbered 2 or 4, or split into
-several lands). Fitting by number would turn the part to suit the numbers, so the
-module refuses and lists them instead. Each needs its pin 1 / tab read off the fab's
-own library or previewer and compared with ours.
+**⚠ F2 IS WHERE M2 BIT, AND IT WAS DECIDED RATHER THAN ASSUMED.** A half turn on a
+symmetric 2 × 4 hole grid is ambiguous *from the holes alone* — both rotations fit to
+0.016 mm, so the pad cloud cannot tell you which is right. It was settled on the one
+feature that is not symmetric: our **2.4 mm non-plated spigot sits at x +6.400, which
+is the hole grid's own centre** (the grid spans 0.0–12.8), so a half turn maps it onto
+itself. The rotation cannot be wrong, and a fuse conducts either way, so the two
+terminals need no handedness either. That spigot is the same feature the pour geometry
+in M37 was built around.
 
-**AND M2 STILL APPLIES ON TOP OF THE TWELVE THAT DID FIT.** A frame fitted by pad
-NUMBER is not evidence of orientation: for the polarised parts — C1 and C2, and
-D1/D4/D5/D6 — the fab may number the same two lands the other way, and the fit then
-turns the part to suit. Those six want their pin 1 / cathode mark checked against the
-fab's previewer before anyone pays.
+All three are written into `elec/fab_frames.json` as **hand-entered** frames carrying
+their reasoning, and `ROTATION-CHECK.txt` marks each `[hand-entered frame]` so nobody
+later mistakes a judgement for a measurement.
+
+**M2 still stands on the polarised parts.** C1, C2 and D1/D4/D5/D6 fitted cleanly by
+pad number, and a pad-number fit is not evidence of orientation: the fab may number
+the same two lands the other way and the fit then turns the part to suit. Those six
+want their pin 1 / cathode mark read off the fab's previewer before anyone pays. That
+is a look at the order page, not a measurement this repo can make.
 
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
