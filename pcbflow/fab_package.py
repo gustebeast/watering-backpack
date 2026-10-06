@@ -38,13 +38,14 @@ layer, mask openings never short -- and BOM.md agreed with all five packages.
 That is the whole point of writing the judgement calls down as CHECKS rather than doing
 them by eye: the run above needed no human in it, and the next one will not either.
 
-⚠ ROTATION IS THE CLASSIC WAY TO LOSE A BOARD, and it is NOT fully solvable here.
-KiCad's position file gives the footprint's rotation in the KiCad footprint's own
-frame; JLCPCB's placement machine wants it in the LCSC part's frame, and for many
-parts those differ by 90/180/270. There is no general rule -- it is per part, and
-the honest workflow is to CHECK EVERY PART in JLCPCB's online previewer before
-paying. This file emits the KiCad convention unmodified and says so in the CPL
-header, rather than applying guessed corrections that would be invisible later.
+⚠ ROTATION AND ORIGIN ARE THE CLASSIC WAY TO LOSE A BOARD. KiCad's position file gives
+each part's angle and origin in the KiCad footprint's frame; the fab places ITS library
+footprint, which has its own. This file used to emit KiCad's convention unmodified and
+tell a person to check every part, on the grounds that the difference is per part and
+cannot be looked up. It can be MEASURED, from the fab's own footprint pads, and
+fab_frames.py does: the CPL here is written in the fab's frames, and ROTATION-CHECK.txt
+lists every part that was corrected and, separately, every part that could not be
+measured -- which is the short list a person still checks in the fab's previewer.
 
 EVERY BOM ROW CARRIES A PART NUMBER, OR THERE IS NO PACKAGE (2026-10-06). This used to
 say the opposite: generic passives went out with an EMPTY code cell, "chosen at order
@@ -64,6 +65,8 @@ column also carries the plain package ("0402"), not KiCad's name, so the matcher
 nothing to misread.
 """
 from __future__ import annotations
+
+from . import fab_frames
 
 import csv
 import json
@@ -91,6 +94,8 @@ LCSC = {}
 # A row with no code refuses the package (see the module docstring for what a blank does
 # at the fab). False only for a project that is not ordering assembled boards.
 REQUIRE_CODES = True
+FAB_TURN = {}            # see configure()
+PART_NOTES = {}
 # ⚠ EVERY VALUE STRING MUST BE ACCOUNTED FOR -- IN LCSC, GENERIC, OR HERE. A value that is
 # neither sourced nor generic nor declared open FAILS THE BUILD, so changing a part number
 # forces you to say so. (The case: a connector kept its OLD part number in `value` after
@@ -115,10 +120,17 @@ REQUIRE_QUALITY = False
 
 
 def configure(project_dir, boards, lcsc, open_values=(), order_every_board=None, after=None,
-              require_quality=False, require_codes=True):
-    """Point this module at a project. `project_dir` is the generator folder (elec/)."""
+              require_quality=False, require_codes=True, fab_turn=None, part_notes=None):
+    """Point this module at a project. `project_dir` is the generator folder (elec/).
+
+    `fab_turn`   {LCSC code: (degrees, why)} -- a part the fab's previewer showed the wrong
+                 way round after its pads were fitted (see fab_frames: a symmetric pad grid
+                 with the body to one side).
+    `part_notes` {LCSC code: text} -- something the order page needs done by hand for that
+                 part; written into ORDER.txt of every board that carries it."""
     global HERE, OUT_DIR, FAB_DIR, BOARDS, LCSC, OPEN_VALUES, ORDER_EVERY_BOARD, AFTER
-    global REQUIRE_QUALITY, REQUIRE_CODES
+    global REQUIRE_QUALITY, REQUIRE_CODES, FAB_TURN, PART_NOTES
+    FAB_TURN, PART_NOTES = dict(fab_turn or {}), dict(part_notes or {})
     REQUIRE_QUALITY = bool(require_quality)
     REQUIRE_CODES = bool(require_codes)
     HERE = os.path.abspath(project_dir)
@@ -173,6 +185,33 @@ def package_name(fp):
     name = fp.split(":", 1)[-1]
     m = _CHIP.match(name)
     return m.group(1) if m else name
+
+
+def frames_path():
+    """The project's table of fab footprint frames: tracked, beside the generators."""
+    return os.path.join(HERE, "fab_frames.json")
+
+
+def frames(names=None, refresh=False):
+    """Measure the fab's footprint frame for every part the table lacks (network: it
+    reads the fab's library). Run it when a board gains a part; the packages are built
+    offline from what it saved."""
+    if HERE is None:
+        raise SystemExit("fab: call configure() first")
+    table = fab_frames.load(frames_path())
+    for b in list(names or BOARDS):
+        pcb = os.path.join(OUT_DIR, b + ".kicad_pcb")
+        if not os.path.isfile(pcb):
+            print("%s: no routed board" % b)
+            continue
+        print(b)
+        fab_frames.derive(pcb, code_for, table, refresh=refresh)
+        fab_frames.save(frames_path(), table)
+    bad = sorted(k for k, e in table["frames"].items() if not e.get("fit"))
+    print("%d frame(s) in %s, %d not fitted" % (len(table["frames"]),
+                                                os.path.basename(frames_path()), len(bad)))
+    for k in bad:
+        print("   %-60s %s" % (k, table["frames"][k].get("why", "")))
 
 
 def _run(args):
@@ -298,6 +337,13 @@ def fab(board):
                         "top" if row["Side"].lower() == "top" else "bottom", row["Rot"]])
             n += 1
     os.remove(raw)
+    # ---- ...and moved into the FAB's footprint frames (fab_frames.py says why) ----
+    with open(cpl, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    table = fab_frames.load(frames_path())
+    corrected, unchecked = fab_frames.apply(pcb, rows[1:], code_for, table, FAB_TURN)
+    with open(cpl, "w", newline="", encoding="utf-8") as g:
+        csv.writer(g).writerows(rows)
 
     # ---- BOM, grouped by (value, footprint) the way JLCPCB reads it ----
     groups, open_real, open_generic, uncoded = {}, set(), set(), []
@@ -376,21 +422,40 @@ def fab(board):
         f.write("\n  on every board:\n")
         for k, v in ORDER_EVERY_BOARD:
             f.write("  %-12s %s\n" % (k + ":", v))
+        _codes = {code_for(v, fp) for (v, fp) in groups}
+        _notes = [(c, PART_NOTES[c]) for c in sorted(PART_NOTES) if c in _codes]
+        if _notes:
+            f.write("\n  by hand on the order page, for parts on this board:\n")
+            for c, v in _notes:
+                f.write("  %-12s %s\n" % (c + ":", v))
     crit, _total = _rotation_critical(pcb)
     with open(os.path.join(d, "ROTATION-CHECK.txt"), "w", encoding="utf-8") as f:
-        f.write("%s -- the placements a rotation difference can DAMAGE\n\n" % board)
-        f.write("The CPL carries KiCad's convention unmodified. JLCPCB's placement "
-                "machine wants\nthe LCSC part's frame, and for many parts those differ "
-                "by 90/180/270. Check these\nin the previewer before paying:\n\n")
-        for _ref, _rot, _fpn in crit:
-            f.write("  %-8s %3d deg   %s\n" % (_ref, _rot, _fpn))
-        f.write("\n%d of %d placements. The rest are two-pad chip passives, which both\n"
-                "conventions align along the pad axis -- symmetric, so a 0/180 "
-                "difference\ncannot change them.\n" % (len(crit), _total))
+        f.write("%s -- what to look at in the fab's placement preview\n\n" % board)
+        f.write("The placement file is written in the FAB's footprint frames: each part's "
+                "angle and\norigin were measured by laying the fab's library pads over "
+                "ours (fab_frames.json).\nEvery part below should preview sitting ON its "
+                "pads, body where the silkscreen draws it.\n\n")
+        f.write("CORRECTED -- angle or origin differs from KiCad's (%d):\n" % len(corrected))
+        for ref, val, code, old, new, shift, note in corrected:
+            f.write("  %-8s %-24s %-10s %3d -> %3d deg, origin moved %5.2f mm%s\n"
+                    % (ref, val[:24], code, round(old), round(new), shift,
+                       ("   [%s]" % note) if note else ""))
+        f.write("\nNOT CORRECTED -- left as KiCad wrote them; these are the ones to check "
+                "one by one (%d):\n" % len(unchecked))
+        for ref, val, name, why in unchecked:
+            f.write("  %-8s %-24s %-34s %s\n" % (ref, val[:24], name[:34], why))
+        _same = len(crit) - len(corrected) - len(unchecked)
+        f.write("\n%d more non-symmetric part(s) were measured and needed no change. "
+                "%d of %d placements\nare two-pad chip passives, which every library "
+                "lays along the pad axis about its\ncentre: a half turn cannot change "
+                "them.\n" % (max(_same, 0), _total - len(crit), _total))
     z = os.path.join(FAB_DIR, "%s.zip" % board)
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for fn in sorted(os.listdir(d)):
             zf.write(os.path.join(d, fn), fn)
+    if unchecked:
+        print("  %s: %d placement(s) NOT fitted to the fab's footprint -- see "
+              "ROTATION-CHECK.txt" % (board, len(unchecked)))
     return n, len(groups), sorted(open_real), sorted(open_generic), z, opts or {}
 
 
@@ -555,32 +620,15 @@ def _check_drill(pcb, drill_dir, board):
 def _rotation_critical(pcb):
     """Which placements could a rotation convention difference actually DAMAGE?
 
-    ⚠ EVERY PACKAGE ENDS BY TELLING A PERSON TO CHECK EVERY PART IN JLCPCB'S PREVIEWER,
-    and across five boards that is 329 placements. A human asked to check 329 things
-    checks them carefully the first time. This does not replace that step and corrects
-    nothing -- the CPL still carries KiCad's convention unmodified, for the reason at the
-    top of this file -- it says WHICH ones can bite, so the attention goes where the
-    damage is.
+    Returns ([(ref, angle, footprint)], placements). The rule is about SYMMETRY, not pad
+    count: a two-pad chip resistor or capacitor is the same part turned half round; a
+    diode has two pads too and is not. fab_frames.symmetric() is the one definition.
 
-    ⚠ THE RULE IS ABOUT SYMMETRY, NOT PAD COUNT. A two-pad chip resistor or ceramic
-    capacitor is rotationally symmetric: KiCad and JLCPCB both align it along its pad
-    axis, so the conventions can differ by 0 or 180 and the part is identical either way.
-    Everything else -- anything polarized, anything with three or more pads, anything
-    whose pin 1 means something -- is at risk.
-
-    ⚠ AND THE FIRST VERSION OF THIS ASKED THE PADS AND GOT DIODES WRONG. A SOD-123 diode
-    has pads numbered 1 and 2 exactly like an 0402, and a diode fitted backwards is a
-    dead board. Polarity is a property of the PART, not of its pad count, so the test is
-    the reference prefix and the footprint name. Measured after fixing it: 108 of 329
-    placements, against 56 while diodes were being waved through.
-
-    ⚠ AND THE CATALOGUE CANNOT SETTLE IT EITHER -- CHECKED, so nobody has to check
-    again. JLCPCB's own parts API returns 67 fields for a component (the same endpoint
-    lcsc_check.py uses) and NOT ONE of them describes the part's frame: no rotation, no
-    orientation, no pin-1 reference, nothing in the package or footprint fields that
-    would let a script derive the offset. So there is no source here to correct against,
-    which makes "narrow the human's work and correct nothing" the only honest answer
-    available rather than a cautious preference.
+    (This used to be all a package could say: "these can bite, check them", because the
+    fab's parts catalogue carries no field describing a part's frame. Its footprint
+    library does carry the pads, and fab_frames.py measures the frame from those -- so the
+    placement file is corrected now and ROTATION-CHECK.txt lists what was changed and,
+    separately, what could not be.)
     """
     import pcbnew
     board = pcbnew.LoadBoard(pcb)
@@ -591,11 +639,7 @@ def _rotation_critical(pcb):
             continue
         total += 1
         ref, name = fp.GetReference(), fp.GetFPIDAsString()
-        sym = (len({q.GetNumber() for q in pads}) <= 2
-               and not re.match(r"^CP", ref)
-               and not re.search(r"Polarized|CP_|SOD|SMA|SMB|SMC|LED|Diode|Crystal",
-                                 name, re.I)
-               and re.match(r"^(R|C|L|FB|TP|JP)[A-Za-z]*[0-9]", ref))
+        sym = fab_frames.symmetric(fp)
         if not sym:
             out.append((ref, round(fp.GetOrientationDegrees()) % 360,
                         name.split(":")[-1]))
@@ -730,11 +774,9 @@ def main(names=None):
     # codepage is cp1252, and a warning that raises UnicodeEncodeError is
     # worse than no warning at all.
     print("")
-    print("!! CHECK THE ROTATIONS in JLCPCB's previewer before paying: the CPL carries")
-    print("  KiCad's convention, which differs per part from LCSC's. Each package's")
-    print("  ROTATION-CHECK.txt lists ONLY the placements a difference can DAMAGE --")
-    print("  polarised, multi-pad, or pin-1-bearing. Two-pad chip passives are")
-    print("  symmetric under a 0/180 difference and are deliberately left off it.")
+    print("!! LOOK AT THE PLACEMENT PREVIEW before paying. The placement files are in the")
+    print("  fab's footprint frames (fab_frames.json); each package's ROTATION-CHECK.txt")
+    print("  lists what was corrected and, separately, what could not be measured.")
 
 
 if __name__ == "__main__":
