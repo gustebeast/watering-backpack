@@ -50,26 +50,67 @@ import urllib.request
 SOURCE = ("pad positions read from the JLCEDA/EasyEDA Official Library "
           "(https://lceda.cn/ , https://easyeda.com); this file keeps only the rotation "
           "and offset measured from them")
-API = "https://easyeda.com/api/products/%s/components"
-UNIT = 0.254                      # the library's unit is 10 mil
+# ⚠ THE OLD ENDPOINT IS DEAD, AND IT DIED SILENTLY FOR EVERY PROJECT.
+# "https://easyeda.com/api/products/%s/components" now returns 403 from CloudFront
+# ("Request blocked") for every code, from urllib and from a browser alike, with or
+# without a User-Agent or a Referer -- an edge block rather than a bot check. Every
+# derive() run against it reports "lookup failed" on every part and then writes an
+# EMPTY table, which reads as "nothing to measure" rather than as a failure. The
+# watering-backpack board sat with all 24 of its orientation-critical parts
+# unmeasured and a report telling the reader to run the very command that could not
+# work.
+API_SEARCH = ("https://pro.easyeda.com/api/eda/product/search"
+              "?keyword=%s&needAggs=false&currPage=1&pageSize=20")
+API_COMPONENT = "https://pro.easyeda.com/api/components/%s"
+UNIT = 0.0254                     # the pro library's unit is 1 mil (the old one was 10)
 FIT_MM = 0.45                     # a pad further than this from its twin is not the same land
 
 
+def _get_json(url):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; cadkit fab_frames)",
+        "Accept": "application/json, text/plain, */*"})
+    with urllib.request.urlopen(req, timeout=40) as r:
+        return json.load(r)
+
+
+def footprint_uuid(code):
+    """The fab library's footprint uuid for an LCSC code, or None.
+
+    The search returns near matches as well as the code asked for, so the row is
+    picked by its own "Supplier Part" attribute rather than by position -- asking for
+    C20526 and silently measuring whatever ranked first is exactly the kind of wrong
+    answer this module exists to prevent."""
+    d = _get_json(API_SEARCH % code)
+    for prod in ((d.get("result") or {}).get("productList") or []):
+        attrs = (prod.get("device_info") or {}).get("attributes") or {}
+        if attrs.get("Supplier Part") == code and attrs.get("Footprint"):
+            return attrs["Footprint"]
+    return None
+
+
 def fetch_pads(code):
-    """[(pad number, x, y)] in mm, y up, about the fab footprint's own origin."""
-    with urllib.request.urlopen(API % code, timeout=40) as r:
-        d = json.load(r)
-    data = ((d.get("result") or {}).get("packageDetail") or {}).get("dataStr") or {}
-    head = data.get("head") or {}
-    if "x" not in head:
+    """[(pad number, x, y)] in mm, y up, about the fab footprint's own origin.
+
+    y is NOT negated here, unlike the old reader -- see the module docstring's note
+    on how that was measured. The rows are newline-separated JSON arrays and a pad is
+    ["PAD", id, _, "", layer, number, x, y, rot, ...]."""
+    uuid = footprint_uuid(code)
+    if not uuid:
         return []
-    ox, oy = float(head["x"]), float(head["y"])
+    d = _get_json(API_COMPONENT % uuid)
     out = []
-    for s in data.get("shape", []):
-        f = s.split("~")
-        if f[0] != "PAD" or not f[8]:
+    for line in ((d.get("result") or {}).get("dataStr") or "").splitlines():
+        line = line.strip()
+        if not line.startswith('["PAD"'):
             continue
-        out.append((f[8], (float(f[2]) - ox) * UNIT, -(float(f[3]) - oy) * UNIT))
+        try:
+            f = json.loads(line)
+        except ValueError:
+            continue
+        if len(f) < 8 or f[5] in (None, ""):
+            continue
+        out.append((str(f[5]), float(f[6]) * UNIT, float(f[7]) * UNIT))
     return out
 
 
@@ -224,7 +265,7 @@ def apply(pcb, rows, code_of, table, turn=None):
         e = table["frames"].get(key(code, name)) if code else None
         if not e:
             unchecked.append((ref, val, name, "no part number" if not code else
-                              "not measured: run the project's fab.py --frames"))
+                              "not measured: run fab_package.frames([board])"))
             continue
         if not e.get("fit"):
             unchecked.append((ref, val, name, e.get("why", "not fitted")))
