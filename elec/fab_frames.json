@@ -1,0 +1,170 @@
+{
+ "_source": "pad positions read from the JLCEDA/EasyEDA Official Library (https://lceda.cn/ , https://easyeda.com); this file keeps only the rotation and offset measured from them",
+ "frames": {
+  "C187824|SOIC-8-1EP-FABDRILL": {
+   "dx": -0.0,
+   "dy": 0.0,
+   "err": 0.294,
+   "fit": true,
+   "pads": 9,
+   "read": "2026-10-06",
+   "rot": 270
+  },
+  "C20526|SOT-23": {
+   "dx": 0.0208,
+   "dy": -0.0,
+   "err": 0.083,
+   "fit": true,
+   "pads": 3,
+   "read": "2026-10-06",
+   "rot": 180
+  },
+  "C207061|FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165": {
+   "dx": 11.05,
+   "dy": -2.4366,
+   "err": 2.901,
+   "fit": false,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0,
+   "why": "its pads are up to 2.90 mm from ours at the best of the four rotations"
+  },
+  "C2103|D_SOD-123": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.042,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C252936|Buzzer_12x9.5RM7.6": {
+   "dx": 3.8,
+   "dy": 0.0,
+   "err": 0.0,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C260296|TO-263-2": {
+   "dx": -2.8357,
+   "dy": -0.0,
+   "err": 0.957,
+   "fit": false,
+   "pads": 3,
+   "read": "2026-10-06",
+   "rot": 180,
+   "why": "its pads are up to 0.96 mm from ours at the best of the four rotations"
+  },
+  "C310039|D_SMC": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.286,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C371283|CP_Elec_10x10.5": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.3,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C42377749|TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal": {
+   "dx": 7.62,
+   "dy": 0.0,
+   "err": 0.0,
+   "fit": true,
+   "pads": 4,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C42377750|TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal": {
+   "dx": 10.16,
+   "dy": 0.0001,
+   "err": 0.0,
+   "fit": true,
+   "pads": 5,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C42431790|PinHeader_1x06_P2.54mm_Vertical": {
+   "dx": 0.0,
+   "dy": -6.35,
+   "err": 0.0,
+   "fit": true,
+   "pads": 6,
+   "read": "2026-10-06",
+   "rot": 270
+  },
+  "C67279|TO-252-3_TabPin2": {
+   "dx": -2.7865,
+   "dy": -0.0001,
+   "err": 2.721,
+   "fit": false,
+   "pads": 3,
+   "read": "2026-10-06",
+   "rot": 90,
+   "why": "its pads are up to 2.72 mm from ours at the best of the four rotations"
+  },
+  "C69680|Fuse_1206_3216Metric": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.045,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C701342|ESP32-WROOM-32E-FABDRILL": {
+   "dx": -0.0,
+   "dy": -3.6807,
+   "err": 0.258,
+   "fit": true,
+   "pads": 39,
+   "read": "2026-10-06",
+   "rot": 270
+  },
+  "C7428237|D_SMA": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.071,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C81598|D_SOD-123": {
+   "dx": 0.0,
+   "dy": 0.0,
+   "err": 0.085,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C8465|TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": {
+   "dx": 2.54,
+   "dy": 0.0,
+   "err": 0.0,
+   "fit": true,
+   "pads": 2,
+   "read": "2026-10-06",
+   "rot": 0
+  },
+  "C99395|SOT-23-5": {
+   "dx": 0.0325,
+   "dy": -0.0,
+   "err": 0.195,
+   "fit": true,
+   "pads": 5,
+   "read": "2026-10-06",
+   "rot": 180
+  }
+ }
+}

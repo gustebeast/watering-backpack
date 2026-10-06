@@ -18,7 +18,7 @@ Nothing was ordered. The quote auto-saves into the JLCPCB account under
 | outline | 112 x 95 mm | `BOARD_W, BOARD_L = 95.0, 112.0` | ✅ |
 | BOM match | **34 of 34 parts detected, 34 confirmed** | 34 BOM lines | ✅ |
 | unmatched / substituted | none | — | ✅ |
-| 3D placement preview | renders; every part on its pads, bodies where the silk draws them | — | ✅ |
+| 3D placement preview | renders — but see below; it was the UNCORRECTED placement file | — | ❌ |
 | C1/C2 electrolytic polarity | both `+` left, black can right, agreeing with each other and with the silk | — | ✅ |
 | J1/J2/J3/J4 | on the -Y edge, screw faces outward | the requirement | ✅ |
 | J5 | **on the +Y edge, alone** | finding 21, still open | ❌ |
@@ -121,12 +121,14 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    order form has **"Depanel boards & edge rail before delivery"** under Advanced
    Options; if it is not selected the boards can arrive 105 mm wide and will not fit.
    This is not in `ORDER.txt` yet.
-2. **The rotation frames have never been measured.** `ROTATION-CHECK.txt` lists all 24
-   orientation-critical parts — every connector, every polarised part, every TO-252 and
-   TO-263, both ICs — under "NOT CORRECTED ... not measured: run the project's fab.py
-   --frames". The 3D preview is therefore the only orientation evidence this board has.
-   It was looked at (see above) and nothing was visibly wrong, but a pad-fit measurement
-   is a different and stronger check than a person looking at a render.
+2. **⚠ THE PLACEMENT FILE UPLOADED HERE IS STALE — re-upload before ordering.** The
+   frames were measured after this quote (finding 24) and **13 of 59 placements moved**:
+   J4 by 10.16 mm, J5 by 7.62, J6 by 6.35 and 90°, the ESP32 by 90° and 3.68 mm, the
+   buck by 270°, both gate drivers and Q3 by 180°. The prices above still stand — same
+   parts, same board, same copper — but the CPL in this quote would have been assembled
+   wrong. Five placements (Q1, Q2, D2, D3, F2) still do not fit and need a person.
+   **And the "every part on its pads" line in the table above was my own misreading of
+   that render**: those twelve parts were visibly off and I read past them.
 3. **Check stock the day you order.** Every figure here is from 2026-10-06.
 4. **J5 is still on the wrong edge** (finding 21). That is a design question, not an
    order-form one, and it is unresolved.
