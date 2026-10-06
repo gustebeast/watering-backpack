@@ -349,6 +349,16 @@ def fab(board):
     groups, open_real, open_generic, uncoded = {}, set(), set(), []
     for ref, val, fp in _parts(stem):
         groups.setdefault((val, fp), []).append(ref)
+    # ONE ROW PER PART NUMBER. Two rows that name the same part ("100nF" and "100nF/50V",
+    # both the same reel) reach the order page as one row with quantity 0 and unselected,
+    # and Next stops on "Project has unselected parts" (order page, 2026-10-06).
+    _first = {}
+    for key in sorted(groups):
+        code = code_for(*key)
+        if code and code in _first:
+            groups[_first[code]].extend(groups.pop(key))
+        elif code:
+            _first[code] = key
     bom = os.path.join(d, "%s-bom.csv" % board)
     with open(bom, "w", newline="", encoding="utf-8") as g:
         w = csv.writer(g)
@@ -428,6 +438,22 @@ def fab(board):
             f.write("\n  by hand on the order page, for parts on this board:\n")
             for c, v in _notes:
                 f.write("  %-12s %s\n" % (c + ":", v))
+        # A ROW WHOSE DESIGNATORS DO NOT SHARE ONE PREFIX (C100 with Cd1, PD10A with PD10B)
+        # arrives on the order page with quantity 0 and unticked, under "There may be
+        # multiple types of parts, but one type of part has been matched. Please check."
+        # (order page, 2026-10-06). It is the same part and ticking the row is all it
+        # wants; renaming the designators in the files does not clear it.
+        _mixed = []
+        for (_v, _fp), _refs in sorted(groups.items()):
+            kinds = {(m.group(1) + m.group(2)).upper()
+                     for m in (re.match(r"^([A-Za-z]+)\d+([A-Za-z]*)$", r) for r in _refs) if m}
+            if len(kinds) > 1 and code_for(_v, _fp):
+                _mixed.append((code_for(_v, _fp), _v, len(_refs)))
+        if _mixed:
+            f.write("\n  rows that arrive UNTICKED with quantity 0 ('multiple types of parts'): "
+                    "tick each one\n")
+            for c, v, _k in _mixed:
+                f.write("  %-12s %s, %d placements\n" % (c + ":", v, n))
     crit, _total = _rotation_critical(pcb)
     with open(os.path.join(d, "ROTATION-CHECK.txt"), "w", encoding="utf-8") as f:
         f.write("%s -- what to look at in the fab's placement preview\n\n" % board)

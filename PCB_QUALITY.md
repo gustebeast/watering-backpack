@@ -584,6 +584,10 @@ access the bring-up will need.
   been looked at in the fab's preview, a through-hole or right-angle part sits on its
   holes with its body on our outline, and the price shown has no option carried over
   from the previous board ordered (via size, material, electrical test, build time).
+  The assembly tier quoted is the one the design was costed at: at JLCPCB, parts on the
+  back, a solder mask that is not green, or a single part marked "Standard only" each
+  move the whole board from the economic tier to the standard one (a larger setup fee,
+  a stencil charge, a fee per part type), and the page says so only when the BOM is in.
 - **M31 — Markings survive assembly.** Pin-1 and polarity marks are visible with the part
   fitted (outside the body, not under it); text is at least the fab's minimum height and
   stroke and not over pads, holes or the board edge; the board's name and revision are
@@ -684,3 +688,5 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-04 | the fab's own capability page, read against the rule files of seven routed boards | the rule file is typed by a person and DRC only proves the board against it; five of its values were looser than the fab's, and all silk was under the fab's legible height | **A12** (new, measured); M29 narrowed to what A12 cannot measure; `kicad_silk` and the layout's reference text raised to 1.0 mm |
 | 2026-10-06 | a control board, in a dry run of the fab's order page | generic passives were sent with no part number, "chosen at order time"; the fab's matcher read KiCad's `C_0402_1005Metric` as 01005 and picked parts its cheaper assembly service does not place, so they came up unselected at quantity 0 and the order would have built the board without them | M30 extended; `fab_package` refuses an uncoded row, keys passives on (value, footprint) and writes the plain package name |
 | 2026-10-06 | five boards walked through the fab's order page | the placement file carried our footprints' origins and angles and the fab places its own: a 1x20 header previewed 24 mm off its holes (our origin is pin 1, theirs the middle), and a right-angle two-row header previewed with its pins pointing into the board (the two libraries number its rows opposite ways, which no pad fit can see). The form also kept the previous board's paid options | M30 extended; `pcbflow/fab_frames.py` (new) writes the placement file in the fab's frames and the package lists what it could not measure |
+| 2026-10-06 | ten more boards walked through the fab's order page to the quote | (1) every part on an all-back-side board previewed a half turn out: the fab turns a back-side part over left to right, KiCad top to bottom. (2) two BOM rows naming one part number left one row at quantity 0. (3) a row whose designators mix prefixes arrives unticked. (4) the assembly TIER is decided by things that are not in the BOM: back-side assembly, a black solder mask and one "Standard only" part each force the dearer tier | `fab_frames.apply` turns back-side parts half round; the package writes one BOM row per part number and lists the rows that have to be ticked; M30 names the tier |
+
