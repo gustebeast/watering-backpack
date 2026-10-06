@@ -404,6 +404,44 @@ that does not fit at the legible size, make room.
 
 ---
 
+### A13 — Every pin and every channel is accounted for
+
+**Rule.** The board declares which pins it leaves unconnected, and for each repeated
+structure how many distinct nets its pins are on. The pass fails on any difference, in
+either direction.
+
+**Why.** A netlist that is wrong but internally consistent passes everything else. Two
+channels wired to the same four driver outputs are simply fewer nets: it routes clean,
+DRC is clean, and every rule above is satisfied, because those all ask whether the board
+agrees with the netlist. Only a number the DESIGN means, written beside the board, can
+disagree with it. (A loop that read an index left over from the loop above did exactly
+this: 24 return nets where 32 were meant, eight driver outputs idle, nothing red.)
+
+**How it is checked.** On the routed board:
+
+* *Unconnected pins.* Every numbered pad of a part with three or more pins that has no
+  net (or is alone on its net) must be named in `quality.unconnected`, with a reason; and
+  every pin named there must really be unconnected. Keys are `"REF.PIN"` patterns
+  (`"J*.MP"`, `"U14.5"`) with the reason as the value, or a part pattern with a pin list:
+  `"U6": {"pins": "7 8 9 12", "why": "spare GPIO, left floating as inputs"}`.
+* *Groups.* `quality.net_groups` is a list of
+  `{"name": ..., "pins": ["PD*.2"], "nets": 20, "each": 1}`: the pins the patterns match
+  must sit on exactly `nets` distinct nets, with exactly `each` of them on every net (leave
+  `each` out when the nets are meant to differ), and `pins_count` pins must match when it
+  is given. A group can instead name its NETS:
+  `{"name": ..., "nets_like": "ULPI_D[0-7]", "count": 8, "pads": 2}` asks for exactly
+  `count` nets whose whole name matches, each with exactly `pads` pads on it (both ends
+  present, nothing extra). Declare one for every structure that is repeated: sensor channels, driver
+  outputs, LED zones, the ways of each connector, the lanes of a bus, chip selects.
+
+Write both from the DESIGN (the datasheet's channel count, the number of strings, frets,
+motors), not by copying what the board happens to have. A declaration read off the board
+proves nothing.
+
+**How strict.** **Hard**, all of it. There is no waiver: if the board is wrong the generator is
+fixed, and if the declaration is wrong it is corrected to what the design means. A board
+with nothing repeated says so with an empty `net_groups` list; leaving the key out fails.
+
 ## Manual checks
 
 Sign each in `quality["manual"]` with what you checked against. If a rule does not apply
@@ -703,3 +741,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-06 | five boards walked through the fab's order page | the placement file carried our footprints' origins and angles and the fab places its own: a 1x20 header previewed 24 mm off its holes (our origin is pin 1, theirs the middle), and a right-angle two-row header previewed with its pins pointing into the board (the two libraries number its rows opposite ways, which no pad fit can see). The form also kept the previous board's paid options | M30 extended; `pcbflow/fab_frames.py` (new) writes the placement file in the fab's frames and the package lists what it could not measure |
 | 2026-10-06 | ten more boards walked through the fab's order page to the quote | (1) every part on an all-back-side board previewed a half turn out: the fab turns a back-side part over left to right, KiCad top to bottom. (2) two BOM rows naming one part number left one row at quantity 0. (3) a row whose designators mix prefixes arrives unticked. (4) the assembly TIER is decided by things that are not in the BOM: back-side assembly, a black solder mask and one "Standard only" part each force the dearer tier | `fab_frames.apply` turns back-side parts half round; the package writes one BOM row per part number and lists the rows that have to be ticked; M30 names the tier |
 | 2026-10-06 | a 24 V inlet and twenty photodiodes, both found in the fab's previewer | (1) the inlet's nets were assigned from the SUPPLY's pin table onto the JACK's pad numbers; the two makers number the four contacts differently and the board shorted the supply. (2) the photodiode's footprint numbered anode 1, the maker and the fab number the cathode lands 1 and 4, and the placement frame had been matched by number: all twenty a half turn out | M1 names the translation and asks for the position -> pad -> net table; M2 says a number fit is not orientation evidence |
+| 2026-10-06 | a fret-light board: two pairs of frets wired to the same four driver outputs | a loop in the generator read an index left over from the loop above. 24 nets where 32 were meant and eight outputs idle; routed, DRC-clean, quality-clean, because every check compared the board with its own netlist | A13: the board declares its unconnected pins and its nets per group, and the pass fails on any difference |
