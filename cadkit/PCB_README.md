@@ -106,6 +106,9 @@ Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to 
 | `router_passes`, `finish_rounds` | autorouter passes (10) and route-retry rounds (1). Raise only with evidence |
 | `refs_on_fab`, `ref_pos` | move designators to F.Fab on a dense board; or place one by hand |
 | `strip_silk` | ref prefixes of parts no ink may come near (optical sensors) |
+| `silk_refs` | print a designator beside each part: `True` for every part, or a list of ref prefixes (`["U", "Q", "D", "SW"]`). Off by default. Each goes down only beside its own part, at the legible size, where a free site exists; the rest are counted in the log |
+| `silk_labels` | `{ref or net: text}`: what a button, LED or jumper is FOR (`{"SW1": "RESET"}`), or a shorter word for a net in a connector's pinout (`{"+24V_LED": "24V"}`) |
+| `silk_name`, `silk_rev` | a short board name for a board too small for its file name; the revision printed after it (default `r1`, bump it when copper changes on a re-order) |
 | `quality` | the board's quality record: supply paths and currents, decoupling limits, pinout citations, manual sign-offs, waivers. **Every key is in `PCB_QUALITY.md`** |
 | `order_options` | `{key: text}` extra order-form settings for this board's `ORDER.txt` |
 | `qty_per_instrument` | how many the product uses (for totals) |
@@ -175,7 +178,7 @@ generator for any board whose geometry comes from the mechanical design.
 | module | runs under | what it does |
 |---|---|---|
 | `cadkit/kicad_geom.py` | KiCad's Python (`pcbnew`) | routed `.kicad_pcb` → `<board>.geom.json`: outline polygon, cutouts, thickness, every footprint's position / rotation / side / **F.Fab body box** / through-hole pad extent, and board-level silkscreen text |
-| `cadkit/kicad_silk.py` | KiCad's Python | prints the board's name + revision, test-pad nets and connector pinouts, each only where it fits; cannot move copper |
+| `cadkit/kicad_silk.py` | KiCad's Python | prints the board's name + revision, test-pad nets, connector pinouts and (with `silk_refs` / `--refs`) a designator beside each part, each only where it fits; cannot move copper. All of it reaches the CAD: `kicad_geom.py` exports the lettering and `Boards.silk()` draws it |
 | `cadkit/board_geom.py` | your CAD Python (CadQuery) | `Boards(geom_dir)`: `solid()`, `solid(mated=True)`, `plate()`, `bodies()`, `silk()`, `mouth()`, `lead_exit()`, `tails()`, `holes()`; plus the shared part tables `HEIGHT`, `TAIL`, `THT_LEGS`, `PANEL` |
 | `cadkit/board_check.py` | your CAD Python | `check(name, solid, geom)`: every routed part present, not mirrored, cutouts match |
 | `cadkit/pcbflow/` | both (see §0) | **makes** the board: generator helpers, layout, autoroute, DRC, repair, verify, fab package |
