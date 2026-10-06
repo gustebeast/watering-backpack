@@ -128,8 +128,10 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    parts, same board, same copper — but the CPL in this quote would have been assembled
    wrong. **All 17 are corrected now and none is left unfitted** — the last five
    (Q1, Q2, D2, D3, F2) were re-fitted on pad position and hand-entered, see
-   finding 24. What is left for a person is M2: the six polarised parts fitted by
-   pad NUMBER want their pin 1 checked on the order page.
+   finding 24. **M2 is closed too, and without the previewer**: the six polarised
+   two-pad parts (C1, C2, D1, D4, D5, D6) were checked against the fab's own layer-49
+   pin-1 dot by `elec/fab_polarity.py`, and all six agree that the fab's pin 1 is our
+   pad 1. Nothing orientation-related is left for a person.
    **And the "every part on its pads" line in the table above was my own misreading of
    that render**: those twelve parts were visibly off and I read past them.
 3. **Check stock the day you order.** Every figure here is from 2026-10-06.
