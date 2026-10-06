@@ -925,11 +925,53 @@ All three are written into `elec/fab_frames.json` as **hand-entered** frames car
 their reasoning, and `ROTATION-CHECK.txt` marks each `[hand-entered frame]` so nobody
 later mistakes a judgement for a measurement.
 
-**M2 still stands on the polarised parts.** C1, C2 and D1/D4/D5/D6 fitted cleanly by
-pad number, and a pad-number fit is not evidence of orientation: the fab may number
-the same two lands the other way and the fit then turns the part to suit. Those six
-want their pin 1 / cathode mark read off the fab's previewer before anyone pays. That
-is a look at the order page, not a measurement this repo can make.
+**M2 IS CLOSED ON THE POLARISED PARTS TOO — and it did NOT need the previewer.**
+I had written that it did: *"a look at the order page, not a measurement this repo can
+make."* That was wrong, and wrong in the direction that matters, because a two-pad
+polarised part is the one case where nothing else can save you. The pad cloud is
+mirror-symmetric, so unlike Q1/D2/F2 above it cannot be re-fitted on POSITION either —
+and C1 and C2 are 100 µF electrolytics across an 18 V battery, which vent if they go in
+backwards.
+
+What I had missed is that the fab's footprint carries **more than pads**. The same
+`dataStr` that `fab_frames` reads for pad positions also holds silkscreen (layer 3),
+document (13) and **COMPONENT_MARKING (layer 49)** geometry, and layer 49 holds a single
+point: **the fab's own pin-1 dot**. That is the fab stating which land is pin 1, in the
+fab's own data. Reading it is a measurement.
+
+`elec/fab_polarity.py` reads it for all six, twice over, and requires the two readings
+to agree:
+
+| | our pad 1 | why it must be (from the NETS, not a pin name) | R1 pin-1 dot | R2 silk ink |
+|---|---|---|---|---|
+| **C1, C2** `C371283` | **+** | pad 1 on VBAT, pad 2 on GND | their pad 1, **2.1×** | their pad 1, 9 % |
+| **D1** `C310039` | **K** | SMCJ24A unidirectional TVS clamping VBAT to GND: pad 1 is on VBAT, so pad 1 is the cathode or the TVS is a short | their pad 1, **2.8×** | their pad 1, 16 % |
+| **D4** `C81598` | **K** | buzzer flyback: pad 1 on +3V3, pad 2 on the drive node | their pad 1, **4.6×** | their pad 1, 72 % |
+| **D5** `C2103` | **K** | zener clamping VGATE: pad 1 on VGATE, pad 2 on GND | their pad 1, **4.0×** | their pad 1, 86 % |
+| **D6** `C7428237` | **K** | buck catch diode: pad 1 on SW — the cathode goes to the switch node | their pad 1, **3.2×** | their pad 1, 3 % |
+
+All six agree: **the fab's pin 1 is our pad 1**, so the rot-0 frames were right and the
+numbering means the same thing on both sides. Ours is asserted from the **nets**, not
+from a pin name — `GetPinFunction()` is empty on a board built from a netlist, and a net
+is the better witness anyway: it says what the terminal has to be for the circuit to
+work at all.
+
+**R2's weakness, named and measured rather than hidden:** the silk-ink reading is
+decisive on D4 (72 %) and D5 (86 %), but only **3 % on D6** and 9 % on the capacitors,
+because a cathode band is a single line and the document layer puts a "+" at the *other*
+end. So R2 is **not** allowed to confirm anything on its own — the gate turns on R1,
+which is 2.1× or better everywhere, and R2's only power is to **veto**: if it
+contradicts R1, that part fails and needs a person.
+
+**The gate has been made to fail — six ways, on the real fetched data**, each corrupting
+one thing and each caught: the fab numbering the other land pin 1; the dot sitting
+between the pads (not decisive); layer 49 carrying no dot; layer 49 carrying two; the
+silk contradicting the dot; and the fab's pad numbers not matching ours. Uncorrupted,
+it still passes — otherwise the harness proves nothing.
+
+`fab_polarity.py` is project-local for now. It is generic enough to belong in canonical
+`cadkit/pcbflow` beside `fab_frames`, and that is worth doing, but upstreaming it means
+propagating to eleven consumers and is its own job.
 
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
