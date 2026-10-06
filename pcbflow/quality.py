@@ -71,6 +71,14 @@ HINT = {
     "A12": "move the hole, widen the ring or the track, enlarge the text -- or, if the "
            "order really uses another fab or a costlier option, state its numbers in "
            "quality.fab with where they were read",
+    "A15": "reroute the track that cuts the plane, or move the signal that crosses the cut; "
+           "a stitching via beside the crossing only helps if the plane is whole on the "
+           "other side. If the gap is deliberate, say in quality.return_slot_ok which "
+           "signal crosses what and what carries its return instead",
+    "A14": "cadkit/pcbflow/unwick.py moves what it can; past that, move the PART to open "
+           "room beside it, or order the board with the vias filled and capped and say so "
+           "in quality.via_in_land_ok -- tenting the via does not help, because the pad's "
+           "own mask aperture is already open over it",
     "A9": "move the crystal and its load capacitors up against the oscillator pins",
     "A13": "if the board is wrong, fix the generator (look for an index left over from "
            "another loop); if the declaration is, correct quality.unconnected / "
@@ -86,6 +94,7 @@ HINT = {
 # SOFT: the default is to fix, and PCB_QUALITY.md says, rule by rule, the only cases in
 # which a waiver is honest. Matched against the finding's text; "" = every finding.
 HARD = {
+    "A14": ("can take the whole",),
     "A1": ("is not a pad on", "no copper joins", "declares no power_paths"),
     "A3": ("",),
     "A4": ("",),
@@ -277,6 +286,46 @@ class _Net:
                         if f > 0:
                             ring = math.pi * (MM(v.GetDrillValue()) + MM(v.GetWidth(pcbnew.F_Cu))) / 2.0
                             self._edge(zk, n, f * ring, "pour contact", L, (n[1], n[2]))
+                # ⚠ AND THE PADS, BY SHAPE RATHER THAN BY THEIR CENTRE POINT.
+                # The loop above reaches a pad only through the position node
+                # at its CENTRE, and a pour that connects a pad perfectly well
+                # often does not contain that one point: the fill abuts the pad
+                # from one side, or wraps three of its four edges, or the pad is
+                # a through-hole whose middle is the drill. Measured on
+                # watering-backpack's main board, where the three high-current
+                # nets are regional pours: of the 26 pads on them, 8 collided
+                # with their own pour while failing the centre test -- J2.1,
+                # J2.2 and J3.2 (the screw terminals the pack and both pumps
+                # land on), the D3 cathode tab, and every DPAK drain lead.
+                #
+                # What that cost was not a warning. A1 grades the WIDEST
+                # bottleneck path it can find, so dropping the pour edge did not
+                # make the check fail honestly -- it made it fall through to the
+                # 1.2 mm track beside the pour and report that as the board's
+                # narrowest point, "CHOKE POINT", on a net whose copper is 13 mm
+                # wide. Three of the five were worse still: with no pour edge
+                # and no track, A1 reported the HARD "no copper joins", which
+                # reads as an open circuit on a net that is solidly poured.
+                #
+                # A pad is connected to a pour when their copper touches, which
+                # is what Collide asks. Collide is the same predicate DRC uses
+                # for clearance, so this agrees with the board's own rules
+                # rather than approximating them.
+                lsid = b.GetLayerID(L)
+                for ref, num, pad in ctx.by_net.get(net, ()):
+                    k = self.pad_keys.get("%s.%s" % (ref, num))
+                    if k is None or not pad.IsOnLayer(lsid):
+                        continue
+                    try:
+                        touches = poly.Collide(pad.GetEffectiveShape(lsid), 0)
+                    except Exception:
+                        # No shape for this pad on this layer: fall back to the
+                        # centre test rather than claiming a connection.
+                        x, y = _xy(pad)
+                        touches = poly.Contains(pcbnew.VECTOR2I(
+                            pcbnew.FromMM(x), pcbnew.FromMM(y)))
+                    if touches:
+                        self._edge(zk, k, self.POUR, "pour", L, _xy(pad))
 
     def _edge(self, a, c, w, kind, layer, at, ohm=0.0):
         self.g[a].append((c, w, kind, layer, at))
@@ -1072,10 +1121,41 @@ def fab_capability(ctx):
     # SMD pad to pad, different nets, same face
     gaps = []
     smd = []
+    # A PASTE DAB IS NOT COPPER, AND THIS RULE MEASURES COPPER. KiCad's
+    # thermal-tab footprints subdivide one big land into several solder-paste
+    # openings so the stencil lays a controlled volume instead of one lake that
+    # floats the part: SOIC-8-1EP_..._ThermalVias, DPAK and D2PAK all carry them.
+    # They are SMD pads on F.Paste ONLY -- no F.Cu, no net, no number -- and the
+    # layer pick below used to read "F_Cu if on F_Cu else B_Cu", so every one of
+    # them fell through to B.Cu and was compared as though it were copper.
+    #
+    # On watering-backpack's main board that was 4 hard FAILs: U1's four paste
+    # dabs sit ON the exposed pad they subdivide, so the measured gap is zero,
+    # against a net they can never short to because they are the same land. The
+    # other sixteen (Q1, Q2, D2, D3) escaped only because the 3 mm search window
+    # happened to miss them -- an accident, not a pass.
+    #
+    # The gate is not weaker for this: a pad with no copper has no copper gap to
+    # be under the fab's minimum. Requiring a copper layer is what the rule
+    # always meant, and it is now what it says.
+    #
+    # MADE TO FAIL, so the fix is a correction and not a muzzle. On the same
+    # board, 164 copper pads measured and exactly the 20 F.Paste-only ones
+    # skipped; then the limit was walked up until real copper tripped it --
+    # silent at 0.15 and 0.30, 46 pairs at 0.50, first U1.1/U1.9. Bisecting the
+    # Collide gives the board's true tightest different-net copper gap as
+    # 0.350 mm, at U3.1 VGATE <-> U3.2 GND on the SOT-23-5 gate driver: 2.3x
+    # JLCPCB's 0.15 mm standard floor. The rule still bites; this board is
+    # simply nowhere near the floor.
     for ref, fp in ctx.fps.items():
         for pad in fp.Pads():
             if pad.GetAttribute() in (pcbnew.PAD_ATTRIB_SMD,):
-                layer = pcbnew.F_Cu if pad.IsOnLayer(pcbnew.F_Cu) else pcbnew.B_Cu
+                if pad.IsOnLayer(pcbnew.F_Cu):
+                    layer = pcbnew.F_Cu
+                elif pad.IsOnLayer(pcbnew.B_Cu):
+                    layer = pcbnew.B_Cu
+                else:
+                    continue           # paste- or mask-only: nothing to measure
                 smd.append((_xy(pad), layer, pad, "%s.%s" % (ref, pad.GetNumber())))
     smd.sort(key=lambda e: e[0][0])
     lim_iu = pcbnew.FromMM(fab["pad_gap"] - 0.0005)
@@ -1339,6 +1419,161 @@ def accounted_for(ctx):
                         % (name, len(pads), len(nets),
                            ", %d per net" % each if each is not None else "")))
     return out
+
+# The longest cut a signal may straddle in its own return plane, in mm. Override with
+# quality.return_slot. 5.0 is two 0.25 mm tracks side by side with full clearance either
+# side and a little room: a single track crossing measures about 1.25, a pair about 3.0.
+RETURN_SLOT = 5.0
+
+
+@rule("A15")
+def return_path_slots(ctx):
+    """A signal's return runs in the plane beneath it. Where a track on the plane layer
+    cuts that plane, the return has to go round the end of the cut, and the loop it makes
+    is the area between the two."""
+    b = ctx.board
+    limit = float(ctx.q.get("return_slot", RETURN_SLOT))
+    allowed = set(ctx.q.get("return_slot_ok", {}) or {})
+    step = 0.25                       # mm between samples along a track
+
+    # the ground copper, by the layer it is on
+    planes = {}
+    for z in b.Zones():
+        if z.GetIsRuleArea() or not GROUND.match(z.GetNetname() or ""):
+            continue
+        for lid in z.GetLayerSet().CuStack():
+            if not z.IsOnLayer(lid):
+                continue              # GetFilledPolysList asserts on an unfilled layer
+            try:
+                poly = z.GetFilledPolysList(lid)
+            except Exception:         # noqa: BLE001 -- shape API differs by KiCad version
+                continue
+            if lid in planes:
+                planes[lid].append(poly)
+            else:
+                planes[lid] = [poly]
+    if not planes:
+        return [("plane", None, "no ground pour on this board: nothing to slot, and "
+                 "nothing is claimed about the return paths either")]
+
+    def covered(lid, pt):
+        return any(poly.Contains(pt) for poly in planes[lid])
+
+    gaps, checked = [], 0
+    for t in b.GetTracks():
+        if t.GetClass() == "PCB_VIA":
+            continue
+        lid, net = t.GetLayer(), (t.GetNetname() or "")
+        if not net or GROUND.match(net):
+            continue
+        # the plane this signal references: ground copper on any OTHER copper layer
+        others = [l for l in planes if l != lid]
+        if not others:
+            continue
+        ln = MM(t.GetLength())
+        if ln < 1.0:
+            continue
+        checked += 1
+        a, e = t.GetStart(), t.GetEnd()
+        n = max(2, int(ln / step))
+        for lid2 in others:
+            cov = []
+            for i in range(n + 1):
+                f = i / float(n)
+                cov.append(covered(lid2, pcbnew.VECTOR2I(
+                    int(a.x + (e.x - a.x) * f), int(a.y + (e.y - a.y) * f))))
+            i = 0
+            while i <= n:
+                if cov[i]:
+                    i += 1
+                    continue
+                j = i
+                while j <= n and not cov[j]:
+                    j += 1
+                # STRADDLED only: plane on BOTH sides. A track running off the edge of
+                # the pour is a different thing, and is not what this rule is about.
+                if i > 0 and j <= n:
+                    f = (i + j) / 2.0 / n
+                    gaps.append(((j - i) * ln / n, net,
+                                 MM(a.x + (e.x - a.x) * f), MM(a.y + (e.y - a.y) * f)))
+                i = j + 1
+
+    if not checked:
+        return [("plane", None, "no signal track runs over a ground pour on another layer")]
+    gaps = [g for g in gaps if g[1] not in allowed]
+    bad = sorted((g for g in gaps if g[0] > limit + 1e-6), reverse=True)
+    if bad:
+        g = bad[0]
+        return [("return slot", False,
+                 "%s straddles a %.2f mm cut in the ground plane at (%.2f, %.2f), and the "
+                 "longest a signal may straddle is %.2f mm (%d crossing(s) over it, of %d "
+                 "found on %d track(s))"
+                 % (g[1], g[0], g[2], g[3], limit, len(bad), len(gaps), checked))]
+    if not gaps:
+        return [("return slot", True, "%d signal track(s) checked, and not one crosses a "
+                 "cut in the ground plane" % checked)]
+    g = max(gaps)
+    return [("return slot", True,
+             "widest cut a signal straddles: %.2f mm, by %s at (%.2f, %.2f); %d crossing(s) "
+             "on %d track(s), limit %.2f mm" % (g[0], g[1], g[2], g[3], len(gaps), checked,
+                                                limit))]
+
+
+# A stencil foil and a board thickness, for the volume A14 compares. Both are what the
+# fab's default service gives unless an order says otherwise; override in quality.
+STENCIL_FOIL = 0.12
+BOARD_THICK = 1.6
+
+
+@rule("A14")
+def via_in_land(ctx):
+    """A via open inside a solder land drinks the joint. Measured as VOLUME: the barrel
+    against the paste printed over it, not the barrel against the pad's area."""
+    import math
+    b = ctx.board
+    foil = float(ctx.q.get("stencil_foil", STENCIL_FOIL))
+    thick = float(ctx.q.get("board_thickness", BOARD_THICK))
+    allowed = set(ctx.q.get("via_in_land_ok", {}) or {})
+
+    lands = []
+    for ref, fp in ctx.fps.items():
+        for p in fp.Pads():
+            if p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
+                continue
+            if not (p.IsOnLayer(pcbnew.F_Paste) or p.IsOnLayer(pcbnew.B_Paste)):
+                continue          # no paste, no joint to starve: a bare test pad
+            lands.append((p, "%s.%s" % (ref, p.GetNumber())))
+    if not lands:
+        return [("via in land", None, "no pasted SMD land on this board")]
+
+    found = []
+    for t in b.GetTracks():
+        if t.GetClass() != "PCB_VIA":
+            continue
+        for p, name in lands:
+            if name in allowed or not p.GetBoundingBox().Contains(t.GetPosition()):
+                continue
+            sz = p.GetSize()
+            paste = MM(sz.x) * MM(sz.y) * foil
+            barrel = math.pi * (MM(t.GetDrillValue()) / 2.0) ** 2 * thick
+            found.append((barrel / paste, name, barrel, paste))
+
+    if not found:
+        return [("via in land", True, "no via sits in a pasted land, %d land(s) checked"
+                 % len(lands))]
+    found.sort(reverse=True)
+    r, name, barrel, paste = found[0]
+    bad = [f for f in found if f[0] >= 0.5]
+    if bad:
+        return [("via in land", False,
+                 "the via in %s can take the whole joint: its barrel holds %.3f mm3 and "
+                 "only %.3f mm3 of paste is printed over it (%.0f %%). %d of %d via(s) in "
+                 "a land are over half the deposit"
+                 % (name, barrel, paste, 100 * r, len(bad), len(found)))]
+    return [("via in land", True,
+             "%d via(s) sit in a pasted land and the thirstiest, %s, can take %.0f %% of "
+             "the paste printed over it -- under half, so the joint still forms"
+             % (len(found), name, 100 * r))]
 
 
 # ── which manual rules a board cannot need ───────────────────────────────────────────
