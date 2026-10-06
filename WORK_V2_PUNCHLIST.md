@@ -649,3 +649,54 @@ recommended for the Uniseal's hose end, is a *poly-pipe insert*: barb 0.406" ID 
 **0.665" OD**, sized for ≈0.600" ID poly pipe, so its crest is ~2.8 mm oversize on
 1/2" vinyl and it would not go on. 62128 is a hose-barb fitting and 37861 is a
 pipe-insert fitting; the catalogue calls both of them "1/2 inch".
+
+### 19 — the Uniseal's fitting stack overruns the hose's bend by ~29 mm
+
+Finding 16 said the gate has no concept of an inline fitting occupying length on a
+run, and named the two tee legs. **This is the same hole at the other end of the same
+hose, and here it is not close.** It surfaced only because the owner wrote the
+assembly out in order — Uniseal, PVC, PVC-to-FNPT, MNPT-to-barb, hose — which is a
+stack of four rigid things before the hose starts, and nothing had added them up.
+
+**The run, from `src/plumbing.py`:** `tank_down` leaves the Uniseal at
+(73, **173**, 234), turns at (73, **262**, 234) and drops to `TANK_TEE` at
+(73, 262, 84). So the horizontal leg is **89 mm**, and `BEND_R` is **50**, which this
+module's own docstring says it needs *"on BOTH sides of the corner"*. That leaves
+**39 mm** for everything rigid.
+
+**The stack, outward from the tank wall:**
+
+| | mm | source |
+|---|---|---|
+| PVC stub proud of the wall | ~25 | estimate — has to seat in the adapter socket |
+| 1/2" PVC female adapter, net of the socket | ~13 | **estimate** — not yet a part number |
+| 62017 beyond the FNPT face | 29.9 | **measured**: Thogus TA1088/P overall 1.69", ~13 mm of thread engaged |
+| **barb tip off the wall** | **~68** | |
+
+89 − 68 = **21 mm of hose before the corner centre, against the 50 mm the bend needs.
+Short by 29 mm.** Two of the three figures are estimates, so the number is ±10 mm —
+but the shortfall is three times that, and the one measured figure is the biggest.
+
+**THE FIX IS A DIFFERENT FITTING, NOT A LONGER PACK.** Swap the straight 62017 for an
+elbow (**62043**, Thogus TE2088/P) and the line turns down *at* the tank, which puts
+the rigid stack on the leg that has room:
+
+| | available | needs | |
+|---|---|---|---|
+| vertical drop, z 234 → 84 | **150 mm** | 100 (50 either side of one bend) | **fits, 50 spare** |
+| horizontal at the bottom, y 211 → 262 | **51 mm** | 50 | fits, and only just |
+
+So the elbow converts a 29 mm shortfall on the tight axis into 1 mm of slack on the
+roomy one. That second row is tight enough to be the next thing that bites, and it is
+the honest reason this finding is not closed by buying a part.
+
+**What is actually still owed:** `src/plumbing.py` routes `tank_down` as a bare
+centreline and `check_plumbing.py` measures hose against hose. Neither knows a fitting
+has length, so **both will keep passing either layout**. Teaching the model about
+inline fittings is the fix for 16 and 19 together — one list of (position, length)
+along a run, checked against the straight each bend needs. Until then these two
+findings are the only record that the model is optimistic at six places: two tee legs,
+the Uniseal, and the three joints in between.
+
+⚠ **Buy both 62017 and 62043.** $1.30 for the pair, against a freight charge many
+times that for whichever one the assembly turns out to want.

@@ -190,6 +190,15 @@ bought and are on the shelf, and the reasoning is worth keeping.
      identical to the tee's, so it adds no restriction the line does not already
      have. Buying it here instead of off an Ace peg is the whole point: the
      catalogue that burned us on 37861 is the one we can now read drawings from.
+  3b. ⚠ **BUY ITEM 62043 AS WELL — 1/2" MNPT × 1/2" Hose ID black HDPE ELBOW,
+      $0.79** (Thogus TE2088/P) —
+      https://www.usplastic.com/catalog/item.aspx?itemid=29593
+      Not an alternative on style: **the straight stack does not fit the route**,
+      measured in WORK_V2_PUNCHLIST finding 19 — it overruns the hose's bend by
+      ~29 mm. The elbow turns the line down AT the tank, which moves the fittings
+      onto the 150 mm vertical leg instead of the 89 mm horizontal one. Buy both:
+      $1.30 for the pair against a second freight charge is not a decision worth
+      making from a spreadsheet, and the parts in hand settle it in a minute.
   *(This line used to read "size TBD once a Scepter panel is measured". The size never
   depended on the panel — it follows from the PVC stub's 0.840" OD. What the panel
   decides is only whether there is flat wall enough for a 1.25" hole.)*
