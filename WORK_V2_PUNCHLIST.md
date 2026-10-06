@@ -464,10 +464,12 @@ cheap part, but it is also the part that cracks.
 
 ### 14 — the two tees have never been on the BOM
 
-> ✅ **CLOSED 2026-10-05.** 13 decided what the tee IS, so this could be fixed:
-> `bom_consolidated.md` §3 now carries **two tees, barb × barb × 1/2"-14 MNPT,
-> 1/2" barbs**, unticked because they are not bought yet. The absence was the
-> finding; the purchase is just a purchase.
+> ✅ **CLOSED 2026-10-05, and BOUGHT 2026-10-06.** 13 decided what the tee IS, so
+> this could be fixed: `bom_consolidated.md` §3 carries **two tees, barb × barb ×
+> 1/2" male NPT, 1/2" hose-ID barbs** — **U.S. Plastic 62128, $0.91 ea, ordered**.
+> The absence was the finding; the purchase was just a purchase, and it is done.
+> (First sourced to Avidity Science 1610-2845-011 at $1.80 and re-sourced on
+> freight: UPS-only, $20 to ship $3.60 of fittings. Kept as the fallback.)
 
 Found while sourcing 13, and it is older than 13: §1 has needed two tees since the
 anti-parallel arrangement was chosen, `src/plumbing.py` models both of them
