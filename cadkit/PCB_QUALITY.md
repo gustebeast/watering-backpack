@@ -648,7 +648,11 @@ access the bring-up will need.
   the count of extra-fee part lines is known; the board is inside the service's size
   limits or panelised with rails, and its size has been checked against the fab's price
   breaks (a millimetre over one costs a tier); the option to review the production files before build
-  is ticked.
+  is ticked. Every row of the assembly BOM names the fab's own part number -- none is left
+  for the order page to match (`pcbflow/fab_package.py` refuses to write a package with an
+  uncoded row) -- each code was READ on the fab's catalogue for its package, value, voltage,
+  dielectric and tolerance on the rail it sits on, and on the order page every row shows a
+  selected part and none shows quantity 0.
 - **M31 — Markings survive assembly.** Pin-1 and polarity marks are visible with the part
   fitted (outside the body, not under it); text is at least the fab's minimum height and
   stroke and not over pads, holes or the board edge; the board's name and revision are
@@ -749,3 +753,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-04 | the same gerber read, carried on into the mask and paste layers | the board model called every via tented, and the exported F.Mask had 208 apertures and no islands at all, so ten barrels sat open under solder paste; measured as pad AREA the worst read 8 %, measured as paste VOLUME it read 110 % | **A14** (new, measured); `unwick.py` added to the post-route steps; M29 keeps the parts A14 does not measure |
 | 2026-10-04 | the exported gerbers of a two-layer board, rendered layer by layer by a reader that is not KiCad | the ground pour was the return for every signal on the board and was also a routing layer, carrying 455.89 mm of signal copper cut through it; nothing measured whether a return had to go round a cut, and M6 only asks it of fast buses | **A13** (new, measured); M6 narrowed to the edge-rate judgement A13 cannot make |
 | 2026-10-04 | the fab's own capability page, read against the rule files of seven routed boards | the rule file is typed by a person and DRC only proves the board against it; five of its values were looser than the fab's, and all silk was under the fab's legible height | **A12** (new, measured); M29 narrowed to what A12 cannot measure; `kicad_silk` and the layout's reference text raised to 1.0 mm |
+| 2026-10-06 | a control board, in a dry run of the fab's order page | generic passives were sent with no part number, "chosen at order time"; the fab's matcher read KiCad's `C_0402_1005Metric` as 01005 and picked parts its cheaper assembly service does not place, so they came up unselected at quantity 0 and the order would have built the board without them | M30 extended; `fab_package` refuses an uncoded row, keys passives on (value, footprint) and writes the plain package name |

@@ -105,9 +105,17 @@ bought and are on the shelf, and the reasoning is worth keeping.
     the first pick and a good part — UPS only, $20 to ship $3.60 of fittings. Kept as
     the known-good alternative if 62128 ever goes out of stock —
     https://www.avidityscience.com/fitting-barbed-tee-adapter-1-2-barb-x-1-2-barb-x-1-2-male-pipe-thread-plastic-1610-2845-011
-  - 📦 **Same order, if it is not too late:** item 37861, 1/2" MNPT × 1/2" hose barb
-    PVC adapter — the hose end of the Uniseal's PVC stub (§3 below). One freight
-    charge would have covered both jobs.
+  - ❌ **DO NOT add item 37861** — I recommended it on the same order and it is the
+    wrong part twice over. Its own page calls it *"a plastic insert for adapting
+    polyethylene flexible pipe"*: the barb is **0.406" ID × 0.665" OD**, sized for
+    1/2" POLY pipe (≈0.600" ID), so its crest is ~2.8 mm oversize on 1/2" vinyl.
+    And it is **MNPT × barb with no slip socket**, so it cannot solvent-weld to the
+    Uniseal's PVC stub, which was the entire job it was suggested for. §3's Uniseal
+    entry carries the correct chain.
+  - ⚠ **The barb BORE is a restriction, measured not waved at** — WORK_V2_PUNCHLIST
+    finding 18. Thogus drawing TT3888: crest **0.610"** (15.49 mm, so 1/2" vinyl
+    stretches on properly) but bore **0.365"** (9.27 mm), 53 % of the hose area.
+    0.26 psi per tee, 0.51 psi over the two each path crosses. Accepted.
   - **Why this list needed them at all, recorded because nothing else catches it:**
     §1's anti-parallel arrangement has needed two tees since it was chosen,
     `src/plumbing.py` models both (`TANK_TEE` at x +73, `GREEN_TEE` at x −73) and
@@ -159,7 +167,25 @@ bought and are on the shelf, and the reasoning is worth keeping.
   range, so the 5/8" line the docs used to call for would have needed new clamps
   as well as new pump fittings. The 1/2" decision (§3 above) keeps a part that is
   already in the drawer.
-- [ ] 🎒 **Uniseal — size TBD once a Scepter panel is measured**
+- [ ] 🎒 **Uniseal — 1/2" pipe size, $2.75** —
+  https://www.saltwateraquarium.com/uniseal-1-2-inch-pipe-pipe-grommets-pipe-to-tank-seals-uniseal/
+  **1.25" hole saw**, seals on **0.840" OD = 1/2" schedule-40 PVC**, and the vendor
+  says to *"insert the pipe… to clear the inside of the seal by about 1 inch."* So it
+  grips rigid PIPE, not the hose — 1/2" ID vinyl is 0.750" OD and would be loose in it.
+  **The chain from tank to hose, and all of it except the Uniseal is an Ace trip:**
+  1. short piece of **1/2" sch-40 PVC** — through the seal, ~1" proud inside the tank.
+     Deburr and chamfer the cut end and wet it, or a square burr rolls the seal lip.
+  2. **1/2" PVC male adapter, slip × MNPT**, solvent-welded to the stub outside the
+     tank (primer + cement). Universally stocked.
+  3. **1/2" MNPT × 1/2" HOSE-ID barb** adapter screwed into it, then the hose and one
+     of the owned 5574K13 clamps.
+     ⚠ Step 3 is where the poly-pipe trap bites — see the ❌ note under the tees. Ask
+     for a *hose* barb and check the package says 1/2" ID hose, not 1/2" poly pipe.
+     A single **slip × hose-barb** adapter would collapse steps 2 and 3 into one
+     fitting and one less joint on a suction line, but stocking is hit-or-miss.
+  *(This line used to read "size TBD once a Scepter panel is measured". The size never
+  depended on the panel — it follows from the PVC stub's 0.840" OD. What the panel
+  decides is only whether there is flat wall enough for a 1.25" hole.)*
   - For the tank's low outlet (flooded suction). The Scepter's 44 mm opening is too
     small to get a hand inside, so a conventional bulkhead — which needs a nut held on
     the inside — is impossible. A Uniseal installs **entirely from outside**: drill, work

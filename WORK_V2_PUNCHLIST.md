@@ -610,3 +610,42 @@ trusting a colour, because these are re-sold by many houses.
 
 ⚠ **`CIRCUIT.md` §7 said "JST-PH to the XKC-Y25" and that was never what this board
 has.** J5 is a 4-way 5.08 mm screw terminal, like the other four. Corrected.
+
+### 18 — the tees neck the line to 9.27 mm, and §5 is the section that cares
+
+Opened by reading the drawing for the tee bought in finding 14, which is the only
+reason it is a number rather than a shrug. Thogus drawing **TT3888**, variant
+**/P** (polyethylene — U.S. Plastic 62128):
+
+| | inches | mm | |
+|---|---|---|---|
+| barb crest OD | 0.610 | 15.49 | 1/2" vinyl is 12.70 ID, so it stretches on properly — this is a real hose barb |
+| **bore** | **0.365** | **9.27** | **53 % of the hose's area** |
+| thread | — | — | MALE 1/2"-14 NPT, confirmed on the drawing itself |
+
+**§5 of DESIGN_V2 exists to stop exactly this**, so it gets measured rather than
+accepted quietly. At 3.0 GPM the throat runs **9.2 ft/s** against the hose's 4.9, and
+as a contraction-plus-expansion pair (K ≈ 0.45 on the throat's velocity head):
+
+> **0.26 psi per tee. 0.51 psi — 1.19 ft of head — over the two tees every flow path
+> crosses.**
+
+**Accepted, and here is the honest reason.** Against a 55 psi pump 0.5 psi is
+nothing, but this project's headline problem is priming, not pressure, and 1.19 ft of
+extra *suction* lift is the number that could have mattered. It does not, because §2
+puts the tank **above** the pumps, so the suction is flooded rather than lifted — the
+tees spend head the geometry already gives away for free. And it is unavoidable in
+kind: every barbed fitting bores smaller than its hose, the owned SFFN1-1220-01
+swivels included, and the pumps' own ports are ~0.51". A 9.27 mm throat 20 mm long is
+a minor loss, not a line size.
+
+**What would make it matter**, written down so the trade is not re-derived: moving the
+tank below the pumps, or adding the check valve finding 12 deliberately omitted —
+either turns a flooded suction into a lifted one, and then 1.19 ft comes out of a
+budget instead of out of slack.
+
+⚠ **Not the same as the trap it looks like.** `U.S. Plastic 37861`, which I briefly
+recommended for the Uniseal's hose end, is a *poly-pipe insert*: barb 0.406" ID ×
+**0.665" OD**, sized for ≈0.600" ID poly pipe, so its crest is ~2.8 mm oversize on
+1/2" vinyl and it would not go on. 62128 is a hose-barb fitting and 37861 is a
+pipe-insert fitting; the catalogue calls both of them "1/2 inch".
