@@ -89,7 +89,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
 
 ## 3. Tubing & plumbing  *(🎒)*
 
-- [x] 🎒 **Two tees — U.S. Plastic item 62128, $0.91 ea — ORDERED 2026-10-06** —
+- [x] 🎒 **Two tees — U.S. Plastic item 62128, $0.91 ea — PURCHASED 2026-10-06** —
   https://www.usplastic.com/catalog/item.aspx?itemid=27820
   1/2" NPT × 1/2" hose ID × 1/2" hose ID, black HDPE, 125 psi with clamps,
   −65 to 190 °F. Qty **2**, one per tee, $1.82 the pair.
@@ -167,19 +167,21 @@ bought and are on the shelf, and the reasoning is worth keeping.
   range, so the 5/8" line the docs used to call for would have needed new clamps
   as well as new pump fittings. The 1/2" decision (§3 above) keeps a part that is
   already in the drawer.
-- [ ] 🎒 **Uniseal — 1/2" pipe size, $2.75** —
+- [x] 🎒 **Uniseal — 1/2" pipe size, $2.75 — PURCHASED 2026-10-06** —
   https://www.saltwateraquarium.com/uniseal-1-2-inch-pipe-pipe-grommets-pipe-to-tank-seals-uniseal/
   **1.25" hole saw**, seals on **0.840" OD = 1/2" schedule-40 PVC**, and the vendor
   says to *"insert the pipe… to clear the inside of the seal by about 1 inch."* So it
   grips rigid PIPE, not the hose — 1/2" ID vinyl is 0.750" OD and would be loose in it.
-  **The chain from tank to hose, and all of it except the Uniseal is an Ace trip:**
+  **The chain from tank to hose.** The seal and both hose adapters are bought; what
+  is left is the three Ace lines broken out as their own entry below, so a tick on
+  this line means the seal and not the whole joint.
   1. short piece of **1/2" sch-40 PVC** — through the seal, ~1" proud inside the tank.
      Deburr and chamfer the cut end and wet it, or a square burr rolls the seal lip.
   2. **1/2" PVC FEMALE adapter, slip × FNPT**, solvent-welded to the stub outside
      the tank (primer + cement). ⚠ **FEMALE.** This step read "male adapter,
      slip × MNPT" for one revision while step 3 was also male — two male threads
      do not mate, and nothing in this repo checks a thread gender.
-  3. **U.S. Plastic item 62017, $0.51** — 1/2" MNPT × 1/2" Hose ID black HDPE
+  3. **U.S. Plastic item 62017 — PURCHASED** — 1/2" MNPT × 1/2" Hose ID black HDPE
      adapter, Thogus **TA1088/P** — screwed into step 2, then the hose and one of
      the owned 5574K13 clamps.
      https://www.usplastic.com/catalog/item.aspx?itemid=27798
@@ -190,8 +192,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
      identical to the tee's, so it adds no restriction the line does not already
      have. Buying it here instead of off an Ace peg is the whole point: the
      catalogue that burned us on 37861 is the one we can now read drawings from.
-  3b. ⚠ **BUY ITEM 62043 AS WELL — 1/2" MNPT × 1/2" Hose ID black HDPE ELBOW,
-      $0.79** (Thogus TE2088/P) —
+  3b. **U.S. Plastic item 62043 — PURCHASED** — 1/2" MNPT × 1/2" Hose ID black
+      HDPE ELBOW, $0.79 (Thogus TE2088/P) —
       https://www.usplastic.com/catalog/item.aspx?itemid=29593
       Not an alternative on style: **the straight stack does not fit the route**,
       measured in WORK_V2_PUNCHLIST finding 19 — it overruns the hose's bend by
@@ -199,6 +201,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
       onto the 150 mm vertical leg instead of the 89 mm horizontal one. Buy both:
       $1.30 for the pair against a second freight charge is not a decision worth
       making from a spreadsheet, and the parts in hand settle it in a minute.
+      **Both bought 2026-10-06**; which one gets fitted is settled at the tank, and
+      whichever loses costs $0.51 or $0.79 and stays in the drawer.
   *(This line used to read "size TBD once a Scepter panel is measured". The size never
   depended on the panel — it follows from the PVC stub's 0.840" OD. What the panel
   decides is only whether there is flat wall enough for a 1.25" hole.)*
@@ -209,6 +213,16 @@ bought and are on the shelf, and the reasoning is worth keeping.
   - Fallback if it doesn't suit: keep the top-routed dip tube and add a **foot valve** at
     its bottom so the column can't drain back. Less robust (a weeping foot valve loses
     prime overnight) but needs no modification to the tank.
+- [ ] 🎒 **Ace, for the Uniseal joint — three lines, none sourced by part number**
+  because they are commodity plumbing and the aisle is the catalogue:
+  - **1/2" schedule-40 PVC pipe**, a short piece. Deburr and chamfer the end that
+    passes through the seal, and wet it — a square sawn burr rolls the seal lip.
+  - **1/2" PVC FEMALE adapter, slip × FNPT.** ⚠ FEMALE — both hose adapters above
+    are male, and nothing in this repo checks a thread gender.
+  - **PVC primer + cement**, small cans.
+  - *(and a **1-1/4" bi-metal hole saw** for the tank, if not already owned — the
+    size is the Uniseal's, not a choice)*
+
 - [ ] 🎒 **Check valve, 1/2" barb — for the pot (green) line** — holds the suction column
   between cycles. v2 ingests air at the end of *every* retract by design, so re-priming
   is routine, not exceptional.
@@ -264,7 +278,8 @@ bought and are on the shelf, and the reasoning is worth keeping.
 ## 5. Power & protection  *(🎒)*
 
 - [x] 🎒 **Makita 643852-2 terminal — qty 2 (one spare)**, $8.84 ea, ERP10153397 — https://www.ereplacementparts.com/parts/drill/makita/erp10153397/terminal-643852-2/
-- [ ] ~~**Inline fuse holder — 8110K3**~~ — **NOT NEEDED.** The fuse moved onto the
+- ~~**Inline fuse holder — 8110K3**~~ — **NOT NEEDED, and no longer a checkbox** so
+  it stops appearing in the to-buy list. The fuse moved onto the
   board as **F2** (Littelfuse 178.6165 FLR holder, LCSC C207061, on the PCBA BOM).
 - [x] 🎒 **10 A blade fuse — 7460K45** — McMaster, ATC, 32 V, fast-acting, 5-pack, $3.83.
   **This is the fuse F2 holds.** The holder was chosen to suit it, so the blade itself
@@ -275,7 +290,22 @@ bought and are on the shelf, and the reasoning is worth keeping.
 ## 6. Main PCBA  *(🎒, NEW in v2 — single board)*
 
 Fab: **JLCPCB**. Prefer Basic/Preferred library parts to avoid extended-part fees.
-Exact part numbers to be fixed at layout; this is the functional list.
+
+- [ ] 🎒 **ORDER THE BOARD — `elec/out/fab/main/main.zip`, assembled.** 95 × 112 mm,
+  2-layer, 59 placements, **34 BOM lines, 0 open values**, quality **0 FAIL / 0 OPEN**.
+  This list had no line for the board itself — the one most expensive thing in the
+  project — so it never appeared in a to-buy roll-up. Before paying:
+  - **Check the rotations in JLCPCB's previewer.** The CPL carries KiCad's
+    convention, which differs per part from LCSC's. Each package's
+    `ROTATION-CHECK.txt` lists only the placements a difference can DAMAGE.
+  - **Set the order form from `ORDER.txt`:** 1 oz outer copper and 1.6 mm thickness
+    are both ⚠ DESIGN DEPENDENCY — trace widths and the housing bay are sized to
+    them. Lead-free HASL, green mask / white silk, and whichever of
+    Economic / Standard lists all 12 sourced SMT parts.
+  - **F2's blade is not a BOM line** — the holder is on the board and §5's owned
+    7460K45 goes in it. The five terminals and the buzzer are hand-soldered after.
+
+Everything below is the functional list behind that zip.
 
 - 2× **N-channel MOSFET**, 40 V, low R<sub>DS(on)</sub>, DPAK/TO-263 on a copper pour —
   one per pump. **No H-bridge**: each pump runs one direction only (direction is chosen
