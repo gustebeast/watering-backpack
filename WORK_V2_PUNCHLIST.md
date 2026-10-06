@@ -579,16 +579,22 @@ and is not worth the risk premium.
 **THE FIX, and it is two components in the sensor lead.** An NPN inverter makes the
 sensor look like exactly what the board was designed for:
 
-    sensor yellow (OUT) ─├ 22k ──── B
+    sensor yellow (OUT) ─├ 10k ──── B      (10k and the 2N3904 are both OWNED, §8)
                                NPN (MMBT3904 / 2N3904, both already on this BOM)
     J5 OUT ───────────────── C          E ──── GND
 
 - **R23 is the collector pull-up**, used exactly as designed. The pin cannot exceed
   3V3 no matter what the sensor does, so this is immune to the variant question
   entirely — and to the next listing that contradicts itself.
-- **Base drive is not marginal.** 22k gives Ib 0.65 mA at 15 V and 0.88 mA at 20 V;
-  at hFE 100 that is 65–88 mA of sink against the **0.33 mA** R23 actually needs
-  (3.3 V / 10k). Saturated by a factor of ~200 at the bottom of the pack.
+- **Base drive is not marginal, and — BOTH PARTS ARE ALREADY OWNED.** §8 of the BOM
+  bought a **2N3904** and **10 kΩ** resistors for the cat-bed project and they are
+  ticked. Use the 10k rather than buying a 22k: Ib is 1.43 mA at 15 V and 1.93 mA
+  at 20 V, so at hFE 100 the transistor can sink 143–193 mA against the **0.33 mA**
+  R23 actually needs (3.3 V / 10k) — saturated by a factor of ~400 at the bottom of
+  the pack. The draw on the sensor's own output is 1.4–1.9 mA against its rated
+  1–100 mA, so nothing is stressed at either end. **This fix costs nothing and
+  needs no order.** (22k also works, 65–88 mA of sink; there is just no reason to
+  buy one.)
 - **Then tie the sensor's black MODE wire to VBAT rather than to J5's MODE
   terminal**, and the inversion cancels: MODE high → yellow goes HIGH when liquid is
   sensed → the NPN pulls IO14 LOW when liquid is sensed → which is exactly what

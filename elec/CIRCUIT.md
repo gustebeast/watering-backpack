@@ -184,11 +184,41 @@ check in this repo would pass.
   no divider."* The argument is right and the premise is wrong — the XKC-Y25 family
   specifies its HIGH output as **InVCC**, the supply rail, so at 18 V it would drive
   18 V into IO14 and R23 would lose to its internal pull-up. **An NPN inverter goes
-  in the sensor lead** (22k base, emitter to GND, collector to J5's OUT, R23 as the
+  in the sensor lead** (10k base, emitter to GND, collector to J5's OUT, R23 as the
   collector pull-up), which caps the pin at 3V3 whatever the sensor does. With the
   sensor's MODE wire tied to **VBAT** rather than GND the inversion cancels and
   `LEVEL_FULL_IS_LOW` still holds. Sizing, polarity and what to buy:
   `WORK_V2_PUNCHLIST.md` finding 17.
+
+  **WHAT LANDS ON J5, wire by wire — it is NOT four-to-four.** The sensor has four
+  wires and J5 has four ways, which invites a straight-across assumption that is wrong
+  in two places:
+
+  | sensor wire | goes to |
+  |---|---|
+  | **brown** (VCC) | **J5 VBAT** |
+  | **black** (MODE) | **J5 VBAT as well** — MODE must sit HIGH so the inversion cancels |
+  | **blue** (GND) | **J5 GND** |
+  | **yellow** (OUT) | **the inverter's 10k base resistor — NOT J5** |
+  | inverter collector | **J5 OUT** |
+  | inverter emitter | **J5 GND** |
+  | | **J5 MODE: left EMPTY** |
+
+  So three of the sensor's four wires reach a J5 terminal, the fourth stops at the
+  transistor, and the terminal actually named MODE is the one nothing lands on — it is
+  shorted to the GND plane on this board, which is the opposite of what this sensor
+  needs. Brown and black share the VBAT terminal; join them at the lead's splice
+  (finding 20 means there is one anyway) so only one conductor lands per screw.
+
+  **Put the transistor at the BOARD end, not the sensor end.** Either works
+  electrically, but with the inverter at J5 the 700 mm run carries the sensor's raw
+  0 V / VBAT swing, which shrugs off pickup; with it at the sensor the run would carry
+  a high-impedance open-collector line held up by R23's 10k at the far end, on a lead
+  that climbs the outside of the case. The transistor also then lives in the sealed
+  bay rather than in the weather. Logic check, both directions: liquid → yellow HIGH →
+  transistor ON → **IO14 LOW**; dry → yellow 0 V → transistor OFF → R23 pulls **IO14
+  HIGH**. A disconnected sensor also reads HIGH, i.e. *not full*, which is the safe
+  failure and is what `tools/check_level_alarm.py` already assumes.
 
   **MODE sets the polarity, and with the inverter it goes to VBAT, not GND.** The
   board ties J5's MODE terminal to GND (`gnd += j_lvl["GND"], j_lvl["MODE"]`),
