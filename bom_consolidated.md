@@ -253,8 +253,21 @@ bought and are on the shelf, and the reasoning is worth keeping.
     ties MODE to GND to select normally-closed, which is what the firmware's
     `LEVEL_FULL_IS_LOW` encodes. A 3-wire part fixes the polarity in the part number
     instead, and then the firmware constant has to match it.
-  Links (US): https://www.amazon.com/5V-24V-Non-Contact-Sensor-Detection-XKC-Y25/dp/B0H13BXYG3
-  · https://www.amazon.com/clp/B074PVF341 · https://www.newegg.com/p/1W7-00WA-021C6
+  ✅ **BUY THIS ONE: EC Buying XKC-Y25-V, $9.59, ASIN B0C73F96MF** —
+  https://www.amazon.com/dp/B0C73F96MF
+  Chosen because its listing does not contradict itself, which is not a low bar
+  here. Its spec block and Amazon's own attribute field BOTH say **DC 5-24V**, and
+  5–24 V is the only spec that still matters once finding 17's inverter is in the
+  lead. 4.6★ / 17, 50+ bought in the past month, Prime. The block also states
+  *"Output voltage (high level): VIN"* in black and white, which is the
+  confirmation finding 17 was built on rather than a contradiction of it.
+  - ❌ **Rejected: Amazon B074PVF341** ("XKC-Y25-NPN … DC 5-24V"). Its own spec
+    table says **DC 5~12V**, which this board's VBAT would destroy, and *also*
+    "high level = InVCC". Two disqualifications in one listing. Finding 17.
+  - ❌ **Rejected: Amazon B0GZ257F8T**, $44.68, zero reviews, 2–3 week ship.
+  - ⚠ **ITS LEAD IS 500 mm AND THE RUN IS ABOUT 700** — WORK_V2_PUNCHLIST finding
+    20. Plan on EXTENDING it with a soldered, adhesive-lined-heatshrink splice,
+    not on cutting it to length.
   - Clamps to the **outside** of the tank wall; nothing penetrates the tank and nothing
     touches the water, which sidesteps the 44 mm opening entirely.
   - Power **directly from the battery rail** (5–24 V spec covers the pack's 18–20 V) —

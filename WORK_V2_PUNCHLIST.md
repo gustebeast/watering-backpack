@@ -700,3 +700,48 @@ the Uniseal, and the three joints in between.
 
 ⚠ **Buy both 62017 and 62043.** $1.30 for the pair, against a freight charge many
 times that for whichever one the assembly turns out to want.
+
+### 20 — the level sensor's lead is 500 mm and the run is about 700
+
+The owner, picking the part: *"It comes with a connector but I just assume cut it and
+use our screw terminals so we can get the cable length right."* Cutting the connector
+is right. **The assumption underneath it is backwards** — this lead is not long
+enough to shorten.
+
+**The listing is explicit**: EC Buying XKC-Y25-V, *"Line length: 500mm (± 10mm)"*.
+
+**The run, from the model.** The Scepter stands on the lumber deck at `DECK_Z` 208
+and `TANK_H` is 478, so its rim is at **z 686**. A *tank-full* sensor sits near that
+rim — call it 30 mm down, **z 656**. J5 is in the PCB bay at `PCB_Z_C` **74.75**.
+
+| | mm |
+|---|---|
+| vertical, sensor to J5 | **581** |
+| `CIRCUIT.md` §7 routes it *"out the chase and then up the OUTSIDE of the case"*, so add the dip through the chase and the reach to the tank face | ~120, loose |
+| **needed** | **~700** |
+| supplied | **500** |
+| | **short by ~200** |
+
+Even putting the sensor at mid-tank height (z ≈ 450) gives ~495 mm needed against 500
+supplied, so it is marginal at *every* plausible sensor height and short at the
+realistic one. The 30 mm figure is an assumption; the shortfall is not sensitive to it.
+
+**So the joint count goes up by one on the one lead that is already the most exposed
+thing in the machine.** `elec/main.py`'s own comment on F1 says it: this lead *"leaves
+the sealed bay through the chase and then climbs the OUTSIDE of the case to the tank
+— so it is the one wire that gets rubbed, pinched and walked past."* A splice there
+is not a detail.
+
+**What to do, in order:**
+
+1. **Solder it and seal it properly** — adhesive-lined heatshrink per conductor, then
+   one outer sleeve, sited where it is clamped rather than mid-span. Not a crimp butt
+   connector, and not a Wago on the outside of a pack that lives in the weather.
+2. **Or buy a 1 m variant.** Several XKC-Y25 listings offer a "1M" lead option in the
+   dropdown. Worth checking before clicking buy — it removes the splice for the same
+   money, and the splice is the only thing this finding is really about.
+3. **F1 is the reason this is a finding and not an alarm.** The sensor feed is behind
+   a resettable PTC precisely because this lead is the one that chafes, so a splice
+   that eventually shorts trips F1 rather than the pack. The protection already
+   anticipated a fault on this wire; this finding just notes we are now adding one
+   more place for it to start.
