@@ -175,14 +175,21 @@ bought and are on the shelf, and the reasoning is worth keeping.
   **The chain from tank to hose, and all of it except the Uniseal is an Ace trip:**
   1. short piece of **1/2" sch-40 PVC** — through the seal, ~1" proud inside the tank.
      Deburr and chamfer the cut end and wet it, or a square burr rolls the seal lip.
-  2. **1/2" PVC male adapter, slip × MNPT**, solvent-welded to the stub outside the
-     tank (primer + cement). Universally stocked.
-  3. **1/2" MNPT × 1/2" HOSE-ID barb** adapter screwed into it, then the hose and one
-     of the owned 5574K13 clamps.
-     ⚠ Step 3 is where the poly-pipe trap bites — see the ❌ note under the tees. Ask
-     for a *hose* barb and check the package says 1/2" ID hose, not 1/2" poly pipe.
-     A single **slip × hose-barb** adapter would collapse steps 2 and 3 into one
-     fitting and one less joint on a suction line, but stocking is hit-or-miss.
+  2. **1/2" PVC FEMALE adapter, slip × FNPT**, solvent-welded to the stub outside
+     the tank (primer + cement). ⚠ **FEMALE.** This step read "male adapter,
+     slip × MNPT" for one revision while step 3 was also male — two male threads
+     do not mate, and nothing in this repo checks a thread gender.
+  3. **U.S. Plastic item 62017, $0.51** — 1/2" MNPT × 1/2" Hose ID black HDPE
+     adapter, Thogus **TA1088/P** — screwed into step 2, then the hose and one of
+     the owned 5574K13 clamps.
+     https://www.usplastic.com/catalog/item.aspx?itemid=27798
+     **Put it on the tee order.** This is the step where the poly-pipe trap bites,
+     and 62017 is the same Thogus hose-ID family as the tees with the same
+     verified numbers off drawing TA1088: **MALE 1/2"-14 NPT** on the drawing,
+     crest **0.600"** (15.2 mm, so 1/2" vinyl stretches on), bore **0.365"** —
+     identical to the tee's, so it adds no restriction the line does not already
+     have. Buying it here instead of off an Ace peg is the whole point: the
+     catalogue that burned us on 37861 is the one we can now read drawings from.
   *(This line used to read "size TBD once a Scepter panel is measured". The size never
   depended on the panel — it follows from the PVC stub's 0.840" OD. What the panel
   decides is only whether there is flat wall enough for a 1.25" hole.)*
