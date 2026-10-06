@@ -27,20 +27,28 @@ from cadkit.pcbflow import fab_package as _fab  # noqa: E402
 # generator is deleted as stale.
 BOARDS = ("blinky",)
 
-# value (as the netlist carries it) -> LCSC part number. Write a number here ONLY when you
-# have read it off the listing yourself, and check stock the day you order.
+# The LCSC part number for every BOM row. A part chosen by its maker's number is keyed on
+# that number as the netlist carries it; a passive is keyed on (value, footprint name),
+# because one value is a different part in each package:
+#     "B2B-XH-A": "C158012",
+#     ("100n", "C_0603_1608Metric"): "C14663",
+# Write a number here ONLY when you have read it off the listing yourself -- package,
+# value, voltage, dielectric, tolerance -- and check stock the day you order.
 LCSC = {
 }
 
 # Values that are placed but not yet sourced. A value that is neither in LCSC, nor a
-# generic passive chosen at order time (an 0603 600R), nor listed here FAILS the build --
-# so a changed part number cannot slip through as "just another open item".
+# generic passive, nor listed here FAILS the build -- so a changed part number cannot slip
+# through as "just another open item".
 OPEN_VALUES = frozenset({
     "B2B-XH-A",          # JST XH 2-way top entry
     "RED",               # the indicator LED: pick a part, put its MPN in the generator
 })
 
-_fab.configure(HERE, BOARDS, LCSC, OPEN_VALUES)
+# require_codes=False ONLY because this example has not chosen its parts. A project that
+# orders assembled boards leaves it at the default: a BOM row with no code is not left for
+# the fab's order page to guess (see fab_package's docstring for what that guess did).
+_fab.configure(HERE, BOARDS, LCSC, OPEN_VALUES, require_codes=False)
 
 if __name__ == "__main__":
     _fab.main(sys.argv[1:] or list(BOARDS))

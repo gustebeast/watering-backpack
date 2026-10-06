@@ -46,10 +46,22 @@ the honest workflow is to CHECK EVERY PART in JLCPCB's online previewer before
 paying. This file emits the KiCad convention unmodified and says so in the CPL
 header, rather than applying guessed corrections that would be invisible later.
 
-WHAT IS MISSING AND WHY IT IS BLANK RATHER THAN GUESSED: LCSC part numbers exist
-here only where the repo already recorded one. Everything else emits an EMPTY
-cell and is counted in the summary as OPEN. A wrong part number is worse than a
-missing one -- the missing one stops the order, the wrong one ships.
+EVERY BOM ROW CARRIES A PART NUMBER, OR THERE IS NO PACKAGE (2026-10-06). This used to
+say the opposite: generic passives went out with an EMPTY code cell, "chosen at order
+time", on the reasoning that a blank stops the order and a wrong number ships. A dry run
+of a real order showed the blank does not stop anything. JLCPCB's matcher fills it in by
+itself, from the footprint text, and read `C_0402_1005Metric` as the 01005 that string
+also contains: a 100 nF row became a 01005 6.3 V part and a 10 k row a 01005 resistor.
+Both are parts the Economic assembly service does not place, so they arrived UNSELECTED
+at quantity 0, and pressing Next builds the board without them. Nothing on the page says
+so in red.
+
+So a blank is a guess made by somebody else's software, and the rule is now: the project's
+table names a part for every row, keyed on (value, footprint) for passives because one
+value is several parts ("100nF" is an 0402 on one board and an 0805 on another, and
+"4.7uF/50V" comes in two sizes). A row with no code refuses the build. The Footprint
+column also carries the plain package ("0402"), not KiCad's name, so the matcher has
+nothing to misread.
 """
 from __future__ import annotations
 
@@ -71,9 +83,14 @@ HERE = None              # the project's generator folder (elec/): <board>.py li
 OUT_DIR = None           # <HERE>/out -- routed boards, netlists, board.json
 FAB_DIR = None           # <OUT_DIR>/fab -- one folder and one zip per board
 BOARDS = ()              # every board in the design, by name
-# value (as the netlist carries it) -> LCSC part number. ONLY codes a human wrote down:
-# a blank stops the order, a wrong number ships.
+# LCSC part number for every BOM row. Two kinds of key in one table:
+#   "MPN-as-the-netlist-carries-it"        -> code     (a part chosen by its part number)
+#   ("value", "KiCad footprint name")      -> code     (a passive chosen by value AND size)
+# The pair is looked up first. ONLY codes a human checked against the catalogue.
 LCSC = {}
+# A row with no code refuses the package (see the module docstring for what a blank does
+# at the fab). False only for a project that is not ordering assembled boards.
+REQUIRE_CODES = True
 # ⚠ EVERY VALUE STRING MUST BE ACCOUNTED FOR -- IN LCSC, GENERIC, OR HERE. A value that is
 # neither sourced nor generic nor declared open FAILS THE BUILD, so changing a part number
 # forces you to say so. (The case: a connector kept its OLD part number in `value` after
@@ -98,11 +115,12 @@ REQUIRE_QUALITY = False
 
 
 def configure(project_dir, boards, lcsc, open_values=(), order_every_board=None, after=None,
-              require_quality=False):
+              require_quality=False, require_codes=True):
     """Point this module at a project. `project_dir` is the generator folder (elec/)."""
     global HERE, OUT_DIR, FAB_DIR, BOARDS, LCSC, OPEN_VALUES, ORDER_EVERY_BOARD, AFTER
-    global REQUIRE_QUALITY
+    global REQUIRE_QUALITY, REQUIRE_CODES
     REQUIRE_QUALITY = bool(require_quality)
+    REQUIRE_CODES = bool(require_codes)
     HERE = os.path.abspath(project_dir)
     OUT_DIR = os.path.join(HERE, "out")
     FAB_DIR = os.path.join(OUT_DIR, "fab")
@@ -117,9 +135,9 @@ L2 = "F.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cut
 L4 = ("F.Cu,In1.Cu,In2.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,"
       "F.Mask,B.Mask,Edge.Cuts")
 
-# Generic passives are JLCPCB BASIC parts chosen at order time from the package and
-# value, which is normal practice and not an omission -- an 0402 100nF is not a
-# sourcing decision. They are reported separately from the real OPENs.
+# Generic passives: parts chosen by value and package rather than by a maker's number.
+# They still need a code each (REQUIRE_CODES); the pattern only decides how a missing one
+# is described and which rows the placeholder rule applies to.
 GENERIC = re.compile(r"^(R_|C_|Fuse_|Jumper:|Diode_SMD:D_SOD|Diode_SMD:D_SM[AB]|"
                      r"Inductor_SMD|Crystal:)")
 # ⚠ ONLY PASSIVES ARE VALUE-CHOSEN. An 0402 is picked from its value; an LED in an 0805
@@ -138,6 +156,23 @@ PASSIVE = re.compile(r"^(R_|C_|L_|Inductor_SMD)")
 # "TERM" -- a value that cannot pick a part -- was accepted. The CPL was right all along
 # and omitted them, which is how the discrepancy showed: BOM designators 4 against CPL 3.
 COPPER_ONLY = re.compile(r"^(TestPoint|NetTie|Fiducial|SolderJumper|Jumper)")
+# KiCad's chip footprint names carry BOTH codes, imperial then metric: C_0402_1005Metric.
+# A matcher that reads the row as text finds "1005" in it, and 01005 is a real, different
+# package. The BOM's Footprint column says the one thing a person would: "0402".
+_CHIP = re.compile(r"^(?:[A-Z][A-Za-z]*_)+(\d{4})_\d{4}Metric")
+
+
+def code_for(val, fp):
+    """The table's code for a BOM row: (value, footprint name) first, then the value."""
+    name = fp.split(":", 1)[-1]
+    return LCSC.get((val, name)) or LCSC.get(val, "")
+
+
+def package_name(fp):
+    """What the BOM's Footprint column says: '0402' for a chip, KiCad's name otherwise."""
+    name = fp.split(":", 1)[-1]
+    m = _CHIP.match(name)
+    return m.group(1) if m else name
 
 
 def _run(args):
@@ -265,7 +300,7 @@ def fab(board):
     os.remove(raw)
 
     # ---- BOM, grouped by (value, footprint) the way JLCPCB reads it ----
-    groups, open_real, open_generic = {}, set(), set()
+    groups, open_real, open_generic, uncoded = {}, set(), set(), []
     for ref, val, fp in _parts(stem):
         groups.setdefault((val, fp), []).append(ref)
     bom = os.path.join(d, "%s-bom.csv" % board)
@@ -281,8 +316,9 @@ def fab(board):
             # attribute never reaches it.
             if COPPER_ONLY.search(fp.split(":", 1)[0]):
                 continue
-            code = LCSC.get(val, "")
+            code = code_for(val, fp)
             if not code:
+                uncoded.append((val, fp.split(":", 1)[1], sorted(refs)))
                 generic = bool(GENERIC.search(fp.split(":", 1)[1]) or GENERIC.search(fp))
                 # ⚠ A GENERIC PASSIVE STILL NEEDS A VALUE, and "generic" was letting
                 # placeholders through. JLCPCB picks an 0402 100nF from the value field;
@@ -310,7 +346,19 @@ def fab(board):
                         "part number, or to fab.OPEN_VALUES if you do not."
                         % (board, val, fp.split(":", 1)[1]))
                 (open_generic if generic else open_real).add(val)
-            w.writerow([val, ",".join(sorted(refs)), fp.split(":", 1)[1], code])
+            w.writerow([val, ",".join(sorted(refs)), package_name(fp), code])
+    if uncoded and REQUIRE_CODES:
+        os.remove(bom)
+        raise SystemExit(
+            "%s: %d BOM row(s) have no LCSC code, so there is no package:\n%s\n"
+            "A blank is not left for the order page: JLCPCB's matcher fills it from the "
+            "footprint text and has turned an 0402 into an 01005 that Economic assembly "
+            "does not place (qty 0, silently). Add each row to the project's table as "
+            "(value, footprint) -> code, read off the catalogue with the voltage, "
+            "dielectric and tolerance the board needs."
+            % (board, len(uncoded), "\n".join(
+                "   %-18s %-28s %s" % (v, f, ",".join(r[:6]) + (" ..." if len(r) > 6 else ""))
+                for v, f, r in uncoded)))
 
     # ⚠ WHAT THE GERBERS CANNOT SAY. Mask colour, board thickness, surface finish and
     # copper weight are chosen in the ORDER FORM, not in any generated file, so a board
