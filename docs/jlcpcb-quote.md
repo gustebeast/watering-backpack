@@ -126,7 +126,10 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    J4 by 10.16 mm, J5 by 7.62, J6 by 6.35 and 90°, the ESP32 by 90° and 3.68 mm, the
    buck by 270°, both gate drivers and Q3 by 180°. The prices above still stand — same
    parts, same board, same copper — but the CPL in this quote would have been assembled
-   wrong. Five placements (Q1, Q2, D2, D3, F2) still do not fit and need a person.
+   wrong. **All 17 are corrected now and none is left unfitted** — the last five
+   (Q1, Q2, D2, D3, F2) were re-fitted on pad position and hand-entered, see
+   finding 24. What is left for a person is M2: the six polarised parts fitted by
+   pad NUMBER want their pin 1 checked on the order page.
    **And the "every part on its pads" line in the table above was my own misreading of
    that render**: those twelve parts were visibly off and I read past them.
 3. **Check stock the day you order.** Every figure here is from 2026-10-06.
