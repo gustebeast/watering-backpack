@@ -253,11 +253,16 @@ class Boards:
     `height`, `tail`, `tht_legs` and `panel` are laid OVER this module's tables, so a
     project adds its own parts (or overrides a figure) without editing cadkit. The merged
     tables are the instance's `.HEIGHT`, `.TAIL`, `.THT_LEGS`, `.PANEL`.
+
+    `silk_font` is the path of a TTF/OTF to draw the lettering in, and `silk_cap` that
+    font's capital height as a fraction of its em (OS/2 sCapHeight / unitsPerEm). Left
+    out, the lettering is drawn in the CAD kernel's default face. Either way it is only
+    as true as the font is the one the fab's ink was plotted in.
     """
 
     def __init__(self, geom_dir, *, height=None, tail=None, tht_legs=None, panel=None,
                  xh_mated_h=XH_MATED_H, ph_mated_h=PH_MATED_H, tht_tail=THT_TAIL,
-                 side_plug_run=None):
+                 side_plug_run=None, silk_font=None, silk_cap=SILK_CAP):
         self.geom_dir = os.fspath(geom_dir)
         self.HEIGHT = dict(HEIGHT, **(height or {}))
         self.TAIL = dict(TAIL, **(tail or {}))
@@ -265,6 +270,8 @@ class Boards:
         self.PANEL = dict(PANEL, **(panel or {}))
         self.xh_mated_h, self.ph_mated_h, self.tht_tail = xh_mated_h, ph_mated_h, tht_tail
         self.side_plug_run = dict(SIDE_PLUG_RUN, **(side_plug_run or {}))
+        self.silk_font = os.fspath(silk_font) if silk_font else None
+        self.silk_cap = silk_cap
         self._cache = {}
 
     # ── reading ──────────────────────────────────────────────────────────────────
@@ -494,6 +501,7 @@ class Boards:
         g = self.load(board)
         t = g["thickness_mm"]
         out = []
+        face = {"fontPath": self.silk_font} if self.silk_font else {}
         for lab in g.get("silk", []):
             if lab["side"] != side or (not refs and lab.get("kind") == "ref"):
                 continue
@@ -502,8 +510,8 @@ class Boards:
             for k, line in enumerate(lines):
                 if not line.strip():
                     continue
-                w = (cq.Workplane("XY").text(line, lab["size"] / SILK_CAP, SILK_T,
-                                             halign="center", valign="center")
+                w = (cq.Workplane("XY").text(line, lab["size"] / self.silk_cap, SILK_T,
+                                             halign="center", valign="center", **face)
                      .translate((0.0, ((len(lines) - 1) / 2.0 - k) * pitch, 0.0)))
                 # each glyph's TOP face and nothing else
                 tops = [f for v in w.vals() if hasattr(v, "Faces") for f in v.Faces()
