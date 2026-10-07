@@ -4495,6 +4495,21 @@ def build(stem):
         if ref_pos:
             _place_ref(fp, _to_board(*ref_pos))
 
+    # ⚠ THE SILKSCREEN IS MADE TO MATCH WHAT PRINTS, AND THAT IS NOT COSMETIC.
+    # Everything above places silk; nothing above asked whether it survives the mask.
+    # A designator over a neighbour's pad is drawn in full and arrives with a letter
+    # gone, and the board-level fitter's 0.20 mm never applied to it, because a
+    # footprint's reference field arrives with the land rather than through the
+    # fitter. silkfit owns every silk field now: it is moved to the nearest spot that
+    # prints intact, or to .Fab, and quality A18 fails on anything left clipped.
+    # Pads are final by here (_grow_thin_rings ran at load) and tracks open no mask,
+    # so this is the right place and routing cannot invalidate it.
+    try:
+        from . import silkfit
+        silkfit.fit_refs(board, notes=notes, pcbnew=pcbnew)
+    except Exception as _e:                                 # noqa: BLE001
+        print("   silkfit: skipped (%s: %s)" % (type(_e).__name__, _e))
+
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     # ⚠ SINGLE-PAD NETS ARE NOT GIVEN TO THE BOARD AT ALL. The netlist names every
     # deliberately-unconnected pin -- U6_NC_57, K1_UNUSED_7, DAC_OUT_R_NC -- because a
