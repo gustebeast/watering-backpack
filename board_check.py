@@ -27,6 +27,15 @@ real one. So:
     probe above cannot see a wrong cutout, because a cutout is exactly where no part is.
     (The case that made this necessary: ten sensing slots emitted to Edge.Cuts as ONE
     rectangle spanning all of them, every other check green.)
+  * it asks for the board's LETTERING. Every label the routed board prints (geom "silk")
+    must have ink in the CAD inside that label's box, on that label's FACE. Pass the
+    lettering part(s) the assembly places as `ink=`, in the same frame as `solid`. A
+    board whose geom carries lettering and is handed no ink FAILS: silkscreen reaches
+    the CAD only where a module remembers to draw it (`Boards.silk`), and until this
+    asked, six of fifteen boards in one project had never drawn theirs and four more
+    drew the front face only. `ink=False` says "this assembly does not draw lettering"
+    out loud. `place()` below puts a part built in the board's own frame where the
+    CAD's board is, for a board whose pose is not written down anywhere.
 
 NO FRAME BOOKKEEPING. Boards live wherever the assembly puts them -- centred on their own
 origin, in world coordinates, standing on edge. This FINDS the pose: the plate is the
@@ -45,6 +54,7 @@ from .board_geom import fp_name
 
 # Bare-copper refs: flat pads with no body, nothing above the board to find.
 NO_BODY_PREFIX = ("JP", "TP")
+INK_SLACK = 0.25            # mm round a label's box, and off its face, that still counts
 
 _AX = {"x": cq.Vector(1, 0, 0), "y": cq.Vector(0, 1, 0), "z": cq.Vector(0, 0, 1)}
 
@@ -168,20 +178,49 @@ def _end_misses(shape, parts, c, u, v, up, t):
     return out
 
 
-def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
-          strict_ends=False, ends_ok=None):
-    """Number of disagreements between `solid` (the CAD's board, any pose) and `geom`
-    (the routed board): missing parts + 1 if mirrored + cutout mismatches (+ bodies that
-    stop short of a routed end, with `strict_ends`). Raises RuntimeError if no face of
-    the solid is the routed outline's size.
+def _shapes(obj):
+    """Every solid in a part, a Workplane, or a list of either."""
+    if obj is None:
+        return []
+    if isinstance(obj, (list, tuple)):
+        return [s for o in obj for s in _shapes(o)]
+    out = []
+    for v in (obj.vals() if hasattr(obj, "vals") else [obj]):
+        out += v.Solids() if hasattr(v, "Solids") else []
+    return out
 
-    `ends_ok` is {ref: reason} for the bodies drawn to their real shape that honestly do
-    not reach the board face at an end of their fab rectangle (a jack's round bushing).
-    Their end probes are printed with the reason and not counted. A ref named there that
-    no longer misses an end IS counted: a stale declaration."""
+
+def _ink_misses(ink, geom, pose, ink_refs):
+    """The routed board's labels that have no ink in the CAD: [(text, side, x, y)].
+
+    Each glyph is its own solid, so a label is "drawn" when some ink solid's centre lies
+    in the label's box, at the height of the face it prints on. Centres, not a boolean:
+    a few hundred letters against a few dozen boxes is arithmetic."""
+    c, u, v, up = pose
+    t = geom["thickness_mm"]
+    dots = []
+    for s in _shapes(ink):
+        d = s.Center() - c
+        dots.append((d.dot(u), d.dot(v), d.dot(up)))
+    out = []
+    for lab in geom.get("silk", []):
+        if lab.get("kind") == "ref" and not ink_refs:
+            continue
+        x0, x1, y0, y1 = lab["box"]
+        front = lab["side"] == "F"
+        if not any(x0 - INK_SLACK <= x <= x1 + INK_SLACK
+                   and y0 - INK_SLACK <= y <= y1 + INK_SLACK
+                   and ((z > t - INK_SLACK) if front else (z < INK_SLACK))
+                   for x, y, z in dots):
+            out.append((lab["text"].split("\n")[0], lab["side"], lab["x"], lab["y"]))
+    return out
+
+
+def _find_pose(shape, geom, no_body_prefix):
+    """((misses, mirrored, plate face, (c, u, v, up)), every candidate plate, the parts
+    probed): the pose the most parts agree with."""
     w, l = geom["outline_mm"]
     t = geom["thickness_mm"]
-    shape = solid.val() if hasattr(solid, "val") else solid
     wp = cq.Workplane(obj=shape)
     parts = [f for f in geom["footprints"]
              if f["fab"] and not f["ref"].startswith(tuple(no_body_prefix))]
@@ -206,7 +245,58 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
                 key = (len(misses), mirrored)
                 if best is None or key < (len(best[0]), best[1]):
                     best = (misses, mirrored, plate, (c, u, v, up))
+    return best, plates, parts
+
+
+def place(solid, geom, part, no_body_prefix=NO_BODY_PREFIX):
+    """`part`, built in the board's OWN frame (what `Boards.silk` / `Boards.solid`
+    return: outline centred, underside at z 0), moved to where `solid` -- the CAD's
+    board, in any axis-aligned pose -- actually is.
+
+    For a board the assembly models by hand, whose pose is the sum of a module's worth
+    of translations: this reads it off the solid the way check() does, so the lettering
+    cannot be put anywhere the board is not. It costs a pose search, so build the pair
+    once and move both together."""
+    shape = solid.val() if hasattr(solid, "val") else solid
+    (misses, mirrored, _plate, (c, u, v, up)), _pl, parts = _find_pose(
+        shape, geom, no_body_prefix)
+    if mirrored or len(misses) * 2 > len(parts):
+        raise RuntimeError("no trustworthy pose: %d of %d parts missing%s"
+                           % (len(misses), len(parts), ", mirrored" if mirrored else ""))
+    # board x -> u, board z -> up (and so y -> v: the pose is not mirrored)
+    loc = cq.Location(cq.Plane(origin=(c.x, c.y, c.z), xDir=(u.x, u.y, u.z),
+                               normal=(up.x, up.y, up.z)))
+    return cq.Workplane("XY").newObject(
+        [s.moved(loc) for s in (part.vals() if hasattr(part, "vals") else [part])])
+
+
+def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
+          strict_ends=False, ends_ok=None, ink=None, ink_refs=True):
+    """Number of disagreements between `solid` (the CAD's board, any pose) and `geom`
+    (the routed board): missing parts + 1 if mirrored + cutout mismatches (+ bodies that
+    stop short of a routed end, with `strict_ends`). Raises RuntimeError if no face of
+    the solid is the routed outline's size.
+
+    `ends_ok` is {ref: reason} for the bodies drawn to their real shape that honestly do
+    not reach the board face at an end of their fab rectangle (a jack's round bushing).
+    Their end probes are printed with the reason and not counted. A ref named there that
+    no longer misses an end IS counted: a stale declaration.
+
+    `ink` is the lettering the assembly places for this board -- a part, or a list of
+    them (front and back) -- in the SAME frame as `solid`. Every label in the routed
+    board must have ink there (`ink_refs=False` lets the footprints' own designators
+    go, for an assembly that draws `Boards.silk(refs=False)`). None with lettering on
+    the board is a failure; `ink=False` declares that this assembly draws none."""
+    t = geom["thickness_mm"]
+    shape = solid.val() if hasattr(solid, "val") else solid
+    best, plates, parts = _find_pose(shape, geom, no_body_prefix)
     misses, mirrored, plate, pose = best
+    labels = [lab for lab in geom.get("silk", [])
+              if ink_refs or lab.get("kind") != "ref"]
+    if ink is False or not labels:
+        unlettered = []
+    else:
+        unlettered = _ink_misses(ink, geom, pose, ink_refs)
     short = _end_misses(shape, parts, *pose, t)
     ends_ok = dict(ends_ok or {})
     declared = [s for s in short if s[0] in ends_ok]
@@ -232,5 +322,18 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
                   % ref)
         if short and not strict_ends:
             print("      (%d end probe(s) found no body: reported, not counted)" % len(short))
-    return (len(misses) + (1 if mirrored else 0) + holes + len(stale)
+        if ink is False and labels:
+            print("      lettering: %d label(s) on the routed board, declared NOT drawn"
+                  % len(labels))
+        elif labels:
+            print("      lettering: %d / %d label(s) of the routed board drawn in the CAD%s"
+                  % (len(labels) - len(unlettered), len(labels),
+                     "" if ink is not None else
+                     "   !! NO INK GIVEN (pass ink=, or ink=False to declare none)"))
+            for text, side, x, y in unlettered[:12]:
+                print("      NOT DRAWN %-14s %s side, printed at (%.2f, %.2f)"
+                      % (repr(text[:12]), "front" if side == "F" else "BACK", x, y))
+            if len(unlettered) > 12:
+                print("      ...and %d more" % (len(unlettered) - 12))
+    return (len(misses) + (1 if mirrored else 0) + holes + len(stale) + len(unlettered)
             + (len(short) if strict_ends else 0))

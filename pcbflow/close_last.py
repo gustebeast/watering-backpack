@@ -282,8 +282,61 @@ def main(stem):
             continue
         runs, vias = res
         code = board.GetNetcodeFromNetname(net)
+        # ⚠ TWO VIAS A TENTH OF A MILLIMETRE APART ARE ONE VIA. The maze can
+        # return a layer change that immediately reverses -- F.Cu down to B.Cu
+        # and back up, with a B.Cu run between them shorter than the drill. On
+        # the watering-backpack board that put two LEVEL vias 0.067 mm apart and
+        # two GATE_A vias 0.242 mm apart, against a 0.25 mm hole-to-hole
+        # minimum. DRC reports it as hole_to_hole at "actual 0.0000 mm" -- the
+        # holes do not merely crowd, they OVERLAP -- and grades it a WARNING, so
+        # the error count stays at zero and nobody looks. A fab either rejects
+        # the drill file or drills one ragged hole.
+        #
+        # So the via list is merged first and the track ends are snapped onto
+        # whatever they merged into: one via still joins F.Cu to B.Cu at that
+        # point, which is all the pair ever did, and the short run between them
+        # collapses to nothing and is dropped. Snapping can only move a point by
+        # less than the merge radius, and finish.py keeps this whole pass only
+        # if DRC comes out strictly better, so a snap that hurt would be thrown
+        # away rather than shipped.
+        merge_r = RS.VIA_DRILL + 0.25
+        # Seeded with the vias ALREADY on this net, because the hole the new one
+        # crowds need not be another new one. The first version of this merged
+        # only within close_last's own list and left a LEVEL via 0.0673 mm from
+        # one the ROUTER had put down -- same violation, different neighbour.
+        # Snapping onto an existing via is better than merging two new ones: the
+        # layer transition is already there and already in the zones' pour.
+        keep_v, snap = [], {}
+        for _t in board.GetTracks():
+            if isinstance(_t, pcbnew.PCB_VIA) and _t.GetNetname() == net:
+                _p = _t.GetPosition()
+                keep_v.append((pcbnew.ToMM(_p.x), pcbnew.ToMM(_p.y)))
+        n_existing = len(keep_v)
+
+        def _snap(q):
+            for k in keep_v:
+                if (q[0] - k[0]) ** 2 + (q[1] - k[1]) ** 2 < merge_r ** 2:
+                    return k
+            return None
+
+        for q in vias:
+            k = _snap(q)
+            if k is None:
+                keep_v.append(q)
+            else:
+                snap[(round(q[0], 6), round(q[1], 6))] = k
+        vias = keep_v[n_existing:]
+        if len(vias) != len(res[1]):
+            print("close_last: %s -- merged %d via(s) that would have overlapped "
+                  "a neighbouring hole (min %.2f mm)"
+                  % (net, len(res[1]) - len(vias), merge_r))
+
+        def _pt(q):
+            return snap.get((round(q[0], 6), round(q[1], 6)), q)
+
         length = 0.0
         for L, pts in runs:
+            pts = [_pt(q) for q in pts]
             for q0, q1 in zip(pts, pts[1:]):
                 if q0 == q1:
                     continue
