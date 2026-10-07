@@ -342,7 +342,22 @@ BUCK_COUT_DIELECTRIC = "X7R"
 BUCK_VUS_MAX     = 0.200     # V, the brownout ceiling with margin
 BUCK_ISTEP_LO    = 0.05      # A, the module idling
 BUCK_ISTEP_HI    = 0.6       # A, the declared WiFi burst
-BUCK_COUT_NOM    = 44e-6     # C4 + C19, both 22u/16V 1206
+BUCK_COUT_NOM    = 88e-6     # C4 + C19 + C23 + C24, all 22u/16V 1206
+# ⚠ 44 uF WAS UNDER TI'S OWN FLOOR AND THE ARGUMENT FOR DISCOUNTING IT WAS THE
+# WRONG KIND OF ARGUMENT. SNVSAA5B 8.2.2.3: 'For stability consideration, one
+# 47 uF output capacitor is needed at least.' This file used to set that aside as a
+# sentence with no equation behind it, sitting inside a 5 V/2 A example, and sized
+# COUT from equations 11-14 instead. Those equations size RIPPLE and TRANSIENT.
+# They do not size PHASE MARGIN, and the LMR14020 is INTERNALLY COMPENSATED -- its
+# compensation was fixed at design time around an assumed output pole, so Cout is a
+# stability INPUT here, not a performance knob. Too little does not show up as a
+# failed ripple measurement; it shows up as subharmonic oscillation on the rail the
+# MCU runs on, i.e. as random resets in the field, which is the failure mode this
+# machine can least afford to debug on someone's back.
+# 44e-6 * 0.6 = 26.4 uF, 44 % under the floor. Four parts give 52.8 uF at the SAME
+# pessimistic derate, so the floor is cleared without arguing the derate down.
+# Both new parts are 22u/16V 1206 (C12891), the value C4 and C19 already carry: no
+# new BOM line, no new feeder fee, +2 placements.
 BUCK_COUT_DERATE = 0.6       # pessimistic, because the part is not sourced yet
 BUCK_COUT_EQ13   = 3.0 * (BUCK_ISTEP_HI - BUCK_ISTEP_LO) / (
     BUCK_FSW_KHZ * 1e3 * BUCK_VUS_MAX)
@@ -716,9 +731,25 @@ def circuit():
     n_joyr = Net("JOY_RAW")
     n_joyf = Net("JOY_FILT")
     n_lvl  = Net("LEVEL")
+    # ⚠ THE SENSOR'S OUTPUT IS NO LONGER ON THIS NET, AND THAT IS THE POINT.
+    # The XKC-Y25 drives its HIGH at InVCC -- the PACK -- so for as long as J5's OUT
+    # landed here, LEVEL was a pack-potential net running the length of the board into
+    # a clamp, and the clamp held IO14 at VDD + Vf CONTINUOUSLY, because "tank not
+    # full" is the resting state of a tank. The inverter that was meant to prevent that
+    # lived in the sensor LEAD (CIRCUIT.md: "the sensor's yellow wire stops at the
+    # transistor") -- a flying transistor in a condensing box, absent from the BOM,
+    # absent from the housing, and checked by nothing. It is Q4, on the board, 14.7 mm
+    # from the pad it reads. LEVEL is a COLLECTOR node now: 0 to 3.3 V, never the pack.
+    # The one net that still carries the pack out of a cable: J5's OUT to R29, and
+    # nothing else on it.
+    n_sraw = Net("SENSE_RAW")
+    # Q4's base. Named rather than left to skidl, because the first build of this
+    # circuit left it as N$4, and an auto-named net is one A16 cannot grade and one
+    # that a short reports by a number nobody recognises.
+    n_lvl_b = Net("LEVEL_BASE")
     # The protected side of R26: everything from the series resistor to the pin.
     # A net of its own because it carries a DIFFERENT voltage from LEVEL in the one
-    # case that matters -- LEVEL can see the pack on a fault, LEVEL_IO is clamped --
+    # case that matters -- LEVEL can see a saturated collector, LEVEL_IO is clamped --
     # and A16 grades pins against the net that reaches them.
     n_lvl_io = Net("LEVEL_IO")
     n_bz   = Net("BUZZ")
@@ -870,6 +901,10 @@ def circuit():
     # The second half of the output capacitance eq 13 asks for; see the
     # BUCK_COUT block. Same value as C4 on purpose: no new part number, and two
     # in parallel halve the ESR.
+    c_o4 = gen.part("C23", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                    "3V3 out, 3 of 4 -- TI's 47 uF stability floor, see BUCK_COUT_NOM")
+    c_o5 = gen.part("C24", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2,
+                    "3V3 out, 4 of 4 -- TI's 47 uF stability floor, see BUCK_COUT_NOM")
     c_o3 = gen.part("C19", "22u/16V", "Capacitor_SMD:C_1206_3216Metric", 2,
                     "3V3 out, the second of two -- %s or better"
                     % BUCK_COUT_DIELECTRIC)
@@ -891,12 +926,13 @@ def circuit():
 
     vbat += u_bk["VIN"], u_bk["EN"], c_bki[1]
     n_sw += u_bk["SW"], l1[1], c_bt[2], d_cat["K"]
-    v3v3 += (l1[2], c_o1[1], c_o2[1], c_o3[1], r_f1[1], j_joy["3V3"],
+    v3v3 += (l1[2], c_o1[1], c_o2[1], c_o3[1], c_o4[1], c_o5[1], r_f1[1], j_joy["3V3"],
              j_prg["3V3"])
     n_fb += r_f1[2], r_f2[1], u_bk["FB"]
     n_rt += u_bk["RT"], r_rt[1]
     n_ss += u_bk["SS"], c_ss[1]
-    gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], c_o3[2], r_f2[2], r_rt[2],
+    gnd  += (u_bk["GND"], u_bk["EP"], c_o1[2], c_o2[2], c_o3[2], c_o4[2], c_o5[2],
+             r_f2[2], r_rt[2],
              c_ss[2], c_bki[2], d_cat["A"])
     c_bt[1] += u_bk["BOOT"]
 
@@ -922,7 +958,19 @@ def circuit():
     v3v3 += u_mcu["3V3"], c_m1[1], c_m2[1], r_en[1]
     gnd  += u_mcu["GND"], c_m1[2], c_m2[2], c_en[2]
     n_en += u_mcu["EN"], r_en[2], c_en[1], j_prg["EN"]
-    n_io0 += u_mcu["IO0"], j_prg["IO0"]
+    # ⚠ IO0 IS A STRAPPING PIN AND IT HAD NOTHING ON IT BUT THE CHIP'S OWN ~45 kOHM.
+    # Held high it boots from flash; pulled low it boots to the serial downloader and
+    # the machine simply does not start -- no error, no buzzer, nothing to look at. That
+    # internal pull is the only thing between a sealed OUTDOOR box that condenses and a
+    # board that silently refuses to run: a few hundred kOhm of moisture film from J6.6
+    # to J6.2's GND, two header pins away, halves it. EN got R3 + C8 for exactly this
+    # reason and IO0 got nothing. 10k is the conventional value, it is already this
+    # board's R3/R21 line (C25804) so the BOM does not grow, and it still lets a
+    # programmer's DTR pull IO0 down for auto-reset.
+    r_io0 = gen.part("R31", "10k", "Resistor_SMD:R_0603_1608Metric", 2,
+                     "IO0 boot strap -- flash boot survives a wet header")
+    v3v3 += r_io0[1]
+    n_io0 += u_mcu["IO0"], j_prg["IO0"], r_io0[2]
     r_rx = gen.part("R25", PROG_RX_SERIES, "Resistor_SMD:R_0603_1608Metric", 2,
                     "ESP_RX series -- stops an adapter back-powering a dead 3V3")
     n_rx += u_mcu["RXD0"], r_rx[1]
@@ -1158,7 +1206,38 @@ def circuit():
     v3v3 += r_lv[1], d_ls["K2"]
     n_lvl_p1 += r_lv[2], r_lv2[1]
     n_lvl_p2 += r_lv2[2], r_lv3[1]
-    n_lvl += r_lv3[2], j_lvl["OUT"], r_ls[1]
+    # ⚠ Q4 INVERTS, SO firmware LEVEL_FULL_IS_LOW IS false, AND THE DIRECTION WAS
+    # CHOSEN FOR THE BROKEN-WIRE CASE RATHER THAN FOR CONVENIENCE.
+    # MODE stays tied to GND, selecting the part's NORMALLY-CLOSED mode: no liquid ->
+    # sensor HIGH -> Q4 on -> LEVEL LOW; liquid -> sensor LOW -> Q4 off -> LEVEL pulled
+    # HIGH by the 300k. FULL reads HIGH.
+    # Now the case that decides it. A SEVERED OR UNPLUGGED SENSOR LEAD leaves Q4's base
+    # at 0 V through R30, so Q4 is off, LEVEL floats up, and this polarity calls that
+    # FULL -- a broken sensor STOPS THE PUMP. The other arrangement (MODE to VBAT, which
+    # is what CIRCUIT.md prescribed so that LEVEL_FULL_IS_LOW could stay true) inverts
+    # exactly that case: a broken wire would read "not full" and keep filling a tank on
+    # someone's back. A dead sensor must fail toward the dry side.
+    # It also retires a trap. J5 way 4 is LABELLED MODE and is wired to GND, and the old
+    # build note required it to be LEFT EMPTY with the sensor's MODE wire spliced to
+    # VBAT instead -- so landing the MODE wire on the way marked MODE, the obvious
+    # action, silently inverted the overfill alarm. Four wires, four ways, straight
+    # across, no splice, nothing to get wrong.
+    q_inv = gen.part("Q4", "MMBT3904", "Package_TO_SOT_SMD:SOT-23",
+                     {1: "B", 2: "E", 3: "C"},
+                     "level-sensor inverter -- caps IO14 at 3V3 whatever the pack does")
+    # 100k, not the 10k CIRCUIT.md wrote, for the same reason R26 is 100k: the collector
+    # only has to sink the 300k string's 11 uA, so base current is irrelevant to
+    # saturation. At a 21 V pack 100k gives (21-0.7)/100k = 203 uA of base drive against
+    # 11 uA of collector current -- a forced beta under 0.06, saturated by three orders
+    # of magnitude -- and it holds 4.1 mW in an 0603 where 10k would hold 41 mW. On a
+    # 38.9 V clamp it is 382 uA and 14.6 mW, still inside the part.
+    r_ib = gen.part("R29", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
+                    "Q4 base -- limits pack-side drive into the b-e junction")
+    r_ip = gen.part("R30", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
+                    "Q4 base-emitter hold-off -- an open sensor lead reads FULL, not empty")
+    n_sraw += j_lvl["OUT"], r_ib[1]
+    n_lvl_b += r_ib[2], q_inv["B"], r_ip[1]
+    n_lvl += r_lv3[2], q_inv["C"], r_ls[1]
     n_lvl_io += r_ls[2], c_ls[1], d_ls["MID"], u_mcu["IO14"]
     gnd += c_ls[2], d_ls["A1"]
     # Power LEAVING the board down a cable, which is the worst inductance in the
@@ -1216,7 +1295,10 @@ def circuit():
     vbat += c_lvl[1], c_pb[1]
     n_vraw += c_raw[1]
     gnd  += c_joy[2], c_lvl[2], c_pb[2], c_raw[2]
-    gnd += j_lvl["GND"], j_lvl["MODE"]
+    # MODE on GND is a WIRED CONFIGURATION now, not a tie-off for an unused way: it
+    # selects normally-closed, which is what makes a broken sensor lead read FULL
+    # through Q4. See the inverter block above.
+    gnd += j_lvl["GND"], j_lvl["MODE"], q_inv["E"], r_ip[2]
 
     # ── Tank-full buzzer. Active (needs DC, not a waveform); ~30 mA is past a GPIO.
     bz  = gen.part("BZ1", "3V-ACTIVE", "Buzzer_Beeper:Buzzer_12x9.5RM7.6", ["+", "-"],
@@ -1407,7 +1489,7 @@ BOARD_NOTES = {
                    "check assumes it.",
         "finish":  "Lead-free HASL. Nothing finer on this board than a "
                    "1.27 mm SOIC, so the cheaper finish costs nothing in "
-                   "yield. NOT because anything is hand-soldered: all 64 "
+                   "yield. NOT because anything is hand-soldered: all 70 "
                    "placements are in the CPL, the six through-hole ones "
                    "included, and the fab bills them as hand-soldering and "
                    "manual assembly.",
@@ -1421,7 +1503,7 @@ BOARD_NOTES = {
                    "rails, so TICK 'Depanel boards & edge rail before "
                    "delivery' or the boards arrive too wide for the bay. "
                    "Was: whichever of Economic / Standard lists all 12 sourced SMT "
-                   "parts -- the DESIGN constrains neither. 64 placements, all "
+                   "parts -- the DESIGN constrains neither. 70 placements, all "
                    "on top (single-sided, no second-side setup); 95 x 112 mm, "
                    "which is OUT of the <=100 x 100 tier deliberately and for "
                    "F2 (see the outline note), and still far above any "
@@ -1429,7 +1511,7 @@ BOARD_NOTES = {
                    "J1-J6, F2) ARE ORDERED ASSEMBLED, which this line used "
                    "to deny -- it said they were hand-soldered afterwards "
                    "and that no THT assembly was ordered. The CPL never "
-                   "agreed: all 64 placements are in it, and the quote "
+                   "agreed: all 70 placements are in it, and the quote "
                    "bills them as Hand-soldering labor $3.61 plus Manual "
                    "Assembly $2.56. The terminals and the buzzer were "
                    "sourced on purpose -- they were the last entries to "
@@ -1586,6 +1668,36 @@ BOARD_NOTES = {
         # C18 stays on the connector side of it, which is what makes it a charge
         # past the fuse rather than in front of it, and it is 2 mm from J5.1 now
         # instead of 9.76 -- well inside the 25 mm A2 asks of a cable pin.
+        # ⚠ THE INVERTER, AND FOUR SEARCHES FAILED BEFORE A MAP SUCCEEDED -- which
+        # is worth recording because every failure was the search's, not the board's.
+        #   1. a row between F1 and C17: 8.22 mm of band for 11.8 mm of parts once each
+        #      pad may have a ground via. The STITCHER refused the board.
+        #   2. a joint search over courtyards ONLY: landed inside VBAT and PUMP_A_LO,
+        #      and KiCad said "Items shorting two nets". Courtyard-free is not
+        #      copper-free.
+        #   3. the signal half beside the 300k string: no short, but SENSE_RAW then ran
+        #      ~100 mm across the power section and necked a 7.5 A pour to 0.16 mm
+        #      against IPC-2221's 3.18 mm. A1 caught it.
+        #   4. the left strip ABOVE the pours: A1 passed, but the crossing split VBAT
+        #      into two islands and left 7 nets open.
+        # Then the quadrant was printed as a MAP of the filled polygons instead of
+        # bounding-boxed, and x -47..-40 / y -24..-37 is 8 x 13 mm of bare laminate
+        # sitting directly above J5's courtyard (which tops out at y -40.55), with only
+        # C18 intruding below y -37. Every earlier scan had excluded it because of a
+        # 1.0 mm board-edge margin that rejects x < -40 for a SOT-23 -- a limit I
+        # invented; the outline is at -47.5 and this part's body reaches -45.3.
+        # Stacked up that strip, SENSE_RAW is 14.7 mm and stays in the board's left
+        # margin, where the 7.5 A paths (J1 is at x +4) never go.
+        # EAST of VBAT's left column, not west of it. The column (x -39.6..-35.5)
+        # runs unbroken from y -45.3 to y -2 -- it is the buck's VIN feed, not fill --
+        # and the 7.5 A bus runs underneath it, so an inverter on the WEST side forces
+        # SENSE_RAW to cut one or the other. It cut the column: VBAT came back as two
+        # islands and F1's feed was on the wrong one. East of the column there is a
+        # 16 x 5 mm bare band at x -35..-19, y -33..-37, reachable from J5's OUT way
+        # through the lane at x -34..-35, and from there SENSE_RAW never touches VBAT.
+        "R29": (-31.0, -35.0, 0.0),   # Q4 base, up the lane from J5's OUT way
+        "Q4":  (-26.5, -35.0, 0.0),   # level inverter
+        "R30": (-22.0, -35.0, 0.0),   # b-e hold-off
         "F1": (-35.5, -38.5, 0.0),    # ON the VBAT column: F1.1 at -36.95 is inside it,
                                   # F1.2 (VBAT_LVL) 0.70 clear of its edge
         "C18": (-44.5, -38.5, 0.0),   # out of the widened column: its GND pad
@@ -1708,7 +1820,13 @@ BOARD_NOTES = {
         "D6": (-30.1, 31, 270.0),     # catch: K up to SW, A down to GND
         "L1": (-24.4, 31.91, 0.0),     # SW pad on pin 8's own y
         "C4": (-18.0, 31.91, 0.0),     # COUT, at L1's output pad
-        "C19": (-18.0, 28.3, 0.0),      # COUT's other half, 4.60 mm from L1.2
+        "C19": (-18.0, 28.3, 0.0),      # COUT 2 of 4, 4.60 mm from L1.2
+        # ⚠ ONE ABOVE THE PAIR AND ONE BELOW, NOT OUTBOARD IN THE SAME COLUMN. A
+        # 1206 courtyard is 4.69 mm wide, so extending the column at a 3.6 mm pitch
+        # left C4.2 and C19.2 with nowhere to put their ground vias and the stitcher
+        # refused the board outright. Both are still on L1's output node.
+        "C23": (-17.0, 35.91, 0.0),     # COUT 3 of 4, above C4
+        "C24": (-18.0, 24.30, 0.0),     # COUT 4 of 4, below C19
         # ⚠ C5 IS NOT AT THE BUCK, AND IT NEVER REALLY WAS. It sat at (-8, 26)
         # with a comment calling it "3V3 out", and what it was actually doing
         # there was being J6's bypass: A2 gives a connector 25 mm to its
@@ -1812,6 +1930,7 @@ BOARD_NOTES = {
         # width is wrong by 0.313 mm in the direction that matters.
         "D7":  (24.8, 31.6, 0.0),     # the rail clamp, SOT-23
         "R21": (31.2, 33.9, 180.0),     # divider bottom, at the tap it sets
+        "R31": (24.5, 37.0, 0.0),       # IO0 strap, clear of the U2 fan-out bundle
         "C11": (34.8, 33.9, 180.0),     # VBAT_SENSE filter, 2.35 mm from IO35
         "C12": (38.4, 33.9, 0.0),       # JOY_FILT filter, 2.19 mm from IO34
         # R22 stays at the CONNECTOR end on purpose, and that is the half of an
@@ -2040,6 +2159,23 @@ BOARD_NOTES = {
                           "why": "the motor's low side: the pump leg sits at VBAT "
                                  "whenever its FET is off, so it is the same two "
                                  "numbers as the rail"},
+            "SENSE_RAW": {
+                "v": VBAT_MAX, "peak": TVS_CLAMP,
+                "why": "the sensor's own output, and the XKC-Y25 drives its HIGH at "
+                       "InVCC -- it is powered from VBAT behind F1, so this net IS the "
+                       "pack (VBAT_MAX %.0f V), and a clamp event reaches it through the "
+                       "sensor exactly as it reaches the rail (TVS_CLAMP %.1f V). It "
+                       "stops at R29 and nothing downstream of that sees it"
+                       % (VBAT_MAX, TVS_CLAMP)},
+            "LEVEL_BASE": {
+                "v": 1.0, "peak": 1.0,
+                "why": "Q4's base, and the base-emitter junction sets this net rather "
+                       "than anything upstream of it: it clamps at a forward drop "
+                       "whatever SENSE_RAW does. R29 sets the current that clamping has "
+                       "to carry -- 203 uA at a 21 V pack, 382 uA at the %.1f V clamp -- "
+                       "and both are nothing for the junction. The pack CANNOT appear "
+                       "here while the transistor is intact, which is why 1.0 V is the "
+                       "honest figure rather than a nominal one" % TVS_CLAMP},
             "SW": {"v": VBAT_MAX, "peak": TVS_CLAMP,
                    "why": "SW follows VIN whenever U1's high-side switch is on, "
                           "which is the coupling the BUCK_CATCH_VR_MIN assert "

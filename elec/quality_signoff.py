@@ -609,7 +609,7 @@ MANUAL = {
         "would have made every A14 number wrong by 38 % and nothing would have "
         "said a word. Also recorded: lead-free HASL (nothing finer here than a "
         "1.27 mm SOIC -- NOT because anything is hand-soldered; the fab "
-        "fits all 64 placements and bills the six through-hole ones) and green "
+        "fits all 70 placements and bills the six through-hole ones) and green "
         "mask with white silk (the test-pad and connector labels exist to be "
         "read with a probe in one hand; contrast is the whole point of them). "
         "PERISHABLE, and left perishable deliberately: 'in stock today' was "
@@ -629,7 +629,7 @@ MANUAL = {
     "M30": (
         "COSTED, and the headline is that the expensive surprises are absent "
         "rather than merely priced. "
-        "SIDES: 64 placements, every one on 'top' -- read out of the generated "
+        "SIDES: 70 placements, every one on 'top' -- read out of the generated "
         "CPL, not assumed -- so this is a single-sided assembly: no "
         "second-side setup, no second stencil, and no double-reflow question "
         "for the two thermal-pad parts. "

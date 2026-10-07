@@ -283,15 +283,33 @@ constexpr int VOTE_K_OFF = 3;
 // elec/CIRCUIT.md §5 gives it the buzzer: "Filling happens with the pump OFF and
 // the user standing at the tank", so this is the spigot-fill overflow alarm.
 //
-// POLARITY IS NOT A GUESS. elec/main.py ties the sensor's MODE wire to GND
-// (gnd += j_lvl["GND"], j_lvl["MODE"]), and MODE shorted to GND selects the
-// part's NORMALLY-CLOSED mode: no liquid -> output HIGH, liquid -> output LOW.
-// (MODE left floating would instead select normally-open, which inverts it.) So
-// with R23 pulling up to 3V3, a LOW on this pin means liquid at the sensor.
+// POLARITY IS NOT A GUESS, AND IT IS NOT WHAT THIS COMMENT USED TO SAY EITHER.
+// ⚠ THIS WAS true, AND THE REASONING UNDER IT DESCRIBED A CIRCUIT THE BOARD
+// DOES NOT HAVE. It read: "with R23 pulling up to 3V3, a LOW on this pin means
+// liquid at the sensor" -- which is the sensor driving IO14 DIRECTLY. It never
+// did. The XKC-Y25 drives its HIGH at InVCC, the full pack, so an inverting
+// transistor was always required between the sensor and the pin; it simply used
+// to live in the sensor LEAD, off-board and un-BOMed, so nothing in the firmware
+// tree could see it. It is Q4 on the board now, and an inverter inverts.
+//
+// The chain, end to end:
+//   MODE tied to GND          -> normally-closed: no liquid HIGH, liquid LOW
+//   no liquid -> sensor HIGH  -> Q4 saturated    -> LEVEL pulled to ~0 V
+//   liquid    -> sensor LOW   -> Q4 off          -> LEVEL pulled HIGH by 300k
+// so FULL READS HIGH and this constant is false.
+//
+// ⚠ THE DIRECTION WAS CHOSEN FOR THE BROKEN-WIRE CASE, NOT FOR CONVENIENCE.
+// A severed or unplugged sensor lead leaves Q4's base at 0 V through R30, so Q4
+// is off, LEVEL floats HIGH on the pull-up, and this polarity calls that FULL --
+// the pump STOPS. The alternative wiring (MODE to VBAT, which is what CIRCUIT.md
+// prescribed in order to keep this constant true) inverts precisely that case: a
+// broken wire would read "not full" and keep filling a tank on someone's back.
+// A dead sensor must fail toward the dry side. See elec/main.py's inverter block.
+//
 // The manufacturer's warning not to "use the black wire as GND" is about not
 // using it as the power RETURN in place of the blue wire; shorting it to GND to
 // pick the mode is the documented configuration.
-constexpr bool LEVEL_FULL_IS_LOW = true;
+constexpr bool LEVEL_FULL_IS_LOW = false;
 // Confirm times, CHOSEN and labelled as such per cadkit/AGENTS.md. The part's own
 // response time is ~500 ms, and this tank is being carried on someone's back, so
 // the water sloshes across the threshold constantly. Assert faster than it
