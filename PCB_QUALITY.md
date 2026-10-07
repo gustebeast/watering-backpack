@@ -73,6 +73,12 @@ Everything a board declares lives in its generator, under `BOARD_NOTES["quality"
     # A4 -- where each multi-pin part's pinout was read; key by ref, value or footprint
     "pinouts": {"CH32V307WCU6": "WCH CH32V307 DS v2.3 table 2-1 (QFN68), top view",
                 "J1": "JST XH B4B-XH-A drawing, pin 1 at the polarising tab, top view"},
+    # A17 -- a connector whose pinout can only be printed on the other face, and why;
+    #        or one whose mate is a moulded standard cable
+    "connector_labels": {"J10": {"back_only": "the front is under the bezel to 0.4 mm of "
+                                              "the row; the block is behind it on the back"},
+                         "J1": {"standard": "Raspberry Pi 40-pin header: the Pi is the mate"}},
+    "connectors": ["P3"],                  # a connector whose designator is not J<n>
     # M-rules -- the evidence, per rule id
     "manual": {"M1": "J1 <-> harness XH_PINOUT (elec/harness.py), both crimped 1:1; ..."},
     # a FAIL that does not apply here: "<rule>:<subject>" -> why
@@ -631,6 +637,77 @@ transient raised over a rating — and checks that each case produces a *differe
 answer, alongside the unbroken board. A gate nobody has watched fail is a gate nobody has
 tested; run it after changing this rule.
 
+### A17 — Every connector is labelled on the side it is plugged from
+
+**Rule.** Every connector on the board — a footprint whose designator is `J<n>`, or one the
+board lists in `quality.connectors` — carries three things **in ink on its own side**, the
+side the part is on and the plug comes from:
+
+1. **its designator** (`J3`);
+2. **a name for every way**: a word in line with each contact, or a pinout block for that
+   connector (`J3`, then a line a way) on that same side;
+3. **which contact is way 1**: the word at way 1, a bare `1` against it, or a dot — in
+   every case, whatever else is printed.
+
+Any connector family; a one-contact connector needs only its designator. Contacts with no
+net and pads that are not numbered (mounting tabs, shields) are not ways.
+
+**Why.** A connector is the one part of a board a person handles with the board installed,
+usually with the other hand holding the lead. The schematic is not on the bench and the
+back of the board is against a wall. Every board this rule came from had its pinouts
+printed — on the back, where the labeller found room — and its XH headers took the same
+plug in four places. A pinout block also answers the wrong half of the question: it says
+way 1 is ground, and not which end of the row way 1 is. A shrouded header answers that with
+its key; a bare pin header, a terminal block or a pad row does not, and the mark costs
+0.6 mm of ink.
+
+**How a board declares it.** Nothing, when the labels fit: `cadkit/kicad_silk.py` prints
+all three and this rule reads them back off the routed board. Two declarations, both in
+`quality.connector_labels`, both printed on every run and counted in the rule's summary:
+
+- `{"J10": {"back_only": "<why>"}}` — the pinout block exists but only on the other face.
+  The reason is required and has to be about THIS board (what occupies the connector's own
+  side). The way-1 mark is still required on the connector's own side.
+- `{"J1": {"standard": "<which standard, and what mates with it>"}}` — a moulded, keyed,
+  standard connector that nobody crimps and nobody can plug wrongly (a USB receptacle, a
+  Raspberry Pi header, a barrel jack). Its ways are not graded.
+
+**How it is checked.** Every printed text and every small filled circle on each silk layer
+is read from the board. Ink belongs to a connector when it is within 6 mm of that
+connector's courtyard, on the connector's own face. A text is **a way's word** when the
+contact nearest it is that way and the text names that way's net: the net's own name, the
+word the board gave it (`silk_labels`, `silk_short`), or a contraction of either — the
+word's letters and digits, in order, inside the name's (`G` for GND, `24` for +24V, `H`
+for CAN_A_H). A board's name lying beside a contact is therefore not a word for it, and
+neither is a test pad's label: ink whose nearest pad on the board is a `TP`'s names that
+pad. A **way-1 mark** is the word at way 1, a bare number equal to the lowest way
+against that contact, or a dot there — and for the two that name nothing, only if no other
+connector's body is nearer. A **pinout block** is a text of several lines whose first line
+is the designator and whose other lines carry every way's number. A footprint's own outline
+is not counted as a mark: the rule cannot tell a pin-1 chamfer from a body corner, and
+neither can someone who has not seen the part before.
+
+**How strict.** **Hard:** no way-1 mark on the connector's own side; a `back_only` with no
+reason; a declaration that is stale (the labels are on the connector's side after all, or
+the connector is gone). A waiver written for any of them is ignored. **Soft:** the
+designator, and the ways. *Break the ways when:* (a) the block is on the other face and
+the connector's own side has no room — that is the `back_only` declaration, not a waiver;
+(b) the connector has more ways than a block can carry at a legible size AND its mate is
+one of our own boards whose connector does carry the block — waive with the mate named
+("16-way ribbon to ui_board J2, which prints the pinout; keyed IDC both ends"); (c) the
+board is too small for a single word at the legible size on either face — waive with the
+board's dimensions and where the way order is written down for the person assembling it.
+*Break the designator when* the board has exactly one connector and its name says what
+plugs in. *Do not break it* because the pinout is "in the documentation", because the
+connector is keyed (a key stops a plug going in backwards, not into the wrong socket), or
+because the labeller found no site at the default settings: shorter words, a second line,
+or a part moved 1 mm are all cheaper than a mis-plugged 24 V lead.
+
+**The harness.** `pcbflow/test_quality_a17.py` breaks a real board on purpose — a
+designator deleted, a pinout block moved to the other face, one way's word deleted, a
+way-1 mark deleted, a `back_only` declared with and without a reason — and checks that
+each produces its own answer, alongside the unbroken board.
+
 ## Manual checks
 
 Sign each in `quality["manual"]` with what you checked against. If a rule does not apply
@@ -940,3 +1017,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-06 | a fret-light board: two pairs of frets wired to the same four driver outputs | a loop in the generator read an index left over from the loop above. 24 nets where 32 were meant and eight outputs idle; routed, DRC-clean, quality-clean, because every check compared the board with its own netlist | A13: the board declares its unconnected pins and its nets per group, and the pass fails on any difference |
 | 2026-10-06 | a QFN-32 with one thermal via under the centre of its exposed pad | A14 read each paste-only window of the pad as a land of its own, so one 0.3 mm via under the centre window was "109 % of the joint" of a pad whose paste it is 12 % of. A hard failure on a correct board teaches people to distrust the rule | A14 counts paste to the copper pad under it; a paste-only aperture is not a land |
 | 2026-10-06 | a four-layer sensor board: tracks on In2, an unbroken ground plane on In1 beside them | A15 tested each track against EVERY other ground layer, so the component-side pour -- cut by every part on it -- read as a 10 mm slot under tracks whose return was in the whole plane next to them. The first exemption written for it was for a DC reference; the second finding was a 200 mA switched line, which is how the rule was caught rather than waived again | A15 references the nearest ground layer in the stack-up |
+| 2026-10-07 | ten boards of one instrument, on the bench order the night before it went out | every pinout was printed and every one was on the BACK, where the labeller had found room; five XH headers on one board took the same 4-way plug, and nothing on the side the plugs come from said which was which or which end was way 1. The mechanism to print the labels existed; no rule said a board without them was unfinished | **A17** (new, measured): designator, a name for every way, and a way-1 mark on the connector's own side; a back-only pinout is declared with its reason |

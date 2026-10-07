@@ -96,8 +96,12 @@ BOARD_NOTES["quality"] = {
         "GND": {"v": 0.0, "why": "the reference: nothing to exceed"},
         "VIN": {"v": 5.25, "why": "a 5 V bench supply at +5 %; no inductive load and no "
                                   "cable long enough to ring past it (M16)"},
-        "LED_A": {"v": 5.25, "why": "R1's far end: it sits at VIN while D1 is dark"},
+        "LED_A": {"v": 2.6, "why": "D1's own forward voltage holds it: 2.0 V typical, 2.6 V "
+                                   "maximum for a red LED at 5 mA, whatever VIN does"},
     },
+    # A13: nothing on this board is repeated (one LED, one resistor), and saying so is
+    # required -- a board with eight LED channels would list them here
+    "net_groups": [],
     "pin_volts": {
         "B2B-XH-A": {"max": 50.0,
                      "src": "JST XH series drawing: rated 250 V AC; 50 V declared, which "
