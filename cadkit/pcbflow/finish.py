@@ -91,6 +91,52 @@ def _declared(stem):
     return lambda t, r: bool(mod.declared(board, t, r))
 
 
+def _silkfit(stem):
+    """Move every silk designator to where it will actually print.
+
+    ⚠ AFTER silk.py AND NOT IN layout.py, AND BOTH HALVES OF THAT WERE LEARNED THE
+    HARD WAY. This started as a hook at the end of layout.build(), which is wrong twice
+    over. First, --keep-route does not run layout.py at all -- it re-does everything
+    AFTER the route -- so on a kept-route board the pass silently never happened and
+    fifteen clipped designators went through untouched; the run said "0 violation(s)"
+    and A18 was the only thing that noticed. Second, silk.py adds the board-level
+    labels, the test-pad nets and the connector pinouts AFTERWARDS, and those are silk
+    objects a designator can be clipped against: fitting in layout meant fitting
+    against half of the silkscreen and then having the other half printed on top.
+
+    Here it runs on EVERY path, against the finished silkscreen, and the DRC below --
+    which silk.py already re-runs to check its own "moves no copper" claim -- grades
+    the result. It moves no copper either: silk and .Fab only.
+    """
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "silkfit.py")
+    try:
+        spec = importlib.util.spec_from_file_location("silkfit", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as exc:                                # noqa: BLE001
+        print("  silkfit did NOT run (%s: %s): silk may be clipped -- A18 decides"
+              % (type(exc).__name__, exc))
+        return
+    try:
+        import pcbnew
+        board = pcbnew.LoadBoard(stem + ".kicad_pcb")
+        notes = {}
+        try:
+            with open(stem + ".board.json", encoding="utf-8") as fh:
+                notes = json.load(fh)
+        except OSError:
+            pass
+        moved, demoted, kept = mod.fit_refs(
+            board, notes=notes.get("quality", {}) or {},
+            log=lambda m: print(" " + m), pcbnew=pcbnew)
+        if moved or demoted:
+            board.Save(stem + ".kicad_pcb")
+    except Exception as exc:                                # noqa: BLE001
+        print("  silkfit FAILED (%s: %s): silk may be clipped -- A18 decides"
+              % (type(exc).__name__, exc))
+
+
 def _drc(stem):
     """(unconnected count, the net names involved) for the board at `stem`."""
     out = stem + ".finish.drc.json"
@@ -453,6 +499,7 @@ def finish(stem, rounds=1, keep_route=False):
     # the DRC is run again and the claim is checked rather than trusted.
     try:
         _run("silk.py", stem)
+        _silkfit(stem)
         _n2, _nets2, _v2 = _drc(stem)
         if (_v2, _n2) != (best_v, best_n):
             print("  !! THE SILKSCREEN CHANGED THE DRC RESULT: %d unconnected, %d "
