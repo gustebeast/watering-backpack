@@ -192,7 +192,13 @@ def lookup(table, code, fp_name, pads=None):
     """The frame for this part: the exact key, else one measured for the SAME part
     number whose pad centres are identical. Returns (entry, note) or (None, None)."""
     e = table["frames"].get(key(code, fp_name)) if code else None
-    if e is not None or not code or pads is None:
+    # ⚠ ONLY A FITTED ENTRY SHORT-CIRCUITS THE SEARCH. An entry with fit=False is
+    # not a frame; it is a note saying the fitter could not find one, and `apply` turns
+    # it into "left exactly as KiCad wrote it". Returning it here let that note outrank
+    # a frame that genuinely exists under another name, which is how the rename this
+    # module now guards against went on costing 6.4 mm even after the fallback was
+    # added: the renamed land had its OWN failed entry, so the fallback never ran.
+    if (e is not None and e.get("fit")) or not code or pads is None:
         return e, None
     want = fingerprint(pads)
     for k, cand in sorted(table["frames"].items()):
@@ -201,7 +207,7 @@ def lookup(table, code, fp_name, pads=None):
         if cand.get("pads_fp") and cand["pads_fp"] == want:
             return cand, ("measured as %s, whose pad centres are identical to this "
                           "land's" % k.split("|", 1)[1])
-    return None, None
+    return e, None            # nothing matched: hand back the failed entry and its `why`
 
 
 def load(path):
@@ -327,6 +333,8 @@ def apply(pcb, rows, code_of, table, turn=None):
             note = [("turned %d by hand: %s" % (extra, why))] if extra else []
             if e.get("by"):
                 note.append(e["by"].split(":")[0] + "-entered frame")
+            if why_reused:
+                note.append(why_reused)
             if back:
                 note.append("back side")
             corrected.append((ref, val, code, old % 360.0, new, math.hypot(sx, sy),
