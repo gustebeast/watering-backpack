@@ -963,6 +963,104 @@ Verified after: 10/10 `tools/check_*.py` pass, **0 unintended overlaps**, every 
 part still prints without support, and `cad_geom_check` reports 59/59 routed parts
 where the CAD draws them.
 
+### 27 — OPEN: two documents describe strain relief that does not exist
+
+`elec/CIRCUIT.md` §7 says `src/housing.py` "puts a buttress rib on the back plate
+under the board's bottom edge with a 10 × 7 mm tie slot through it (TIE_*)", and the
+**signed quality item M38** repeats it: *"Strain relief is deliberately NOT at the
+terminals ... which is why it is at the housing's buttress rib and its 10 × 7 mm tie
+slot."*
+
+**TIE_ appears 0 times in `src/housing.py`.** That file says so in its own words: the
+ribs are *"gone at the user's request and nothing replaced them."* Same class as the
+four-mounting-holes prose — a sign-off citing geometry that is not there.
+
+Two more stale numbers in the same paragraph: the chase is given as **y 134..158,
+"between J3 and J4"**. It is **104.9..196.6** and spans the whole row, because it is
+derived from five terminals now, not four.
+
+**The engineering gap underneath is real, and finding 21 made it bigger.**
+`housing.py` names it: the wire slot is genuine relief for the battery pair, which
+turns 90° against a close-fitting hole, but *"it is not relief for the leads that
+arrive down the chase from the tank side (the level sensor, the joystick)"*. J5's
+four-conductor lead is now on that same edge, so **three** unrelieved cables land
+straight on a screw clamp, not two.
+
+### 28 — lead_exit() answers "where does a cable leave this connector" WRONGLY, and silently, for all five terminals
+
+Found by building the wiring model on it. `cadkit.board_geom.Boards.lead_exit()` is
+documented as *"the point a cable should be drawn from"*. For J1–J5 it returns a point
+**15.67 mm off the board's FACE, pointing at the lid** — the top-entry answer — when
+every one of those mouths faces **world −Z**, 6.65 mm above the chase.
+
+**The cause is a 7-character prefix lookup.** `lead_exit` sees `Horizontal` in the fpid
+and enters its side-entry branch, then keys `side_plug_run` on `name[:7]`, which for
+`TerminalBlock_Phoenix_MKDS-3-...` is the string **"Termina"**. Nothing registers that
+key, the lookup returns `None`, and the function **falls back to the top-entry formula
+without a word**. Had the wiring model been built on it, five cables would have been
+drawn leaving perpendicular to the board, missing the chase entirely, and the model
+would have **passed**.
+
+**It cannot simply be measured back either.** CIRCUIT.md §7 measured material behind
+each long face at **140 vs 149 mm³** and recorded the verdict as **indeterminate**.
+The body spans 5.35 mm one side of the pad row and 5.95 the other, so `_side_mouth`'s
+rule — *"the mouth is the end farther from the origin"* — is deciding a direction on
+**0.6 mm of a simplified block, and would decide it the wrong way round.**
+
+What is actually known is a **convention**, which CIRCUIT.md already flags as one:
+BOARD_NOTES is +Y-up and `layout.py` flips to KiCad's +Y-down, so local +Y points at
+the board's −Y and rot 0 aims every entry at −Z. `src/wiring.py` therefore
+**declares** the direction with that reasoning rather than inferring it, and asserts
+the one thing a convention can be held to: that every mouth is over the chase and
+within 20 mm of it. **That assert is the gate finding 21 never had** — it fires on a
+terminal whose mouth is not over the opening, which is what J5 was.
+
+⚠ **The cadkit fix is NOT applied.** It belongs in canonical `../cadkit`, never the
+vendored copy, and the right fix is not merely registering a "Termina" run: it is
+making the fallback **raise** for a part whose fpid says `Horizontal`, because a helper
+that guesses the wrong direction in silence is worse than one that refuses. Deferred
+because another agent was editing canonical cadkit at the time and two writers in one
+subtree is how the A13 drift happened.
+
+### 29 — OPEN: the pack pair cannot reach the wire slot past the Z-stop rib
+
+**The wiring model's first real catch, and it lands against finding 26's own fix.**
+With the harness in `components()`, `check_overlaps.py` reported **15.1 mm³ wire_pack
+↔ housing** at x −193.2..−190.0, z **4.70..11.30** — the back plate at the wire slot,
+which is **5.0 mm tall (z 5.5..10.5)**. A gathered 2 × 14 AWG bundle is **6.60 mm**. It
+does not fit, and `src/wiring.py` already says why in its own comment: the slot is one
+layer deep, so the conductors **lie side by side, not gathered**. The routing model and
+the fit model have to differ there; the side-by-side width (17.8 mm into 40) passes.
+
+**The harder half is the rib.** Finding 26 made the −Z stop continuous over the
+laminate's full length, y 101.57..194.57 at z 16.05..18.45. The wire slot is at
+y 127..167. **Those overlap**, so the rib now crosses the band the pack pair must cross
+to reach the plate — and the two short bands finding 26 replaced did **not**
+(y 101.6..103.9 and 194.6..197.6, both clear of the slot).
+
+⚠ **FINDING 26 OVERCLAIMED ITS INVARIANT.** It states *"every connector body and every
+cable is outboard of BOARD_X1, every part of this rib is inboard of it, so the two
+cannot meet."* That holds for a cable **descending** into the chase. The pack pair is
+the one cable that must cross **inboard**, because its slot is in the plate. The
+invariant needs that exception stated.
+
+Geometry: a 90° turn at a 3×-OD fixed-install radius needs ~9.9 mm of arc height, and
+the band between the slot's centreline (z 8.0) and the rib's underside (z 16.05, less
+the conductor's own 1.65) is **6.4 mm**. So it genuinely does not fit as drawn.
+
+**The fix that looks right and is NOT yet applied:** interrupt the −Z rib over the
+slot's Y span, derived from the slot rather than typed. That leaves stops of **25.4 mm
+and 27.6 mm** — far longer than the 2.35 mm that started finding 26, and still derived.
+It wants its own fail-harness and a clean overlap run before it is believed.
+
+⚠ **A second, smaller reading is unresolved:** 2.0 mm³ `wire_pack ↔ pcb` at the mouth.
+A cable inside its own clamp **should** interpenetrate the connector body, so this is
+probably an `intended()` entry rather than a clash — but it has not been measured and
+bounded, and `intended()`'s own comment warns that an unmeasured entry only stands
+ready to hide the first real clash that appears.
+
+---
+
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 
 **Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full

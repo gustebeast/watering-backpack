@@ -121,23 +121,21 @@
 #include <Preferences.h>
 #include <math.h>
 #include "secrets.h"
+#include "pins.h"
 
 // ── Pin map ──────────────────────────────────────────────────────────────────
-constexpr int JOY_PIN  = 34;   // ADC1 (input-only is fine for an analog read)
-constexpr int VBAT_PIN = 35;   // ADC1_CH7, input-only — VBAT_SENSE off R20/R21
-constexpr int LEVEL_PIN = 14;  // XKC-Y25 tank level, open-collector, R23 pulls up
-constexpr int BUZZ_PIN  = 27;  // tank-full buzzer, through Q3
+// Lives in pins.h, which carries the module-pin table out of elec/out/main.net
+// and the datasheet reason for every pin's mode. JOY_PIN, VBAT_PIN, LEVEL_PIN,
+// BUZZ_PIN, PUMP_A_PIN, PUMP_B_PIN, PWM_FREQ, PWM_RES and ADC_RES come from
+// there; pinsInit() in pins.cpp is what configures them.
+//
 // One low-side MOSFET per pump, each behind its own non-inverting gate driver,
 // so PWM high = that pump runs. No H-bridge and NO ENABLE PIN: a diaphragm pump
 // cannot be reversed (DESIGN_V2 §1 — the check valves are passive), so direction
 // is WHICH PUMP YOU RUN. v1's EN on IO4 is connected to nothing on the v2 board
 // and is gone.
-constexpr int PUMP_A_PIN = 26;  // tank -> pot  — water the plant
-constexpr int PUMP_B_PIN = 25;  // pot  -> tank — suck the line back
 
 // ── PWM (LEDC, pin-based API = Arduino-ESP32 3.x) ────────────────────────────
-constexpr int PWM_FREQ = 20000;              // 20 kHz — above audible, easy for the gate driver
-constexpr int PWM_RES  = 8;                  // 8-bit duty (0..255)
 constexpr int PWM_MAX  = (1 << PWM_RES) - 1;
 constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g. 200)
 
@@ -177,8 +175,7 @@ constexpr int   VBAT_EVERY_N  = 20;          // 5 ms loop -> read every ~100 ms
 constexpr float VBAT_EMA_A    = 1.0f / 16.0f;   // slow; the pack sags slowly
 
 // ── Joystick / control tunables ──────────────────────────────────────────────
-constexpr int ADC_RES   = 12;
-constexpr int ADC_MAX   = (1 << ADC_RES) - 1;   // 4095
+constexpr int ADC_MAX   = (1 << ADC_RES) - 1;   // 4095  (ADC_RES: pins.h)
 // Soft-start rate, in duty counts per 5 ms loop. This shapes only the RISE to full
 // speed; it is NOT on the switch-on latency path in any meaningful sense and it is
 // not used at all when stopping (stopping is an immediate cut). Keeping some ramp
@@ -686,16 +683,11 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  // Motor outputs go to a known-safe state before anything else runs.
-  // Both gates held LOW as plain outputs BEFORE the LEDC channels attach, so
-  // neither pump can twitch while the peripheral is being set up.
-  pinMode(PUMP_A_PIN, OUTPUT); digitalWrite(PUMP_A_PIN, LOW);
-  pinMode(PUMP_B_PIN, OUTPUT); digitalWrite(PUMP_B_PIN, LOW);
-  pinMode(BUZZ_PIN,   OUTPUT); digitalWrite(BUZZ_PIN,   LOW);
-  // R23 on the board is the real pull-up; the internal one only matters on a
-  // bench with no sensor wired, where it keeps the pin from floating and
-  // alarming at random.
-  pinMode(LEVEL_PIN, INPUT_PULLUP);
+  // Every connected pin into its legal mode, with the datasheet reason for each
+  // recorded next to it in pins.cpp. Outputs land LOW before anything else runs;
+  // both pump gates are held LOW as plain outputs BEFORE the LEDC channels
+  // attach, so neither pump can twitch while the peripheral is set up.
+  pinsInit();
   ledcAttach(PUMP_A_PIN, PWM_FREQ, PWM_RES);
   ledcAttach(PUMP_B_PIN, PWM_FREQ, PWM_RES);
   allStop();
@@ -703,11 +695,7 @@ void setup() {
   prefs.begin("pump", false);
   armed = prefs.getBool("armed", true);
 
-  analogReadResolution(ADC_RES);
-  // 11 dB attenuation = the full ~3.3 V span. The divider puts a fresh pack at
-  // 3.05 V, so a narrower range would clip and read the pack as flatter than it
-  // is — which would RAISE the cap.
-  analogSetPinAttenuation(VBAT_PIN, ADC_11db);
+  // ADC width and per-pin attenuation are set by pinsInit(), above.
   readVbat();                          // seed before any engage is possible
   Serial.printf("Pump controller ready. State = %s | pack %.2f V -> duty cap %d%s\n",
                 armed ? "ARMED" : "DISARMED", vbatV, vbatCap,

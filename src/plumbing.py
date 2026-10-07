@@ -106,7 +106,7 @@ def _unit(v):
     return tuple(c / n for c in v)
 
 
-def _bend_pts(p_prev, p_corner, p_next, radius):
+def _bend_pts(p_prev, p_corner, p_next, radius, od=None):
     """Chord points approximating a constant-radius bend at `p_corner`.
 
     Returns (tangent_in, [arc points], tangent_out). Raises when the straight
@@ -127,7 +127,7 @@ def _bend_pts(p_prev, p_corner, p_next, radius):
                 "bend at %s needs %.1f mm of straight %s it but has %.1f — "
                 "a %.1f mm OD line on a %.0f mm radius cannot make this turn"
                 % (tuple(round(c, 1) for c in p_corner), setback, name, avail,
-                   TUBE_OD, radius))
+                   TUBE_OD if od is None else od, radius))
     t_in  = tuple(c - setback * d for c, d in zip(p_corner, d_in))
     t_out = tuple(c + setback * d for c, d in zip(p_corner, d_out))
     perp = _unit([o - i * cosang for i, o in zip(d_in, d_out)])
@@ -147,7 +147,7 @@ def run(points, od=TUBE_OD, radius=BEND_R):
     path = [points[0]]
     for i in range(1, len(points) - 1):
         t_in, arc, t_out = _bend_pts(points[i - 1], points[i], points[i + 1],
-                                     radius)
+                                     radius, od)
         path += [t_in] + arc + [t_out]
     path.append(points[-1])
     sol = None

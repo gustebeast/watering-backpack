@@ -43,7 +43,13 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-FW = ROOT / "firmware" / "src" / "main.cpp"
+# The firmware side is three files since the pin setup was written out pin by
+# pin: pins.h holds the *_PIN constants, pins.cpp holds the pinMode/attenuation
+# calls, main.cpp holds the reads and writes. The role derivation below needs all
+# three, so they are read as one text — moving a pin between them must not hide it.
+FW = (ROOT / "firmware" / "src" / "pins.h",
+      ROOT / "firmware" / "src" / "pins.cpp",
+      ROOT / "firmware" / "src" / "main.cpp")
 BOARD = ROOT / "elec" / "main.py"
 CIRCUIT = ROOT / "elec" / "CIRCUIT.md"
 
@@ -67,6 +73,11 @@ ADC1 = {32, 33, 34, 35, 36, 37, 38, 39}
 ADC2 = {0, 2, 4, 12, 13, 14, 15, 25, 26, 27}
 INPUT_ONLY = {34, 35, 36, 37, 38, 39}
 STRAPPING = {0, 2, 5, 12, 15}
+# GPIO6-11 are bonded to the module's own SPI flash and are not led out at all:
+# ESP32-WROOM-32E datasheet v2.1 Table 3 note 2, which is also why module pins
+# 17-22 are listed as NC. A firmware pin here is not merely illegal, it is a pin
+# that does not leave the shield -- and nothing in this gate used to say so.
+FLASH_BUS = {6, 7, 8, 9, 10, 11}
 
 # ESP32-WROOM-32E module pinout: physical pin -> the name elec/main.py should
 # use for it. Pin 32 is NC on this module.
@@ -196,7 +207,7 @@ def gpio(name):
 
 
 def main():
-    fw_text = FW.read_text(encoding="utf-8")
+    fw_text = chr(10).join(f.read_text(encoding="utf-8") for f in FW)
     bd_text = BOARD.read_text(encoding="utf-8")
     pins = fw_pins(fw_text)
     roles = fw_roles(fw_text)
@@ -263,6 +274,8 @@ def main():
             problems.append("output on an input-only pin")
         if ("digital_out" in rs or "pwm_out" in rs) and g in STRAPPING:
             problems.append("output on a strapping pin - fights boot mode")
+        if g in FLASH_BUS:
+            problems.append("on the module's internal flash bus - not led out")
         print("  %-12s IO%-3d  %-22s %s"
               % (const, g, ",".join(sorted(rs)),
                  "ok" if not problems else "*** " + "; ".join(problems) + " ***"))
