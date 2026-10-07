@@ -35,6 +35,8 @@
    "err": 0.111,
    "fit": true,
    "pads": 8,
+   "pads_fp": "1:1.75,-1.25;2:11.05,-1.25",
+   "pads_fp_by": "computed by fab_frames.fingerprint(local_pads(...)) from FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165 in KiCad's stock Fuse.pretty, not entered by hand. It is here because this frame was measured by hand and so never passed through derive(), which is what records a fingerprint. Re-derive it by loading that footprint and calling the same two functions.",
    "read": "2026-10-06",
    "rot": 180
   },
