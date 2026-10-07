@@ -169,7 +169,8 @@ class ScratchView:
                 continue
             try:
                 shape = wp.intersect(crop) if crop is not None else wp
-                if not shape.solids().vals():
+                # a part of bare FACES is a part too (board lettering, cadkit.board_geom)
+                if not (shape.solids().vals() or shape.faces().vals()):
                     continue
                 shape.val().exportBrep(str(self.cache / (name + ".brep")))
                 kept += 1
