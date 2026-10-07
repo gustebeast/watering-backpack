@@ -119,7 +119,14 @@ pack voltage, which is what the divider below is for.
 
 ## 2. Logic supply
 
-- **Synchronous buck, VBAT → 3.3 V, ~1 A**, **rated ≥40 V in**.
+- **Step-down (buck) converter, VBAT → 3.3 V, ~1 A**, **rated ≥40 V in**.
+  ⚠ **NOT synchronous, and this line used to say it was.** The LMR14020 has a
+  high-side switch and an external catch diode, which is the whole subject of audit
+  finding 4a below: the board was laid out believing this sentence, so it had no
+  catch diode at all and the regulator had no path for inductor current during
+  off-time. The word cost a part. The table above and §6 have always said
+  non-synchronous; this line is now made to agree with them rather than left as the
+  one place a reader could pick up the wrong topology.
   Candidates: LMR14020 / LMR14030 (40 V), TPS54360 (60 V), MP4560 (55 V).
   **Explicitly rejected:** MP2315, AP63203 and the other 24 V-max parts — a fresh
   pack is 20 V and inductive spikes exceed that.

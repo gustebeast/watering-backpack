@@ -94,8 +94,15 @@ CABLES = {
                note="the pack pair, 7.5 A, through the plate's wire slot"),
     "J2": dict(name="wire_pump_a",   n=2, awg=16, flex=True, crosses_plate=False,
                note="pump A, chopped low side"),
-    "J3": dict(name="wire_pump_b",   n=2, awg=16, flex=True, crosses_plate=False,
-               note="pump B, chopped low side"),
+    # ⚠ J3 GOES THROUGH THE PORT, NOT AROUND -- the owner's call, and it makes
+    # pump B's lead the same kind of thing as the pack's. Its mouth is at y
+    # 155.82, already inside the slot's 127..167, so it drops straight down and
+    # straight out with no sideways move under the bay at all. It also moves the
+    # model TOWARDS finding 3's own arithmetic rather than away from it: that
+    # slot was sized at 17.8 mm for J1, J2 and J3 laid side by side, and until
+    # now only J1 actually crossed.
+    "J3": dict(name="wire_pump_b",   n=2, awg=16, flex=True, crosses_plate=True,
+               note="pump B, chopped low side -- out through the plate's slot"),
     "J4": dict(name="wire_joystick", n=5, awg=SIGNAL_AWG, flex=True,
                crosses_plate=False,
                note="the wand's joystick: +3V3, GND, VRX, VRY, SW"),
@@ -250,10 +257,11 @@ BAND_LEVEL = {
     # J2's lane is INBOARD of J5's run, so the two never meet.
     "J2": 0,
     "J5": 0,
-    # J3 and J4 both head +Y, in different X lanes, and turn out at different Y
-    # (TURN_Y) so J4's cross-machine run clears J3's climb. They share a level
-    # because parallel runs in separate lanes do not need separate heights.
-    "J3": 1,
+    # J4 heads +Y on its own lane. It is alone on level 1 since J3 started
+    # leaving through the slot instead of the band -- kept on its own level
+    # rather than moved down to join J2 and J5, because its cross-machine run to
+    # the wand passes over both of their lanes and the plan-crossing gate below
+    # is what says so.
     "J4": 1,
 }
 # ⚠ THE BAND'S CEILING IS THE LID'S SKIRT, NOT THE BAY FLOOR. The skirt hangs
@@ -269,7 +277,16 @@ FAN_Z0 = 3.0
 FAN_PITCH = max(AWG_OD.values()) + 0.2             # 3.5 -- crossing clearance
 BAND_STEP = 5.0                                    # two levels under BAND_CEIL
 LANE_PITCH = max(AWG_OD.values()) * 2 + 1.5        # 8.1
-FAN_ORDER = ("J2", "J3", "J4", "J5")               # order in the band, inboard -> out
+# ⚠ DERIVED, NOT LISTED. A cable that crosses the plate leaves through the slot
+# and never enters the fan-out band, so band membership is the complement of
+# crosses_plate. Listing it was how J3 could change route and still be handed a
+# lane, a band height and a turn offset that nothing used -- the same shape of
+# bug as the slot-fit asserts that looped over a list they also selected.
+FAN_ORDER = tuple(sorted(r for r, sp in CABLES.items() if not sp["crosses_plate"]))
+assert set(FAN_ORDER) | set(LAID_FLAT) == set(CABLES), (
+    "every cable either crosses the plate or uses the fan-out band")
+assert not (set(FAN_ORDER) & set(LAID_FLAT)), (
+    "a cable cannot both cross the plate and take a lane in the band")
 # ⚠ AND EVERY CABLE DROPS ON THE SAME LINE, so no lane may sit on it. All five
 # mouths share x = BOARD_X1 - (t + h/2), so each cable's vertical drop from its
 # clamp passes through every band level at that one x. A lane within a conductor
@@ -315,6 +332,26 @@ for _r, _z in FAN_Z.items():
 # within 200 mm. The frame is slender members and the plate meets it only at the
 # wood screws, so the leads run in open air between them.
 DOCK_RUN_X = H.BACK_X + 6.0
+
+# ⚠ A CABLE THROUGH THE PORT CANNOT SIMPLY TURN AND GO. The pack pair can,
+# because the dock is at y 46 and the back of the plate is open all the way down
+# to it. Anything heading the OTHER way meets the frame's +Y end plank, which at
+# x = DOCK_RUN_X is solid timber from y 172 to 210 AT EVERY HEIGHT -- probed on a
+# y-z grid, 10 heights from z 8 to 200, and there is no way over, under or
+# through it. The overlap gate found this the first time J3 took this route:
+# 246.8 mm3 of conductor inside the wood, per conductor.
+#
+# So the route steps INBOARD in X first, into the gap between that plank and the
+# pump assembly, and the gap is what is derived here rather than picked. The pump
+# assembly is the harder limit of the two because it is 200 mm deep in Y -- it
+# spans y 2..208, which is also why no cable can cross the machine inside the
+# frame at all and why CROSS_Z's run happens beyond y 210.
+_PUMP_X0 = min(F._pump_placed(side).val().BoundingBox().xmin for side in (-1, +1))
+PASS_X = _PUMP_X0 - (max(AWG_OD.values()) + 3.0)
+assert PASS_X > H.BACK_X, (
+    "the pass lane at x %.1f is outboard of the back plate at %.1f: a cable "
+    "through the port would have to come back out of the housing to reach it"
+    % (PASS_X, H.BACK_X))
 _term = H.terminal_placed()
 assert _term is not None, (
     "the Makita contact block is not in the model, so the pack pair has nowhere "
@@ -379,17 +416,32 @@ def _routes_raw():
         if ref in ("J2", "J3"):
             side = -1 if ref == "J2" else +1
             tips = _pump_lead_tips(side)
-            run_y = RUN_Y_LO if side < 0 else RUN_Y_HI
             cx = sum(t[0] for t in tips) / 2.0
             lead_y, lead_z = tips[0][1], tips[0][2]
-            fz = FAN_Z[ref]
-            run_y = run_y - TURN_Y[ref] if side < 0 else run_y + TURN_Y[ref]
-            trunk = [(mx, my, mz), (mx, my, fz),
-                     (lane, my, fz),
-                     (lane, run_y, fz),
-                     (lane, run_y, CROSS_Z),
-                     (cx, run_y, CROSS_Z),
-                     (cx, run_y, lead_z)]
+            # The run along the machine's end, OUTSIDE the frame in Y, is where
+            # both pump leads cross from the housing side to the pump side; a
+            # crossing cable has no TURN_Y because it is not in the band.
+            run_y = RUN_Y_LO if side < 0 else RUN_Y_HI
+            if ref not in LAID_FLAT:
+                run_y = run_y - TURN_Y[ref] if side < 0 else run_y + TURN_Y[ref]
+            if ref in LAID_FLAT:
+                # THROUGH THE PORT. The first two segments are J1's own -- drop
+                # to the slot and cross the plate -- and nothing moves in Y under
+                # the bay, because the mouth is already inside the slot span.
+                # Then INBOARD to the pass lane before turning +Y, because the
+                # frame's end plank blocks the straight turn at every height.
+                head = [(mx, my, mz), (mx, my, SLOT_Z_C),
+                        (DOCK_RUN_X, my, SLOT_Z_C),
+                        (PASS_X, my, SLOT_Z_C),
+                        (PASS_X, run_y, SLOT_Z_C),
+                        (PASS_X, run_y, CROSS_Z)]
+            else:
+                fz = FAN_Z[ref]
+                head = [(mx, my, mz), (mx, my, fz),
+                        (lane, my, fz),
+                        (lane, run_y, fz),
+                        (lane, run_y, CROSS_Z)]
+            trunk = head + [(cx, run_y, CROSS_Z), (cx, run_y, lead_z)]
             out[ref] = (trunk, [[(t[0], run_y, lead_z), (t[0], lead_y, lead_z)]
                                 for t in tips])
             continue
@@ -531,33 +583,71 @@ for _ref in LAID_FLAT:
         "%s's %d conductors are %.2f mm laid side by side, into a %.2f mm slot"
         % (_ref, _sp["n"], _sp["n"] * _d, H.WIRE_SLOT_W))
 
-# The pack pair's turn into the slot has to have somewhere to happen. Its
-# straight is the drop from the mouth, and a 90 degree bend eats `radius` of it.
-_J1 = CABLES["J1"]
-_J1_OD = AWG_OD[_J1["awg"]]
-_J1_R = _J1_OD * BEND_MULT_FIXED
-_J1_DROP = MOUTHS["J1"][2] - SLOT_Z_C
-assert _J1_DROP >= _J1_R, (
-    "the pack pair drops %.2f mm from its mouth to the wire slot and needs "
-    "%.2f mm to turn into it: a %.2f mm conductor on a %.1fx-OD radius cannot "
-    "make that corner" % (_J1_DROP, _J1_R, _J1_OD, BEND_MULT_FIXED))
-assert SLOT_Y0 <= MOUTHS["J1"][1] <= SLOT_Y1, (
-    "J1's mouth is at y %.2f and the wire slot spans %.2f..%.2f: the pack pair "
-    "would have to move sideways under the bay to reach it"
-    % (MOUTHS["J1"][1], SLOT_Y0, SLOT_Y1))
+# EVERY CABLE THAT USES THE SLOT, NOT J1 BY NAME. These two asserts were written
+# when the pack pair was the only thing crossing the plate, and they named it in
+# the code as well as in the message. J3 now goes through the same slot, so a
+# check that only ever looked at J1 would have said nothing about it -- which is
+# the self-selecting-gate mistake this file has already made once.
+for _ref in LAID_FLAT:
+    _od = AWG_OD[CABLES[_ref]["awg"]]
+    _r = _od * (BEND_MULT_FLEX if CABLES[_ref]["flex"] else BEND_MULT_FIXED)
+    _drop = MOUTHS[_ref][2] - SLOT_Z_C
+    assert _drop >= _r, (
+        "%s drops %.2f mm from its mouth to the wire slot and needs %.2f mm to "
+        "turn into it: a %.2f mm conductor on that radius cannot make the corner"
+        % (_ref, _drop, _r, _od))
+    # A mouth inside the slot's own Y span drops straight in. One outside it has
+    # to travel sideways UNDER THE BAY first, in the 6.65 mm between the board's
+    # bottom edge and the floor, and nothing in this file draws that.
+    assert SLOT_Y0 <= MOUTHS[_ref][1] <= SLOT_Y1, (
+        "%s's mouth is at y %.2f and the wire slot spans %.2f..%.2f: it would "
+        "have to move sideways under the bay to reach it"
+        % (_ref, MOUTHS[_ref][1], SLOT_Y0, SLOT_Y1))
+
+# ...AND TWO CABLES IN ONE SLOT MUST NOT BE IN THE SAME PLACE IN IT. They lie
+# flat, side by side, so what separates them is Y: half of each bundle's laid
+# width plus air. Derived from the mouths, because that is what sets it.
+_flat = sorted(LAID_FLAT, key=lambda r: MOUTHS[r][1])
+for _a, _b in zip(_flat, _flat[1:]):
+    _wa = CABLES[_a]["n"] * AWG_OD[CABLES[_a]["awg"]] / 2.0
+    _wb = CABLES[_b]["n"] * AWG_OD[CABLES[_b]["awg"]] / 2.0
+    _gap = MOUTHS[_b][1] - MOUTHS[_a][1] - _wa - _wb
+    assert _gap > 0.0, (
+        "%s and %s both cross the plate and their bundles overlap in the slot "
+        "by %.2f mm: mouths %.2f mm apart, half-widths %.2f and %.2f"
+        % (_a, _b, -_gap, MOUTHS[_b][1] - MOUTHS[_a][1], _wa, _wb))
 
 # Every conductor that crosses the plate, laid side by side, against the slot.
-# Finding 3 sized that slot at 17.8 mm and nothing has held it since.
-_CROSSING = ("J1", "J2", "J3")
-_LAID_W = sum(CABLES[r]["n"] * AWG_OD[CABLES[r]["awg"]] for r in _CROSSING)
+#
+# ⚠ TWO NUMBERS, AND THEY ARE NOT THE SAME NUMBER. Finding 3 sized this slot at
+# 17.8 mm for J1, J2 and J3, and that figure was asserted against a HAND-WRITTEN
+# tuple of those three refs -- which stayed true while only J1 actually crossed,
+# because the tuple was not derived from anything. So the gate was holding the
+# sizing arithmetic, not the harness.
+#
+# SLOT_SIZED_FOR keeps finding 3's claim honest: it is still the width of the
+# three cables the slot was sized against, and it still has to fit. _LAID_W is
+# the live number -- what crosses TODAY, derived from crosses_plate -- and it has
+# to fit as well, and must not exceed what the slot was justified for. J3 moving
+# through the port took it from 6.6 to 12.2 of the 17.8, which is the direction
+# that needs no re-justification; growing past 17.8 is what does.
+_SIZED_AGAINST = ("J1", "J2", "J3")
+SLOT_SIZED_FOR = sum(CABLES[r]["n"] * AWG_OD[CABLES[r]["awg"]]
+                     for r in _SIZED_AGAINST)
+_LAID_W = sum(CABLES[r]["n"] * AWG_OD[CABLES[r]["awg"]] for r in LAID_FLAT)
 _SLOT_W = SLOT_Y1 - SLOT_Y0
+assert abs(SLOT_SIZED_FOR - 17.8) < 0.05, (
+    "J1+J2+J3 laid side by side now measure %.2f mm, not the 17.8 that "
+    "punchlist finding 3 sized the %.0f mm slot against -- a conductor "
+    "diameter changed, so re-justify the slot rather than widening this"
+    % (SLOT_SIZED_FOR, _SLOT_W))
+assert _LAID_W <= SLOT_SIZED_FOR, (
+    "%.1f mm of conductor crosses the plate, more than the %.1f mm the slot was "
+    "ever justified for: another cable has taken the port"
+    % (_LAID_W, SLOT_SIZED_FOR))
 assert _LAID_W <= _SLOT_W, (
     "%.1f mm of conductor laid side by side has to cross a %.1f mm slot"
     % (_LAID_W, _SLOT_W))
-assert abs(_LAID_W - 17.8) < 0.05, (
-    "the six conductors crossing the plate now measure %.2f mm, not the 17.8 "
-    "that punchlist finding 3 sized the %.0f mm slot against -- re-justify the "
-    "slot, do not widen this tolerance" % (_LAID_W, _SLOT_W))
 
 
 # ⚠ ROUTE AT IMPORT. Every assert inside routes() -- the splay-pairing check
@@ -596,8 +686,9 @@ def main() -> int:
     for ref, (x, y, z) in sorted(MOUTHS.items()):
         print("  %-3s mouth (%8.2f, %7.2f, %6.2f)  drop to chase %5.2f mm"
               % (ref, x, y, z, z - CHASE_Z))
-    print("  plate crossing: %.1f mm of conductor into a %.0f mm slot"
-          % (_LAID_W, _SLOT_W))
+    print("  plate crossing: %s -- %.1f mm of conductor into a %.0f mm slot "
+          "(sized for %.1f)"
+          % ("+".join(LAID_FLAT), _LAID_W, _SLOT_W, SLOT_SIZED_FOR))
     tot = 0.0
     for nm, mm in sorted(lengths().items()):
         print("  %-14s %7.0f mm of conductor" % (nm, mm))
