@@ -456,6 +456,66 @@ def _rail_volts(net):
     return 5.0 if net.upper().startswith("VBUS") else None
 
 
+def _pour_narrowest(b, net, layer):
+    """(mm, x, y) of the narrowest axis-aligned cut through this net's fill on `layer`.
+
+    Sums the covered span along each scanline rather than taking the outer extent, so a
+    pour in two lobes with a gap between them reports the copper it HAS and not the
+    distance across the hole. Returns None when the net has no filled polygon there.
+    """
+    import pcbnew
+    lid = b.GetLayerID(layer) if isinstance(layer, str) else layer
+    if lid is None or lid < 0:
+        return None
+    polys = []
+    for z in b.Zones():
+        if z.GetIsRuleArea() or (z.GetNetname() or "") != net or not z.IsOnLayer(lid):
+            continue
+        try:
+            polys.append(z.GetFilledPolysList(lid))
+        except Exception:                      # noqa: BLE001 -- shape API varies
+            continue
+    segs = []
+    for poly in polys:
+        for o in range(poly.OutlineCount()):
+            ol = poly.Outline(o)
+            n = ol.PointCount()
+            for i in range(n):
+                p, q = ol.CPoint(i), ol.CPoint((i + 1) % n)
+                segs.append((p.x, p.y, q.x, q.y))
+    if not segs:
+        return None
+    xs = [v for s4 in segs for v in (s4[0], s4[2])]
+    ys = [v for s4 in segs for v in (s4[1], s4[3])]
+    best = None
+    STEPS = 400
+    for axis in (0, 1):
+        lo, hi = (min(ys), max(ys)) if axis == 0 else (min(xs), max(xs))
+        if hi <= lo:
+            continue
+        for k in range(1, STEPS):
+            t = lo + (hi - lo) * k / float(STEPS)
+            hits = []
+            for (ax, ay, bx, by) in segs:
+                u, v = (ay, by) if axis == 0 else (ax, bx)
+                if (u - t) * (v - t) >= 0:
+                    continue                   # no crossing (ties skipped: a vertex)
+                f = (t - u) / float(v - u)
+                hits.append((ax + (bx - ax) * f) if axis == 0 else (ay + (by - ay) * f))
+            if len(hits) < 2:
+                continue
+            hits.sort()
+            span = sum(hits[i + 1] - hits[i] for i in range(0, len(hits) - 1, 2))
+            if span <= 0:
+                continue
+            if best is None or span < best[0]:
+                mid = (hits[0] + hits[1]) / 2.0
+                best = (span, mid if axis == 0 else t, t if axis == 0 else mid)
+    if best is None:
+        return None
+    return MM(best[0]), MM(best[1]), MM(best[2])
+
+
 @rule("A1")
 def power_paths(ctx):
     out = []
@@ -492,7 +552,42 @@ def power_paths(ctx):
                     continue
                 w, kind, layer, at = r
                 if kind in ("pour", "pad") or w >= _Net.POUR:
-                    out.append((subject, True, "%.2f A through a pour the whole way" % amps))
+                    # ⚠ A POUR USED TO END THE CHECK HERE, AND THAT EMPTIED THIS RULE
+                    # ON EXACTLY THE PATHS IT EXISTS FOR. A pour edge is built with
+                    # width POUR (1e3 mm) and zero ohms, so "widest" returns it and the
+                    # IPC width test below was skipped. On the board that found this, 12
+                    # of A1's 20 rows said "through a pour the whole way" -- INCLUDING
+                    # ALL ELEVEN 7.5 A ROWS. The rule is titled "supply paths carry
+                    # their current, with no choke point" and it had measured no
+                    # cross-section on any path the board exists to carry. A pour can be
+                    # one island, fill perfectly, satisfy every connectivity check, and
+                    # still neck to half a millimetre between two lobes.
+                    #
+                    # ⚠ WHAT IS MEASURED IS AN UPPER BOUND, AND THE ASYMMETRY IS THE
+                    # POINT. Scanning axis-aligned cuts finds the narrowest HORIZONTAL or
+                    # VERTICAL section; a neck lying on a diagonal is narrower than any
+                    # of them. So passing this is a NECESSARY condition and not a
+                    # sufficient one, while failing it is proof. That is still infinitely
+                    # more than the previous answer, and the text says which it is rather
+                    # than letting a reader take it for a minimum.
+                    need = required_width_mm(amps, layer, ctx.q)
+                    cut = _pour_narrowest(ctx.board, net, layer)
+                    if cut is None:
+                        out.append((subject, None,
+                                    "%.2f A through a pour, and no filled polygon for %s "
+                                    "on %s could be read: NO claim is made about its "
+                                    "cross-section" % (amps, net, layer)))
+                        continue
+                    cw, cx, cy = cut
+                    ok = cw + 1e-6 >= need
+                    out.append((subject, ok,
+                                "%.2f A through a pour; its narrowest axis-aligned cut is "
+                                "%.2f mm at (%.2f, %.2f) and IPC-2221 asks %.2f mm%s. A "
+                                "diagonal neck can be tighter than any axis-aligned one, "
+                                "so this bounds the pour from ABOVE: failing is proof, "
+                                "passing is a necessary condition"
+                                % (amps, cw, cx, cy, need,
+                                   "" if ok else " -- UNDER by %.2f mm" % (need - cw))))
                     continue
                 need = (required_width_mm(amps, layer, ctx.q) if kind == "track"
                         else required_width_mm(amps, "F.Cu", ctx.q))
