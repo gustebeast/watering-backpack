@@ -30,7 +30,10 @@ FRAME: board-centred millimetres (the centre of the Edge.Cuts bounding box), +X 
     footprints[]   ref, fpid, x/y (the footprint ORIGIN), pads_xy (the pad CENTROID --
                    they differ for asymmetric pads: 0.228 mm on a SOT-23-5, 3.75 on a JST
                    header), rot, side, fab (the F.Fab BODY box: [x0, x1, y0, y1]), crtyd,
-                   tht (the box round its through-hole pads, or null for pure SMD)
+                   tht (the box round its through-hole pads, or null for pure SMD), and,
+                   for a CONNECTOR (ref J<n>), pads: {number: [x, y]} -- where each way
+                   actually is, so a harness is drawn onto ways rather than onto a pitch
+                   and a rotation someone worked out (`Boards.way`)
     silk[]         the lettering the fab prints: text, side, centre, size, angle, box.
                    Board-level text (the name, test-pad nets, pinouts, and the
                    designators kicad_silk lays with `silk_refs`), plus -- marked
@@ -127,6 +130,16 @@ def read(stem):
                round(-(sum(q.GetPosition().y for q in pads) / len(pads) / 1e6 - cy), 3)]
               if pads else None)
         back = fp.IsFlipped()
+        ways = None
+        if fp.GetReference().startswith("J") and fp.GetReference()[1:].isdigit():
+            seen = {}
+            for q in pads:
+                seen.setdefault(q.GetNumber(), []).append(q)
+            # a number worn by ONE pad is a way; one worn by several (a shell's four
+            # legs, the two mounting pads) is not a place a wire goes
+            ways = {k: [round(v[0].GetPosition().x / 1e6 - cx, 3),
+                        round(-(v[0].GetPosition().y / 1e6 - cy), 3)]
+                    for k, v in sorted(seen.items()) if k and len(v) == 1}
         out["footprints"].append({
             "ref": fp.GetReference(),
             "fpid": fp.GetFPIDAsString(),
@@ -139,6 +152,8 @@ def read(stem):
             "crtyd": _layer_bbox(fp, "B.CrtYd" if back else "F.CrtYd", cx, cy),
             "tht": _tht_bbox(fp, cx, cy),
         })
+        if ways:
+            out["footprints"][-1]["pads"] = ways
     out["footprints"].sort(key=lambda f: f["ref"])
     # the board's lettering, so the CAD can draw it as a part of its own: what the fab
     # will print, and nothing it will not. Board-level text first (name, test pads,
