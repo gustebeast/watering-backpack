@@ -36,6 +36,14 @@ them that are NOT about placement:
     legible size, and all of a connector's ways or none: a row with one way unnamed
     reads as a row with one way unused. A connector whose row has no room for them is
     REPORTED ("ways"), and the block is tried on its side instead.
+  * WHICH END IS WAY 1, ON EVERY CONNECTOR OF MORE THAN ONE WAY, whatever its size: where
+    the words did not go down (or the part is over LEGEND_MAX_PINS and was never offered
+    them) a bare "1" stands nearer way 1's pad than any other pad of the part, and where
+    not even that fits, a dot. A SINGLE ROW over the limit, or any ref listed in
+    `silk_ends`, has its LAST way numbered the same way ("20"): on a long row the far end
+    is a long way from the "1". `silk_pinout` in the notes (["J2"]) prints the pinout
+    block for a listed connector whatever its pin count -- two columns for a two-row
+    header, odd ways left and even right, as the part has them.
 
   * WHICH PART IS WHICH, when the board asks for it. `silk_refs` in the board's notes
     (or `--refs`) prints each part's designator beside it: `true` / `all` for every part,
@@ -559,8 +567,30 @@ def _want_ref(refs, ref):
     return ref.rstrip("0123456789") in tuple(refs)
 
 
+def _one_row(pads):
+    """True if these pads lie on one line along X or Y."""
+    xs = [q.GetPosition().x for q in pads]
+    ys = [q.GetPosition().y for q in pads]
+    return max(ys) - min(ys) < MM(0.05) or max(xs) - min(xs) < MM(0.05)
+
+
+def _legend(ref, pins, word, two_rows):
+    """The pinout block's text: a line a way, or -- for a two-row header -- a line a PAIR,
+    odd way then even, which is how the part has them."""
+    if not two_rows:
+        return ref + "\n" + "\n".join("%d %s" % (k, word(v)) for k, v in sorted(pins.items()))
+    left = {k: "%d %s" % (k, word(pins[k])) for k in pins if k % 2}
+    wide = max([len(v) for v in left.values()] or [0])
+    lines = []
+    for k in sorted({(n + 1) // 2 for n in pins}):
+        a, b = 2 * k - 1, 2 * k
+        lines.append(("%-*s  %s" % (wide, left.get(a, ""),
+                                    "%d %s" % (b, word(pins[b])) if b in pins else "")).rstrip())
+    return ref + "\n" + "\n".join(lines)
+
+
 def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=None,
-         read=None):
+         read=None, pinout=None, ends=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site
     (designators asked for by `refs` are reported but not returned: on a dense board
     most of them having no site is the expected result, not a finding)."""
@@ -574,7 +604,10 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         rev = _notes.get("silk_rev") if rev is None else rev
         way_words = _notes.get("silk_short", {}) if way_words is None else way_words
         read = _notes.get("silk_read") if read is None else read
+        pinout = _notes.get("silk_pinout") if pinout is None else pinout
+        ends = _notes.get("silk_ends") if ends is None else ends
     way_words = dict(way_words or {})
+    pinout, ends = set(pinout or ()), set(ends or ())
     read = float(read or 0.0) % 360.0
     if read not in (0.0, 90.0, 180.0, 270.0):
         raise SystemExit("silk_read is %r: a board reads at 0, 90, 180 or 270" % read)
@@ -658,54 +691,68 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
             continue
         pads = {int(q.GetNumber()): q for q in fp.Pads()
                 if q.GetNumber().isdigit() and _net(q)}
-        if not pads or len(pads) > LEGEND_MAX_PINS:
-            continue
-        first = min(pads)
-        full = {k: (labels or {}).get(_net(q), _net(q)) for k, q in pads.items()}
-        brief = {k: _short(_net(q), way_words) for k, q in pads.items()}
+        # every numbered pad, wired or not: way 1 is way 1 whether or not it carries a net
+        ways = {}
+        for q in fp.Pads():
+            if q.GetNumber().isdigit():
+                ways.setdefault(int(q.GetNumber()), q)
         s = sides[fp.IsFlipped()]
-        shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
-        forms = []
-        for words in (full, brief):
-            words = dict(words)
-            if len(pads) > 1:
-                words[first] = "%d %s" % (first, words[first])
-            elif not shown:
-                # A ONE-WAY connector (a pogo land, a single turret): no "1" -- there is
-                # no second way to tell it from -- and its designator goes down WITH its
-                # word, as one label. Laid separately on a row of such lands at a tight
-                # pitch, each designator lost its place to the next land's word and
-                # came to rest beside the wrong pad.
-                words[first] = "%s %s" % (ref, words[first])
-            if words not in forms:
-                forms.append(words)
-        if _ways(s, fp, pads, forms):
-            done.append("%s ways (%s)" % (ref, "back" if fp.IsFlipped() else "front"))
-            if len(pads) == 1 and not shown:
-                united.add(ref)
-        else:
-            wayless.append(ref)
-            # NO ROOM FOR A WORD PER WAY: THEN AT LEAST WHICH END IS WAY 1, on the
-            # connector's own side. A pinout block -- wherever it ends up -- says what
-            # way 1 carries and not which contact it is. A bare "1", nearer way 1's pad
-            # than any other pad of the part, at the legible size; flat first, turned
-            # only if that is the only way to stand it against its own pin.
-            if 1 in pads and len(pads) > 1:
-                others = [q.GetPosition() for k, q in pads.items() if k != 1]
-                # far enough to get out from under the part's own body: a terminal
-                # block's pad is 4 mm inside its courtyard
-                cyb = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped()
-                                      else pcbnew.F_CrtYd).BBox()
-                far = max(4.0, min(cyb.GetWidth(), cyb.GetHeight()) / 2e6 + 2.5)
-                if s.place("1", SIZE_J, pads[1].GetPosition(), far, rivals=others,
-                           wider=False, own=True,
-                           turn="way 1's mark against its own pin (%s)" % ref):
-                    done.append("%s way-1 mark" % ref)
-                elif s.dot(pads[1].GetPosition(), far, others):
-                    # not even a "1": a dot beside way 1, the smallest mark that prints
-                    done.append("%s way-1 dot" % ref)
-                else:
-                    missed.append(ref + " way-1 mark")
+        worded = False
+        if pads and len(pads) <= LEGEND_MAX_PINS:
+            first = min(pads)
+            full = {k: (labels or {}).get(_net(q), _net(q)) for k, q in pads.items()}
+            brief = {k: _short(_net(q), way_words) for k, q in pads.items()}
+            shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
+            forms = []
+            for words in (full, brief):
+                words = dict(words)
+                if len(pads) > 1:
+                    words[first] = "%d %s" % (first, words[first])
+                elif not shown:
+                    # A ONE-WAY connector (a pogo land, a single turret): no "1" -- there
+                    # is no second way to tell it from -- and its designator goes down
+                    # WITH its word, as one label. Laid separately on a row of such lands
+                    # at a tight pitch, each designator lost its place to the next land's
+                    # word and came to rest beside the wrong pad.
+                    words[first] = "%s %s" % (ref, words[first])
+                if words not in forms:
+                    forms.append(words)
+            if _ways(s, fp, pads, forms):
+                done.append("%s ways (%s)" % (ref, "back" if fp.IsFlipped() else "front"))
+                worded = True
+                if len(pads) == 1 and not shown:
+                    united.add(ref)
+            else:
+                wayless.append(ref)
+        if worded or len(ways) < 2:
+            continue
+        # NO WORD PER WAY (no room, or more ways than words are offered to): THEN AT LEAST
+        # WHICH END IS WAY 1, on the connector's own side, whatever the part's size. A
+        # pinout block -- wherever it ends up -- says what way 1 carries and not which
+        # contact it is. A bare number, nearer its own pad than any other pad of the
+        # part, at the legible size; flat first, turned only if that is the only way to
+        # stand it against its own pin; a dot where not even a "1" fits.
+        # far enough to get out from under the part's own body: a terminal block's pad is
+        # 4 mm inside its courtyard
+        cyb = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd).BBox()
+        far = max(4.0, min(cyb.GetWidth(), cyb.GetHeight()) / 2e6 + 2.5)
+        marks = [1] if 1 in ways else []
+        last = max(ways)
+        if last != 1 and (ref in ends or (len(ways) > LEGEND_MAX_PINS
+                                          and _one_row(list(ways.values())))):
+            marks.append(last)            # a long row: the far end gets its number too
+        for k in marks:
+            what = "way-1" if k == 1 else "way-%d" % k
+            others = [q.GetPosition() for n, q in ways.items() if n != k]
+            if s.place(str(k), SIZE_J, ways[k].GetPosition(), far, rivals=others,
+                       wider=False, own=True,
+                       turn="way %d's mark against its own pin (%s)" % (k, ref)):
+                done.append("%s %s mark" % (ref, what))
+            elif k == 1 and s.dot(ways[k].GetPosition(), far, others):
+                # not even a "1": a dot beside way 1, the smallest mark that prints
+                done.append("%s way-1 dot" % ref)
+            else:
+                missed.append("%s %s mark" % (ref, what))
 
     # 2. the board's own name, as large as will fit, front for choice. BEFORE the
     #    pinouts: on a 10 x 17 mm board there is room for one or the other, and which
@@ -762,15 +809,17 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         for pad in fp.Pads():
             if pad.GetNumber().isdigit() and _net(pad):
                 pins[int(pad.GetNumber())] = _net(pad)
-        if not pins or len(pins) > LEGEND_MAX_PINS:
+        if not pins or (len(pins) > LEGEND_MAX_PINS and ref not in pinout):
             continue
         # `silk_labels` may give a NET a shorter word too ({"+24V_LED": "24V"}): a legend
         # is as wide as its longest net name, and on a small board that width is what
         # decides whether it goes down at a legible size or at all.
-        legend = ref + "\n" + "\n".join(
-            "%d %s" % (k, (labels or {}).get(v, v)) for k, v in sorted(pins.items()))
-        brief = ref + "\n" + "\n".join(
-            "%d %s" % (k, _short(v, way_words)) for k, v in sorted(pins.items()))
+        # two columns only for the big two-row headers `silk_pinout` asks for: a 4-pin
+        # power DIN is not in one row either, and reads better a way a line
+        two = (len(pins) > LEGEND_MAX_PINS
+               and not _one_row([q for q in fp.Pads() if q.GetNumber().isdigit()]))
+        legend = _legend(ref, pins, lambda v: (labels or {}).get(v, v), two)
+        brief = _legend(ref, pins, lambda v: _short(v, way_words), two)
         own = fp.IsFlipped()
         rivals = [o.GetPosition() for o in fps if o is not fp and o.GetReference() != ref
                   and o.GetReference().startswith("J")]
