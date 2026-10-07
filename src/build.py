@@ -235,6 +235,12 @@ def main() -> int:
             continue
         c = tints.get(nm, "#b03030" if nm.startswith("tank") else "#30a050")
         asm.add(solid, name=nm, color=color(c, alpha=SEE_THROUGH.get(nm, 1.0)))
+    # The board's own silkscreen, ink-white on the front and back. Not in
+    # components(): see housing.pcb_silk() for why ink is not an interference.
+    for _side, _tint in (("F", "#f2f2f2"), ("B", "#f2f2f2")):
+        _ink = H.pcb_silk(_side)
+        if _ink is not None:
+            asm.add(_ink, name="pcb_silk_%s" % _side, color=color(_tint))
     asm.add(L.tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
     try:
         counter = (cq.Workplane("XZ").center(0, L.DECK_Z + 520)

@@ -1748,69 +1748,185 @@ those conclusions.
 
 ---
 
-### 41 — CLOSED: the internal wiring is modelled, and the gate it gives us catches finding 21
+### 41 — CLOSED: every cable is modelled end to end, on cadkit's own helpers
 
-**This was the owner's own request, and it is the request that found finding 21 in the
-first place** — you cannot route a cable without asking where it leaves from.
-`src/wiring.py` now models every field cable as a **solid**, with real conductor
-diameters and real bend radii, and `src/build.components()` appends them so
-`check_overlaps.py` weighs them against the housing, the lid, the board and each other.
-**23 components, 0 unintended overlaps.**
+**This was the owner's own request, and it is the request that found finding 21** — you
+cannot route a cable without asking where it leaves from. `src/wiring.py` models all five
+field cables as **solids**, every conductor separately, and `src/build.components()`
+appends them so `check_overlaps.py` weighs them against the housing, the lid, the board,
+the timber, the hoses and each other. **32 components, 0 unintended overlaps, 15
+conductors, 5389 mm of wire to buy.**
 
-**What is modelled:** all five cables from their terminal's **mouth** — derived from the
-routed board, never typed — down through the cable chase; and the pack pair the whole
-way, across the plate's wire slot and then ≈100 mm along the back of the plate to the
-Makita contact block.
+Two corrections from the owner shaped this, and both were right:
 
-**What is NOT, said plainly rather than faked:** the external runs on to the pumps, the
-wand's joystick and the tank's level sensor. Those are in open air outside the housing
-with the whole back of the machine to bend in, and a drawn centreline there would be a
-guess dressed as a measurement. What *is* pinned is where each one leaves, which is what
-the chase gate needs.
+**1. It was not using the cadkit octagon helper.** `cadkit/cables.py` already existed and
+this file had reinvented a round sweep. It now imports `oct_cable`, `bundle_paths` and
+`path_length`. That matters for a reason the helper's own docstring states: a sphere
+meeting two cylinders along a shared circle is the tangent case OCCT handles worst, and
+**it fails silently** — the fuse returns one valid solid with material missing from the
+middle (645 of 1776 mm³, once). Octagonal prisms, across-flats = the conductor OD so the
+real round cable fits inside, rolled 22.5° so a flat faces each principal direction.
+
+**2. Only the pack pair was complete.** The other four stopped at the chase. All five now
+run to their real destination: the pack pair across the plate's wire slot and along the
+back of it to the Makita block; the two pump pairs to the **actual motor lead tips**,
+found by cylinder radius and axis, the same idiom as `pump_frame._pump_bores`; the
+joystick and the level sensor out of the bay and up to the wand and the tank.
 
 #### The gate finding 21 never had
 
-Every mouth is asserted to be **over the chase** and **within 20 mm of it**. The second
-assert is the one that matters, and its message says so: *"that is not a drop into the
-chase, it is a climb down the board — which is exactly finding 21."* Made to fail six
-ways, and the first two reproduce finding 21 directly — a mouth moved off the chase in
-Y, and a mouth raised 92 mm (J5's actual old position) — both caught.
+Every mouth is asserted **over the chase** and **within 20 mm of it**, the second message
+saying why: *"that is not a drop into the chase, it is a climb down the board — which is
+exactly finding 21."* Measured as built: **all five mouths sit 6.65 mm above the bay
+floor**, a straight drop with no bend at all. That is *why* the −Y edge is the right edge,
+and it is now a number rather than a belief.
 
-Measured, as built: **every one of the five mouths sits 6.65 mm above the bay floor**, a
-straight drop into the opening with no bend at all. That is *why* the −Y edge is the
-right edge, and it is now a number rather than a belief.
+**Made to fail ten ways, all ten caught** — a mouth off the chase in Y (finding 21
+itself); a mouth 92 mm up the board (J5's actual old position); the pack pair declared not
+to cross the plate; a conductor thicker than the slot; the slot's own 17.8 mm
+justification broken; the fan-out band poking into the lid's skirt; a lane sitting on the
+line every cable drops down; two cables sharing a band level *and* crossing in plan; a
+pump's conductors paired to leads by index; and the pack pair given no room to turn.
 
-#### Three things the model found that nothing else would have
+The tenth case is the interesting one, because it **failed to fail twice**. The splay
+check lived inside `routes()`, which nothing called until a CAD build — so a harness that
+probes by importing could not reach it, and reported MISSED on an assert that was
+perfectly correct. `ROUTES = routes()` now runs at import, like the band-crossing gate
+beside it. *An assert that only runs inside a 20-second build is not a gate.*
 
-**1. `lead_exit()` was the wrong answer — see finding 28.** The one canonical helper for
-"where does a cable leave this connector" returns a top-entry point for all five
-terminals, silently. Built on it, five cables would have left perpendicular to the board
-and missed the chase entirely.
+#### Four things the model found that nothing else would have
 
-**2. A gathered bundle through a one-layer-deep slot — see finding 29.** Caught by the
-overlap gate at 15.1 mm³, and the fix was to draw the cable **as it lies**.
+**1. `lead_exit()` is the wrong answer — see finding 28.** The one canonical helper for
+"where does a cable leave this connector" returns a **top-entry** point for all five
+terminals, silently: it sees "Horizontal" in the fpid, takes the side-entry branch, keys
+on `name[:7]` = `"Termina"`, misses, and falls through. Built on it, five cables would
+have left perpendicular to the board and missed the chase entirely. The entry face is now
+**declared** (`ENTRY_FACE = "board -Y"`) rather than inferred, because the inference it
+would have to make rests on 0.6 mm of a simplified block and gets it backwards.
 
-**3. Two conductors cannot both take the inside of the same corner.** Holding the pack
-pair's side-by-side Y offset through a run that then turns **onto** Y put both
-conductors on the same centreline — **1057 mm³ of cable through cable**, caught by the
-gate. Side by side in Y is forced by the slot being 5 mm tall; past the plate they stack
-in X instead. A real property of the harness, not a drawing artefact.
+**2. A gathered bundle through a one-layer-deep slot — see finding 29.** 15.1 mm³, and
+the fix was to draw the cable **as it lies**: side by side, because the slot is 5 mm tall.
+
+**3. A constant world offset is not a bundle.** Holding the pack pair's Y offset through a
+run that then turns *onto* Y put both conductors on one centreline — **1057 mm³ of cable
+through cable**. `bundle_paths` offsets in the bundle's own cross-section instead, which
+is precisely the failure its docstring describes. Three more of the same family followed
+and each was fixed by deriving rather than picking: the lid's skirt reaches **z 10.55**,
+*below* the bay floor, so a lane at 11.0 was inside it (`BAND_CEIL` now reads the skirt);
+all five cables drop at the same x, so a lane near it clipped the drops (`LANE_X0` is now
+derived from the drop line); and J5 climbed at a hand-picked x that landed 0.5 mm from
+J4's lane (it now climbs on its own lane). A lane is one index, three derived numbers.
+
+**4. Index order is not position order.** Which side of the bundle a conductor emerges on
+depends on the section frame's handedness at the last segment. Paired to the motor leads
+by index, pump A's two conductors swapped sides and crossed **through each other** for 2.8
+mm — 36.4 mm³, found by the overlap gate. Nearest-lead pairing plus the splay assert
+above; order-independent, and it fixes itself if a lane or a pump moves.
 
 #### And one thing it proved, which is the better kind of result
 
 **The pack pair's 100 mm run between the plate and the timber is clear, and nobody had
-ever checked.** It is the obvious place to pinch a 7.5 A pair: the plate bolts **flat**
-to the posts, so the nominal gap where they meet is **zero**. Probed with a 3.30 mm
-conductor at `BACK_X + 2` across the whole path (y 40..170, z 8..60): **no timber
-anywhere**; and sweeping +X from the plate's back face at the slot, mid-run and the dock
-finds **none within 200 mm**. The frame is slender members and the plate meets it only at
-the wood screws, so the leads run in open air between them. Now asserted rather than
-assumed, and the run is drawn so the overlap gate keeps watching it.
+ever checked.** It is the obvious place to pinch a 7.5 A pair: the plate bolts **flat** to
+the posts, so the nominal gap where they meet is **zero**. Probed with a 3.30 mm conductor
+at `BACK_X + 2` across the whole path (y 40..170, z 8..60): **no timber anywhere**; and
+sweeping +X from the plate's back face at the slot, mid-run and the dock finds **none
+within 200 mm**. The frame is slender members and the plate meets it only at the wood
+screws, so the leads run in open air between them. Asserted now, and drawn, so the overlap
+gate keeps watching it.
 
 **Residual, honest:** the pair stops **1.0 mm short** of the contact block rather than
 inside it. A lead really does enter its terminal, but the bought block models no solder
 tabs, so stopping at the envelope claims "the pair reaches the dock with a path" without
-asserting anything about geometry that is not drawn.
+asserting anything about geometry that is not drawn. Lengths are therefore **floors**:
+5389 mm is what the centrelines measure, not what you should cut.
+
+---
+
+### 42 — OPEN: the Makita terminal has NO retention along X, and v1's came from the slide-on joint
+
+The owner asked whether v1's terminal retention relied on the housing being a slide-on
+part with joinery. **It did, and that is exactly what v2 removed.**
+
+**v1** (`git show 54a1e93^:src/backpack_housing.py`): the dock had a through-'t' pocket
+that located the block in plan, and `_dock_transform` trimmed the dock's back at the
+connector's flange-back plane and pre-shifted it so that *"trimmed back (the flange) lands
+on the wall, flush — the wall retains the connector with no separate pads."* The housing
+was `dock(joinery=True)` with `_dovetail_tenons` cutting the matching rails; sliding the
+housing on brought the wall up behind the flange. **Pocket in front, wall behind — two
+faces, one of them delivered by the joint.**
+
+**v2** unioned the dock into the single printed housing, so there is no joint and no
+separate wall arriving from behind. Then, because the block could no longer be dropped in
+during assembly, `_terminal_window()` cut the back plate open so it could be inserted from
+the **rear** — which removed the only thing that ever held it along X.
+
+**Measured on the current model, not argued:**
+
+| probe | result |
+|---|---|
+| seated housing ↔ terminal contact | **0.000 mm³** |
+| slide ±8 mm in X, 1 mm steps | **0.0 mm³ at every step — completely free** |
+| ±Y, ±Z | **blocked both ways** by the 't' pocket |
+| push +2 mm inboard | hits the **timber**, 669.3 mm³ |
+| pull outboard | **nothing at all** |
+
+The block's bbox spans x −205.25..−183.00 and the plate only occupies −193.2..−190.0. So
+the wood is an **accidental** backstop with roughly 2 mm of slop, and the direction with
+no stop at all — outboard — is the direction friction drags the block every time the pack
+is withdrawn. Y and Z are fine; X is unretained, and the load along X is the one load the
+part actually sees.
+
+**Also wrong, and found while measuring this:** `_terminal_window()`'s docstring claims
+the cutter makes *"flange lips ... mitred 45 degree seats"*. `_terminal_t_cutter()`
+explicitly does not — its own comment says *"The cut passes fully through Z, so there is
+no Z wall to clear."* A docstring describing a feature that is not cut is worse than no
+docstring, because it is what the next reader will check against.
+
+**Not fixed here, and deliberately not guessed at.** The candidates are a printed cap or
+retaining lip over the flange after insertion (M2, so it goes with the existing hardware),
+or reinstating a captive face by splitting the dock's back off as its own part. Both change
+the printed housing and the print orientation it was validated in, which is a change to
+make on purpose rather than at the end of a wiring session. What is now true is that the
+gap is **named and measured** instead of remembered.
+
+
+### 43 — OPEN: the vendored cadkit was hand-edited, and a stale subtree merge was sitting unresolved
+
+Found while committing the wiring work, not looked for. Two separate things, both in
+`cadkit/pcbflow/layout.py`:
+
+**1. An unresolved subtree merge was parked in the working tree.** `.git/MERGE_HEAD` held
+`221036d` (*squashed cadkit 652cc8b..149edbd*) with `UU cadkit/pcbflow/layout.py` — so the
+file carried literal `<<<<<<<` markers and **would not parse**. Any `elec/` run would have
+died on the import. It survived because every gate run in that session was `src/`-side.
+This is the exact hazard the saved note *"check `.git/MERGE_HEAD` before `git add -A`"*
+exists for, and here it would have committed conflict markers into a public repo.
+
+**2. The vendored copy had been hand-edited, which the project forbids.** The conflict was
+between a vendored-only fix for the removed-via use-after-free —
+`board._pcbflow_removed = ... + tuple(victims)`, parking the proxies on the board object —
+and the older buggy code coming in from 149edbd. `git log -S"_pcbflow_removed"` in
+canonical `../cadkit` returns **nothing**: that line has never existed upstream. It was
+written straight into the vendored tree.
+
+**Canonical already fixes the same bug, and fixes it better.** `0330023` (*"items removed
+from a board are kept alive for the life of the process; the del in 149edbd did not cure it
+and is withdrawn"*) keeps them on a **module-level `_REMOVED` list**, so the lifetime is the
+process rather than one board object — which is what the failure actually demanded, since
+the corruption took out SWIG's type registry process-wide.
+
+**Resolved to a known-good state, not papered over:** the stale merge is **aborted**, so the
+vendored tree is back to the exact commit every green gate run in this session was measured
+against. Nothing is broken and nothing is a lie.
+
+**Still open, deliberately.** Canonical is at `3b43c0e`, five commits past the `149edbd`
+that merge was dragging in, and those commits change things the CAD reads: a 1206 chip
+resistor gains a height, lettering grows a per-board reading direction and a both-faces ink
+check, and A14/A15 are new quality rules. Propagating that is a real change with its own
+measurements — it can open findings — and doing it silently while closing a wiring task
+would be the kind of lumping this list exists to prevent. **It wants its own pass**, and
+that pass is also where finding 28's `lead_exit()` fix belongs, since both are one writer
+in one subtree.
 
 ---
 

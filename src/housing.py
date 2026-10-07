@@ -558,6 +558,28 @@ def pcb_solid():
     return pose_board(_BOARDS.solid("main"))
 
 
+def pcb_silk(side: str = "F"):
+    """The board's OWN lettering, posed into the housing -- or None.
+
+    The geom file has carried 86 labels all along (connector pinouts, test-pad
+    names, polarity marks) and nothing in this repo had ever drawn them, so every
+    render of the assembly showed a blank green board. That matters more here than
+    it would on most boards: the labels exist to be READ during bring-up, with the
+    lid off and a screwdriver in the other hand, and whether they are legible from
+    where a person's eye actually is -- or hidden under a terminal block, or facing
+    the back plate -- is a question only the CAD can answer.
+
+    Drawn as its own part rather than fused into the board: the exporter puts F
+    ink at z 1.600..1.620 and B ink at -0.020..0.000, i.e. 0.02 mm PROUD of each
+    face, so it is ink sitting on the mask and shares no volume with the laminate.
+    That is also why it is NOT in build.components(): a 0.02 mm film has no
+    interference to measure, and adding 372 slivers to a pairwise gate would cost
+    real time to learn nothing. It goes into the viewer assembly instead.
+    """
+    s = _BOARDS.silk("main", side)
+    return None if s is None else pose_board(s)
+
+
 # Cavity depth comes FROM THE POSED BOARD, not from a guess at the tallest
 # part -- and it reads 17.0, which is what an earlier guess said and what this
 # comment used to call wrong. It read 20.4 while pose_board was centring the
