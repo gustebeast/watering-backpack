@@ -257,8 +257,23 @@ def routes():
             y0 = my - (spec["n"] - 1) * d / 2.0
             for k in range(spec["n"]):
                 y = y0 + k * d
+                # down the chase, through the slot, then along the back of
+                # the plate and up to the dock. Four corners, each of which
+                # _bend_pts has to find room for or raise.
+                #
+                # ⚠ THE LANES SEPARATE IN A DIFFERENT AXIS ONCE THEY ARE THROUGH.
+                # Side by side in Y is forced by the slot being 5 mm tall, but
+                # the run past it turns ONTO Y -- so holding the Y offset put
+                # both conductors on the same centreline and they overlapped each
+                # other by 1057 mm3. The gate caught that, and it is a real
+                # property of the harness rather than a drawing artefact: two
+                # wires cannot both take the inside of the same corner. Past the
+                # plate they stack in X, in the depth the probe showed is free.
+                xk = DOCK_RUN_X + k * (d + LANE_AIR)
                 pts = [(mx, y, mz), (mx, y, SLOT_Z_C),
-                       (H.BACK_X + 6.0, y, SLOT_Z_C)]
+                       (xk, y, SLOT_Z_C),
+                       (xk, DOCK_Y_C, SLOT_Z_C),
+                       (xk, DOCK_Y_C, DOCK_Z0 - DOCK_STANDOFF)]
                 out.append(("%s_%d" % (spec["name"], k + 1), pts, d, r))
             continue
         od = bundle_od(spec["n"], spec["awg"])
@@ -266,6 +281,35 @@ def routes():
         pts = [(mx, my, mz), (mx, my, EXIT_Z)]
         out.append((spec["name"], pts, od, r))
     return out
+
+
+# ── THE TIMBER SIDE: from the slot to the dock ──────────────────────────────
+# The pack's leads do not stop at the plate. They cross it and then run about
+# 100 mm along the BACK of it, between plate and timber, to the Makita contact
+# block -- and until this was drawn, nothing had asked whether that space exists.
+# It is the obvious place for a 7.5 A pair to be pinched: the plate is bolted
+# flat to the posts, so the nominal gap where they touch is ZERO.
+#
+# MEASURED, and the answer is that the run is clear: probing a 3.30 mm conductor
+# at x = BACK_X + 2 along the whole path (y 40..170, z 8..60) finds no timber at
+# all, and sweeping +X from the plate's back face at three stations -- the slot,
+# mid-run and the dock -- finds none within 200 mm. The frame is slender members
+# and the plate meets it only at the wood screws, so the leads run in open air
+# between them. The assert below is what keeps that true rather than the comment.
+DOCK_RUN_X = H.BACK_X + 6.0          # 6 mm off the plate's back face
+_term = H.terminal_placed()
+assert _term is not None, (
+    "the Makita contact block is not in the model, so the pack pair has nowhere "
+    "to run to -- this file cannot check a destination that is not drawn")
+_tb = _term.val().BoundingBox()
+DOCK_Y_C = (_tb.ymin + _tb.ymax) / 2.0
+DOCK_Z0 = _tb.zmin                   # the block's underside: the pair arrives here
+# Stop 1.0 mm short of the block rather than inside it. A lead really does enter
+# its terminal, but the useful claim is "the pair REACHES the dock with a path",
+# and stopping at the envelope makes that claim without asserting anything about
+# tabs the bought part does not model.
+DOCK_STANDOFF = 1.0
+LANE_AIR = 0.2            # air between stacked conductors, so tangent is not relied on
 
 
 # A LAID-FLAT CABLE HAS TO FIT THE SLOT IN BOTH DIRECTIONS. Height is the
@@ -342,6 +386,8 @@ def main() -> int:
               % (ref, x, y, z, z - CHASE_Z))
     print("  plate crossing: %.1f mm of conductor into a %.0f mm slot"
           % (_LAID_W, _SLOT_W))
+    print("  timber-side run: x %.1f, slot y %.1f -> dock y %.1f, up to z %.1f"
+          % (DOCK_RUN_X, MOUTHS["J1"][1], DOCK_Y_C, DOCK_Z0 - DOCK_STANDOFF))
     solids()                      # builds every bend, so a bad corner raises
     print("every cable has a path, and every bend is one the cable can make")
     return 0
