@@ -161,23 +161,8 @@ assert (PCB_W, PCB_L) == (95.0, 112.0), (
     "against 95 x 112 and wants re-reading, starting with BAY_Z1 against the "
     "lid screw boss" % (PCB_W, PCB_L))
 PCB_CLR = 2.0
-# The dock is anchored by its CENTRELINE, not by its -Y edge. Its edge moved
-# 14.3 mm when the ears came off; its battery, its contact block and the deck
-# notch the pack lifts out through did not, and anchoring on the edge dragged
-# all three with it -- far enough to put the connector's back inside a post
-# (the overlap gate caught it at 3 mm3).
-DOCK_Y_C = 53.3                                       # validated seat, v1 and v2
-Y_DOCK0 = DOCK_Y_C - DOCK_W / 2.0                     # 17.3
-Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0                     # 89.3
-# The PCB bay is now laid out from the +Y END, not from the dock. It has to be:
-# the thing with no slack on that side is the lid's skirt, which hangs outboard
-# of the bay's +Y wall and has only the frame's back edge to live in. Laying it
-# out from the dock instead would park the whole bay 1.4 mm short of the edge
-# again and put the slack where nothing needs it.
 SKIRT_T   = 3 * BEAD    # 2.4                   # the lid's skirt, defined here because the
 SKIRT_CLR = 0.4                   # bay's Y layout has to leave room for it
-SKIRT_GAP = 6.0                                       # air outboard of the +Y wall
-Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL                # 201
 
 # THE CAVITY IS SIZED OFF THE POSED BOARD, NOT OFF PCB_W. The laminate is 95
 # and PCB_CLR is 2, which gives 99 and is what this used to use -- but the
@@ -194,9 +179,57 @@ Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL                # 201
 _BBB = _BOARDS.solid("main").val().BoundingBox()      # the BOARD's own frame
 BOARD_Y_PLUS  = _BBB.xmax                             # 51.62 — toward world -Y
 BOARD_Y_MINUS = -_BBB.xmin                            # 47.50 — toward world +Y
-PCB_Y_C = Y_PCB1 - PCB_CLR - BOARD_Y_MINUS            # 151.5
-Y_PCB0  = PCB_Y_C - BOARD_Y_PLUS - PCB_CLR            # 97.88
-Y_OUTER = Y_PCB1 + WALL                               # 204 — the bay's +Y face
+# == THE PLATE'S SPARE Y IS SHARED EVENLY: edge | bay | dock | edge ==========
+# Three gaps across the plate, and they are now EQUAL BY CONSTRUCTION. Measured
+# before this: 6.00 outboard of the bay's +Y wall, 6.78 between the bay and the
+# dock, and 17.30 between the dock and the -Y edge.
+#
+# ⚠ THE 17.30 WAS NEVER A DECISION. It is what fell out of laying the bay from
+# the +Y end (which it has to be -- see below) and seating the dock at a
+# centreline validated in v1. Neither number was wrong; nothing owned the
+# REMAINDER, so the whole of the plate's slack piled up at one edge.
+#
+# ONE GAP IS DERIVED, NOT THREE TYPED. The bay's outer width and the dock's
+# width are both read from what they contain, so the leftover is arithmetic:
+#
+#     gap = (FRAME_D - bay_w - DOCK_W) / 3
+#
+# and the middle gap then equals the outer two IDENTICALLY, not approximately --
+# substituting Y_PCB0 back through PCB_Y_C and Y_PCB1 cancels every term except
+# FRAME_D - bay_w - DOCK_W - 2*gap, which is gap. The assert below measures it
+# anyway, because an algebraic identity in a comment is not a gate.
+#
+# WHY THE BAY IS STILL LAID FROM THE +Y END: the thing with no slack on that
+# side is the lid's skirt, which hangs outboard of the bay's +Y wall and has
+# only the frame's back edge to live in. That is unchanged -- the +Y gap is now
+# bigger than the 6.0 it was, so the skirt has more room, not less.
+#
+# WHY MOVING THE DOCK IS SAFE TO DO BUT NOT SAFE TO ASSUME: the dock is anchored
+# by its CENTRELINE, not its -Y edge. Its edge moved 14.3 mm when the ears came
+# off while its battery, its contact block and the deck notch the pack lifts out
+# through did not, so anchoring on the edge dragged all three with it -- far
+# enough to put the connector's back inside a post, which the overlap gate
+# caught at 3 mm3. Centreline anchoring is what makes a seat move cleanly. The
+# seat itself was validated in v1 and v2 at 53.3 and is now 46.03; what
+# re-validates it is tools/check_overlaps.py, not this comment.
+BAY_W = (BOARD_Y_PLUS + BOARD_Y_MINUS) + 2 * PCB_CLR + 2 * WALL
+EDGE_GAP = (L.FRAME_D - BAY_W - DOCK_W) / 3.0
+SKIRT_GAP = EDGE_GAP                      # air outboard of the +Y wall
+Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL
+DOCK_Y_C = EDGE_GAP + DOCK_W / 2.0        # was 53.3, a v1-validated seat
+Y_DOCK0 = DOCK_Y_C - DOCK_W / 2.0
+Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0
+
+PCB_Y_C = Y_PCB1 - PCB_CLR - BOARD_Y_MINUS
+Y_PCB0  = PCB_Y_C - BOARD_Y_PLUS - PCB_CLR
+Y_OUTER = Y_PCB1 + WALL                               # the bay's +Y face
+# The three gaps, measured off the geometry rather than off the arithmetic that
+# produced it: plate edge to bay, bay to dock, dock to plate edge.
+_GAPS = (L.FRAME_D - Y_OUTER, (Y_PCB0 - WALL) - Y_DOCK1, Y_DOCK0)
+assert max(_GAPS) - min(_GAPS) < 1e-6, (
+    "the three plate gaps are %.3f / %.3f / %.3f and are meant to be equal"
+    % _GAPS)
+assert min(_GAPS) > 0, "a plate gap closed: %.3f / %.3f / %.3f" % _GAPS
 assert Y_OUTER + SKIRT_CLR + SKIRT_T <= L.FRAME_D, (
     "the +Y skirt runs %.1f past the frame's %.1f"
     % (Y_OUTER + SKIRT_CLR + SKIRT_T, L.FRAME_D))
