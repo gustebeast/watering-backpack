@@ -2314,6 +2314,38 @@ C1 and C2 are **SMD** electrolytics with no holes at all, and the pin declaratio
 written for them was itself a false record. **A gate reading a field that merely sounds
 like the one it wants is the same class of defect as the one it was written to catch.**
 
+#### ⚠ And the rename cost F2 its fab placement frame — which caught a REAL one on D7
+
+`fab_frames.json` is keyed on **LCSC code + footprint name**, so renaming the land to
+`-PINFIT` orphaned F2's fitted entry and the next package shipped **two** parts as *"not
+measured"*. Re-running the fitter is what surfaced the thing that actually mattered:
+
+| part | frame | consequence of getting it wrong |
+|---|---|---|
+| **D7** BAT54S | **rot 180** — was shipping at 0 | **a diode straight from +3V3 to GND**: a dead short on power-up |
+| **F2** holder | **will not fit** | swaps two fuse terminals, i.e. nothing |
+
+**D7 is the catch.** It was added in the same session as the clamp, its CPL line said
+`0.000000`, and a BAT54S is wired by its pin map — pin 3 is the series junction, so a
+half turn makes the part a short across the rail. **That is exactly the failure the
+comment in `elec/main.py` warns about, and it would have shipped.** The frame is
+measured now and the CPL carries `180.000000`.
+
+**F2's refusal is a fitter defect, not a land defect, and it is harmless.** Every pad of
+the `-PINFIT` land is at the stock coordinate byte for byte — only `size` (2.20 → 2.30)
+and `drill` (1.40 → 2.05) changed — yet the stock land fits C207061 and this one is
+reported *"up to 2.90 mm from ours"*. **The fitter is pairing pads with pad size as part
+of the match.** It is recorded rather than worked around, because the frame table is
+generated and hand-editing it is the thing that must not happen.
+
+It does not block the order because **F2 is symmetric where it counts**: a fuse's two
+terminals are interchangeable, the 12.8 × 2.5 mm pad grid maps onto itself under a half
+turn, the 2.4 mm spigot sits at the grid's exact centre and keys nothing, and a quarter
+turn does not fit the holes at all. **The part is hand-soldered into plated holes, so the
+board orients it** — the only rotation a fab could get wrong is the one that changes
+nothing.
+
+
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 
 **Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full
