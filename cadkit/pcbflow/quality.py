@@ -1678,7 +1678,41 @@ def return_path_slots(ctx):
 
     if not checked:
         return [("plane", None, "no signal track runs over a ground pour on another layer")]
-    gaps = [g for g in gaps if g[1] not in allowed]
+    # ⚠ AN EXEMPTION CARRIES A NUMBER NOW, AND A BARE NET NAME IS REFUSED. This
+    # used to be a set of net names and nothing else, which made it unbounded: a net
+    # listed to excuse a measured 7.17 mm crossing would have gone on excusing the same
+    # net at 30 mm, silently, forever. It is now {net: {"mm": <the measured figure it
+    # was signed for>, "why": ...}}, a crossing is forgiven only up to that figure, and
+    # anything over it is graded like any other net's.
+    #
+    # ⚠ AND A DECLARATION THAT NO LONGER MATCHES ANYTHING IS A FAILURE, not a
+    # harmless leftover -- the same rule A13 applies to quality.unconnected. The
+    # exemption that prompted this had been written for a crossing that a later re-route
+    # removed: it covered nothing, nothing said so, and because the filter stripped the
+    # net BEFORE anything was reported, no run could ever have shown that the number had
+    # moved. An exemption for a slot that is gone is a licence nobody is using and the
+    # next re-route might.
+    stale = []
+    for _net, _d in sorted(allowed.items()):
+        if not isinstance(_d, dict) or "mm" not in _d or not str(_d.get("why", "")).strip():
+            out_bad = ("return slot", False,
+                       "quality.return_slot_ok[%r] must give both `mm` -- the measured "
+                       "crossing it is signed for -- and `why`" % _net)
+            return [out_bad]
+        if not any(g[1] == _net for g in gaps):
+            stale.append(_net)
+    kept = []
+    for g in gaps:
+        d = allowed.get(g[1])
+        if d is not None and g[0] <= float(d["mm"]) + 1e-6:
+            continue                   # forgiven, and only up to the figure signed for
+        kept.append(g)
+    gaps = kept
+    if stale:
+        return [("return slot", False,
+                 "quality.return_slot_ok names %s, which straddles nothing on this "
+                 "board: a stale exemption is a licence nobody is using and the next "
+                 "re-route might" % ", ".join(stale))]
     bad = sorted((g for g in gaps if g[0] > limit + 1e-6), reverse=True)
     if bad:
         g = bad[0]
