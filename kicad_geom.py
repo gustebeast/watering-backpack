@@ -61,6 +61,31 @@ def _layer_bbox(fp, layer, cx, cy):
     return _bbox([it for it in fp.GraphicalItems() if it.GetLayerName() == layer], cx, cy)
 
 
+def _body_bbox(fp, layer, cx, cy):
+    """The part's BODY on its fab layer: the drawn outline, and nothing else that has come
+    to live there.
+
+    Two other things do. The designator, where a dense board keeps it off the silkscreen
+    (pcbflow's `refs_on_fab`), is text and may sit beside the part. And silkscreen that
+    would have printed on pads (`strip_silk`) is moved to the fab layer rather than
+    deleted: a polarity bar, a bracket round the lands. A box round all of it is not the
+    part -- an 0603 LED came out 2.4 long and a SOD-523 2.65 tall, and the CAD-against-
+    board probe (cadkit.board_check, the end probes) then reported 32 honest bodies as
+    drawn short.
+
+    Text is left out by class. Moved silkscreen is told from the body by its stroke: a
+    library footprint draws its fab outline in 0.10 and its silkscreen in 0.12, so of the
+    shapes on the layer only the THINNEST strokes are the body. A footprint drawn in one
+    width throughout (most hand-made ones) keeps every shape."""
+    shapes = [it for it in fp.GraphicalItems()
+              if it.GetLayerName() == layer and it.GetClass() == "PCB_SHAPE"]
+    if not shapes:
+        return None
+    drawn = [it.GetWidth() for it in shapes if it.GetWidth() > 0]      # 0 is a fill
+    thin = min(drawn) if drawn else 0
+    return _bbox([it for it in shapes if it.GetWidth() <= thin + 1000], cx, cy)
+
+
 def _tht_bbox(fp, cx, cy):
     """Bounding box of this footprint's THROUGH-HOLE pads, or None if it is pure SMD.
     Their tails are geometry below the board that a CAD model otherwise leaves out."""
@@ -110,7 +135,7 @@ def read(stem):
             "pads_xy": pc,
             "rot": round(fp.GetOrientationDegrees(), 3),
             "side": "B" if back else "F",
-            "fab": _layer_bbox(fp, "B.Fab" if back else "F.Fab", cx, cy),
+            "fab": _body_bbox(fp, "B.Fab" if back else "F.Fab", cx, cy),
             "crtyd": _layer_bbox(fp, "B.CrtYd" if back else "F.CrtYd", cx, cy),
             "tht": _tht_bbox(fp, cx, cy),
         })
