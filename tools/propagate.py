@@ -13,6 +13,12 @@ uncommitted work is ever disturbed — commit or stash it, then re-run. The exit
 code is the number of consumers that did NOT end up in sync (skipped or failed),
 so this doubles as a pre-flight gate: 0 means every consumer is current.
 
+A consumer with a BUILD IN PROGRESS (agent_sync's `.git/agent-sync/build.lock`) is
+skipped the same way. Its tree is clean mid-build, so the dirty check lets the pull
+through -- and a toolkit change landing under a running build changes what the gates
+are testing, and lets a clean-tree push go out on a tree the build never saw. Re-run
+when the build is done; a lock left by a dead build is agent_sync's to steal, not ours.
+
 Layout (dev tool, like agent_sync.py): the canonical cadkit repo and its consumer
 projects are sibling directories. Consumers are AUTO-DISCOVERED by signature — a
 git repo with a `cadkit/step_export.py` subtree — so there is no project list to
@@ -55,6 +61,10 @@ def _is_git_repo(d):
 def _is_dirty(d):
     _, out = _git(["status", "--porcelain"], d)
     return bool(out.strip())
+
+
+def _is_building(d):
+    return (d / ".git" / "agent-sync" / "build.lock").exists()
 
 
 def _discover_consumers():
@@ -124,6 +134,10 @@ def main():
         name = d.name
         if _is_dirty(d):
             print("  SKIP  %-28s dirty working tree (commit/stash, then re-run)" % name)
+            not_synced += 1
+            continue
+        if _is_building(d):
+            print("  SKIP  %-28s build in progress (build.lock): re-run when it is done" % name)
             not_synced += 1
             continue
         if a.dry_run:

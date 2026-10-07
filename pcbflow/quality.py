@@ -15,9 +15,13 @@ Two kinds of rule, both listed in PCB_QUALITY.md:
                      (a person or an LLM) does the check and records WHAT THEY LOOKED AT
                      in the board's notes; an unsigned item stays OPEN on every run.
 
-What the board declares, in BOARD_NOTES["quality"] (all optional, all documented in
-PCB_QUALITY.md): power_paths, decoupling, pinouts, manual, waive, power_nets, not_power,
-unmatched_ok, copper_oz, inner_oz, temp_rise_c.
+What the board declares, in BOARD_NOTES["quality"] (all documented in
+PCB_QUALITY.md): power_paths, decoupling, pinouts, net_volts, pin_volts, manual, waive,
+power_nets, not_power, unmatched_ok, copper_oz, inner_oz, temp_rise_c.
+
+A16's own fail harness is pcbflow/test_quality_a16.py: it breaks a real board six ways
+and insists on six different answers. A gate nobody has seen fail is a gate nobody has
+tested.
 
 Returns (and exits with) the number of FAILs; OPEN manual items are counted separately and
 printed. Writes <stem>.quality.json with every result. A board is quality-clean at
@@ -30,6 +34,7 @@ refuses to run if the two disagree about which automated rules exist.
 from __future__ import annotations
 
 import collections
+import fnmatch
 import heapq
 import io
 import json
@@ -83,6 +88,10 @@ HINT = {
     "A13": "if the board is wrong, fix the generator (look for an index left over from "
            "another loop); if the declaration is, correct quality.unconnected / "
            "quality.net_groups to what the design MEANS, never to what was built",
+    "A16": "a pin rated under what its net reaches is a part change, not a waiver -- and "
+           "an UNRATED pin is a reading nobody has done: put the number and the document "
+           "it came from in quality.pin_volts. A clamped transient over a rating is judged "
+           "on the clamp's own pulse -- PCB_QUALITY.md A16, 'Steady and transient'",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
           "page in quality.pinouts -- by ref, value or footprint",
@@ -104,6 +113,9 @@ HARD = {
     "A11": ("",),
     "A12": ("ring", "hole", "track width", "pad gap"),
     "A13": ("",),
+    "A16": ("steady-state worst case", "can make NO CLAIM",
+            "no worst-case voltage is declared", "NO voltage rating is declared",
+            "states no `max`", "with no `src`", "gives no `why`"),
 }
 
 
@@ -1574,6 +1586,192 @@ def via_in_land(ctx):
              "%d via(s) sit in a pasted land and the thirstiest, %s, can take %.0f %% of "
              "the paste printed over it -- under half, so the joint still forms"
              % (len(found), name, 100 * r))]
+
+
+# ── A16: nothing sees more than it is rated for ──────────────────────────────────────
+# Two pieces of data the board supplies, and NEITHER is a constant in here:
+#   quality.net_volts  net (or fnmatch pattern) -> the WORST CASE that net reaches
+#   quality.pin_volts  ref / ref.pin / value / footprint (or pattern) -> what the part is
+#                      rated for, with `src` saying where the number was read
+# A capacitor whose BOM value carries the usual voltage qualifier ("10u/25V") states its
+# own rating there and needs no entry.
+VALUE_VOLTS = re.compile(r"/\s*(\d+(?:\.\d+)?)\s*V\b", re.I)
+NO_RATING = ("none", "n/a", "na", "-")          # "no rating in this quantity" (+ a why)
+
+
+def _vnum(x):
+    """A declared voltage: a float, the string "none" (no rating in this quantity), or
+    None for 'not stated / unreadable'."""
+    if isinstance(x, str) and x.strip().lower() in NO_RATING:
+        return "none"
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _match_key(keys, name):
+    """The declaration key that governs `name`: an exact key, else the fnmatch pattern with
+    the most literal characters (so "U1" beats "U*", and "VBAT_LVL" beats "VBAT*")."""
+    if name in keys:
+        return name
+    hits = [k for k in keys if any(c in k for c in "*?[") and fnmatch.fnmatchcase(name, k)]
+    return max(hits, key=lambda k: (len(re.sub(r"[*?\[\]]", "", k)), k)) if hits else None
+
+
+def _pin_rating(ctx, pv, ref, num):
+    """(max, peak, src, why, where) for one pin, or None when nothing states a rating.
+    `max`/`peak` are floats or the string "none". Resolution order: ref.pin, ref, value,
+    footprint -- exact before pattern at each step -- then the part's own BOM value."""
+    fp = ctx.fps[ref]
+    value = fp.GetValue() or ""
+    fpname = fp.GetFPIDAsString().split(":")[-1]
+    ent = where = None
+    for cand in ("%s.%s" % (ref, num), ref, value, fpname):
+        k = _match_key(list(pv), cand)
+        if k is not None:
+            ent, where = pv[k], "quality.pin_volts[%r]" % k
+            break
+    if ent is None:
+        m = VALUE_VOLTS.search(value)
+        if not m:
+            return None
+        v = float(m.group(1))
+        return (v, v, "the part's own BOM value %r" % value, "", "the value text")
+    spec = dict(ent) if isinstance(ent, dict) else {"max": ent}
+    pins = spec.pop("pins", None) or {}
+    pk = _match_key(list(pins), str(num))
+    if pk is not None:
+        sub = pins[pk]
+        spec.update(sub if isinstance(sub, dict) else {"max": sub})
+        where += "[pins][%r]" % pk
+    return (_vnum(spec.get("max")), _vnum(spec.get("peak", spec.get("max"))),
+            spec.get("src", ""), spec.get("why", ""), where)
+
+
+@rule("A16")
+def pin_voltage_ratings(ctx):
+    """Every net's worst-case voltage against the rating of every pin on it. A net at 0 V
+    has nothing to exceed and its pins are not graded; everything else is."""
+    out = []
+    decl = ctx.q.get("net_volts") or {}
+    pv = ctx.q.get("pin_volts") or {}
+    nets = sorted(n for n in ctx.by_net if n)
+    npins = sum(len({(r, n) for r, n, _p in ctx.by_net[x]}) for x in nets)
+    if not nets:
+        return [(ctx.name, None, "no named net on this board")]
+    if not decl:
+        out.append((ctx.name, False,
+                    "%s declares no quality.net_volts, so not one net has a worst-case "
+                    "voltage and A16 can make NO CLAIM about the %d pin(s) on its %d "
+                    "net(s). That is an unmade check, not a clean board"
+                    % (ctx.name, npins, len(nets))))
+    priced = graded = rated = unratable = 0
+    margins = []
+    for net in nets:
+        pads = sorted({(r, n) for r, n, _p in ctx.by_net[net]},
+                      key=lambda t: _nat("%s.%s" % t))
+        key = _match_key(list(decl), net)
+        if key is None:
+            if decl:
+                out.append((net, False,
+                            "no worst-case voltage is declared for net %s (%d pin(s)): say "
+                            "in quality.net_volts what this net actually reaches -- a fresh "
+                            "pack, a supply's tolerance, a clamp -- not its nominal"
+                            % (net, len(pads))))
+            continue
+        spec = dict(decl[key]) if isinstance(decl[key], dict) else {"v": decl[key]}
+        v, peak = _vnum(spec.get("v")), _vnum(spec.get("peak", spec.get("v")))
+        if not isinstance(v, float) or not isinstance(peak, float):
+            out.append((net, False, "quality.net_volts[%r] does not give a number for net "
+                                    "%s: %r" % (key, net, decl[key])))
+            continue
+        how = "declared" if key == net else "declared by %r" % key
+        if max(v, peak) <= 0.0:
+            out.append((net, True, "%s at %.3g V: nothing to exceed, so its %d pin(s) are "
+                                   "not graded (%s)" % (net, v, len(pads), how)))
+            continue
+        out.append((net, True, "%s: %.4g V%s (%s)"
+                    % (net, v, " steady, %.4g V transient" % peak if peak != v else "", how)))
+        for ref, num in pads:
+            priced += 1
+            sub = "%s.%s" % (ref, num)
+            part = ctx.fps[ref].GetValue() or ref
+            r = _pin_rating(ctx, pv, ref, num)
+            if r is None:
+                out.append((sub, False,
+                            "%s (%s) sits on %s at %.4g V and NO voltage rating is declared "
+                            "for it: an unrated pin is a reading nobody has done, which is "
+                            "not the same as a pin that passes. State it in "
+                            "quality.pin_volts (by ref, ref.pin, value or footprint) with "
+                            "where the number was read"
+                            % (sub, part, net, max(v, peak))))
+                continue
+            graded += 1
+            mx, pkv, src, why, where = r
+            if mx is None:
+                out.append((sub, False, "%s (%s): %s states no `max` for this pin"
+                            % (sub, part, where)))
+                continue
+            if mx == "none":
+                if not str(why).strip():
+                    out.append((sub, False,
+                                "%s (%s) is declared to have no voltage rating and gives no "
+                                "`why`: say what it is about this pin that %.4g V cannot "
+                                "exceed" % (sub, part, max(v, peak))))
+                    continue
+                unratable += 1
+                out.append((sub, True, "%s (%s) on %s: no net-to-ground rating -- %s"
+                            % (sub, part, net, why)))
+                continue
+            if not str(src).strip():
+                out.append((sub, False,
+                            "%s (%s) is rated %s V by %s with no `src`: a rating is a "
+                            "reading of a document, so say which one -- maker, document, "
+                            "table" % (sub, part, mx, where)))
+                continue
+            rated += 1
+            if v > mx:
+                out.append((sub, False,
+                            "%s (%s) is rated %.4g V and the steady-state worst case on %s "
+                            "is %.4g V: the pin is over its rating whenever the board is on "
+                            "(rating read from %s, via %s)"
+                            % (sub, part, mx, net, v, src, where)))
+                continue
+            if pkv == "none":
+                out.append((sub, True,
+                            "%s (%s): %.4g V steady against %.4g V rated, and the %.4g V "
+                            "transient is not graded -- %s"
+                            % (sub, part, v, mx, peak, why or "no transient rating declared")))
+                margins.append((mx - v, sub, part, mx, v, net))
+                continue
+            if peak > pkv:
+                out.append((sub, False,
+                            "%s (%s) is rated %.4g V and the clamped transient on %s reaches "
+                            "%.4g V: %.4g V over, for as long as the clamp conducts (rating "
+                            "read from %s, via %s)"
+                            % (sub, part, pkv, net, peak, peak - pkv, src, where)))
+                continue
+            margins.append((mx - v, sub, part, mx, v, net))
+            out.append((sub, True, "%s (%s) on %s: %.4g V against %.4g V rated%s"
+                        % (sub, part, net, max(v, peak), mx,
+                           ", %.4g V transient against %.4g V" % (peak, pkv)
+                           if peak != v else "")))
+    if priced and not rated:
+        out.append((ctx.name, False,
+                    "not one of the %d pin(s) on a live net has a NUMBER to be judged "
+                    "against: no part on this board states a voltage rating, so A16 can "
+                    "make NO CLAIM about any of them. Declare them in quality.pin_volts "
+                    "(%d pin(s) have a declaration of some kind)" % (priced, graded)))
+    if margins:
+        m = min(margins)
+        out.append(("margin", None,
+                    "%d pin(s) graded, %d of them against a number; the tightest is %s (%s) "
+                    "on %s -- %.4g V of steady-state margin at %.4g V rated%s"
+                    % (graded, rated, m[1], m[2], m[5], m[0], m[3],
+                       "; %d pin(s) declared to have no net-to-ground rating, each with a "
+                       "reason" % unratable if unratable else "")))
+    return out
 
 
 # ── which manual rules a board cannot need ───────────────────────────────────────────

@@ -88,13 +88,39 @@ BOARD_NOTES["quality"] = {
     # A4: where each part with three or more pads had its pinout read (none here: J1 has
     # two, and its order is M1's business)
     "pinouts": {},
+    # A16: what each net reaches at WORST (not its nominal), and what each pin is rated
+    # for, with where the number was read. VIN is a 5 V bench supply, so its worst case is
+    # the supply's own tolerance; there is nothing on this board that clamps or kicks, so
+    # no net needs a separate transient figure.
+    "net_volts": {
+        "GND": {"v": 0.0, "why": "the reference: nothing to exceed"},
+        "VIN": {"v": 5.25, "why": "a 5 V bench supply at +5 %; no inductive load and no "
+                                  "cable long enough to ring past it (M16)"},
+        "LED_A": {"v": 5.25, "why": "R1's far end: it sits at VIN while D1 is dark"},
+    },
+    "pin_volts": {
+        "B2B-XH-A": {"max": 50.0,
+                     "src": "JST XH series drawing: rated 250 V AC; 50 V declared, which "
+                            "is the conservative direction on a 5 V board"},
+        "RED": {"max": 5.0,
+                "src": "a generic red 0805 LED: 5 V reverse maximum, which is the figure "
+                       "M10 is signed against"},
+        "R_0603*": {"max": 50.0,
+                    "src": "the 0603 thick-film class figure, 50 V maximum working voltage"},
+        "100n": {"max": 50.0, "src": "the part's own description above: 50 V X7R"},
+        "TP*": {"max": "none",
+                "why": "a 1.5 mm test pad: bare copper on the net it probes, with no part "
+                       "on it and no rating of its own"},
+    },
     "manual": {
         "M1": "J1 B2B-XH-A, JST drawing: pin 1 at the polarising slot = GND, pin 2 = VIN; "
               "the harness XHP-2 is crimped 1:1 and the housing is keyed",
         "M2": "D1 pad 1 = K in LED_0805_2012Metric and in the part's pin list ['K', 'A']",
         "M3": "GND returns on the B.Cu pour, unbroken under the VIN track",
         "M4": "C1 100 nF 50 V on a 5 V rail; no regulator and no stepping load",
-        "M5": "5 V in; LED at 5 mA of 20 mA rated; R1 15 mW of 100 mW",
+        "M5": "A16 grades every pin against its net's worst case (5.25 V) and "
+              "passes; what is left here is the current and power half -- the LED at "
+              "5 mA of 20 mA rated, R1 15 mW of 100 mW",
         "M6": "no high-speed nets",
         "M7": "no ICs",
         "M8": "no configuration pins",
