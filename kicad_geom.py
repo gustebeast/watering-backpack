@@ -155,7 +155,11 @@ def read(stem):
             "x": round(bb.GetCenter().x / 1e6 - cx, 3),
             "y": round(-(bb.GetCenter().y / 1e6 - cy), 3),
             "size": round(d.GetTextHeight() / 1e6, 3),
-            "angle": round(d.GetTextAngleDegrees(), 1),
+            # the angle it is DRAWN at. A footprint's text carries the part's rotation
+            # (180 for a part laid the other way round) and KiCad prints it "upright" all
+            # the same; the raw angle put a third of one board's designators upside down
+            # in the CAD and nowhere else.
+            "angle": round(d.GetDrawRotation().AsDegrees() % 360.0, 1),
             "box": [round(bb.GetLeft() / 1e6 - cx, 3), round(bb.GetRight() / 1e6 - cx, 3),
                     round(-(bb.GetBottom() / 1e6 - cy), 3),
                     round(-(bb.GetTop() / 1e6 - cy), 3)],

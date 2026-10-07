@@ -34,13 +34,20 @@ def _cad(board):
     return BOARDS.solid(board)
 
 
+def _ink(board):
+    """The LETTERING the assembly places for `board`, in the same frame as _cad's solid.
+    REPLACE with your own alongside _cad. Every label the routed board prints has to be
+    in it, or the check fails; return False for an assembly that draws no lettering."""
+    return BOARDS.ink(board)
+
+
 def main(names):
     names = names or sorted(os.path.basename(p)[:-len(".geom.json")]
                             for p in glob.glob(os.path.join(HERE, "geom", "*.geom.json")))
     bad = 0
     for b in names:
         try:
-            bad += check(b, _cad(b), BOARDS.load(b))
+            bad += check(b, _cad(b), BOARDS.load(b), ink=_ink(b))
         except Exception as exc:              # a board the check cannot read is a finding
             print("%-13s COULD NOT CHECK: %s" % (b, exc))
             bad += 1

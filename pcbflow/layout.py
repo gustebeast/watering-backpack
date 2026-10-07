@@ -284,6 +284,14 @@ def _anchor_on_pads(fp, target):
 # 'escape' is a placement problem, 'run' an obstacle problem, 'edge' a board-outline one.
 _DBG = {}
 
+# THE GRAVEYARD. board.Remove() hands the removed item's ownership to its Python proxy,
+# and when that proxy is collected the C++ delete leaves pcbnew's bindings corrupt: the
+# next board.GetTracks() returns a bare SwigPyObject and the run dies AFTER the route
+# (fret_led_key, 681 s lost, 2026-10-06). Releasing every other proxy first does not
+# help (bisected); keeping the removed item alive does. So every item removed here is
+# leaked on purpose, for the life of the process.
+_REMOVED = []
+
 
 def _offset_poly(pts, ds, math):
     """`pts` offset by the signed per-vertex distances `ds`, corners mitred.
@@ -1201,6 +1209,7 @@ def drop_redundant_pth_vias(board):
             break
     for t, _why in doomed:
         board.Remove(t)
+        _REMOVED.append(t)
     if doomed:
         board.BuildConnectivity()
         print("  removed %d redundant via(s) drilled into a through-hole pad: %s"
@@ -1257,9 +1266,23 @@ def drop_redundant_pad_vias(board, notes):
                 break
     if not cand:
         return 0
-    conn = board.GetConnectivity()
+    # ⚠ NEVER HOLD A CONNECTIVITY POINTER ACROSS BuildConnectivity(), which REPLACES
+    # the object it points at. This used to read a count out of a
+    # shared_ptr<CONNECTIVITY_DATA> taken one line BEFORE the rebuild that freed it. The
+    # number came back plausible, so the pass did its job and printed "removed 3
+    # redundant via(s)" -- and the heap it had just read through was no longer the heap
+    # pcbnew thought it was. The damage surfaced in the NEXT pass and nowhere near here:
+    #   tidy_router_vias -> board.Tracks()  ->  TypeError: 'SwigPyObject' object is not
+    #                                           iterable
+    # and, after a Save/LoadBoard was inserted to get a clean board, in LoadBoard ITSELF
+    # -- pcbnew.LoadBoard() returned a bare SwigPyObject with no BOARD methods at all.
+    # That is the tell: a use-after-free had taken out SWIG's own type registry,
+    # process-wide, so no amount of reloading could help and the pass that raised was not
+    # the pass that was wrong. Two complete routing runs were thrown away on the symptom.
+    #
+    # Ask the board for its connectivity EVERY time, immediately before use.
     board.BuildConnectivity()
-    base = conn.GetUnconnectedCount(False)
+    base = board.GetConnectivity().GetUnconnectedCount(False)
     doomed = {}
     for t, nc, why in cand:
         t.SetNetCode(0)
@@ -1269,11 +1292,13 @@ def drop_redundant_pad_vias(board, notes):
         else:
             doomed[t.m_Uuid.AsString()] = why  # stays off the net for the tests that follow
     del cand, lands
-    for u in list(doomed):
-        for t in board.GetTracks():
-            if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() == u:
-                board.Remove(t)
-                break
+    # One full walk to find them, then the removals: the rule from tidy_router_vias'
+    # own docstring -- do not hold the thing you are about to delete, and do not re-walk
+    # a board you are deleting from.
+    for t in [t for t in board.GetTracks()
+              if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() in doomed]:
+        board.Remove(t)
+        _REMOVED.append(t)
     board.BuildConnectivity()
     if doomed:
         print("  removed %d redundant via(s) drilled into a small soldered land: %s"
@@ -1565,6 +1590,7 @@ def drop_degenerate(board, floor_mm=0.005, width_frac=0.1):
               and t.GetLength() < max(floor, t.GetWidth() * width_frac)]
     for t in doomed:
         board.Remove(t)
+        _REMOVED.append(t)
     return len(doomed)
 
 
@@ -4281,9 +4307,26 @@ def _add_via(board, net, x, y, drill=0.3, diameter=0.6):
     board.Add(v)
 
 
-def _add_zone(board, net, layer, inset, w, h):
+def _add_zone(board, net, layer, inset, w, h, poly=None, priority=0):
     """A copper pour over the whole board less `inset`. Not decoration: it is
-    how the THT pads reach GND at all, since no GND track is drawn."""
+    how the THT pads reach GND at all, since no GND track is drawn.
+
+    `poly` REPLACES the board rectangle with an explicit outline, and that is what a
+    high-current net needs. A plane over the whole board is the only shape a RETURN
+    needs, so that is the only shape this grew for; but a rail carrying tens of amps
+    cannot be a track at all. IPC-2221 wants 3.18 mm for 7.5 A at a 20 C rise, and the
+    note that set one board's 1.2 mm said the quiet part out loud: "a track that wide is
+    not a track, it is a pour." Without a polygon the only pour available was the whole
+    board, which no supply but ground can have, so the choice was a track the current
+    does not fit through or a via array nothing measures. A region fixes that, and it
+    fixes it better than hand-laid copper does: the FILLER keeps clearance to every pad,
+    track and other zone it finds, so the pour stays legal when the router moves
+    underneath it, where a typed polyline goes stale silently.
+
+    `priority` decides which of two OVERLAPPING pours wins the contested copper (higher
+    first); equal priorities keep clearance from each other instead. It is here so a
+    small rail region can sit inside a larger one without the author cutting the hole by
+    hand."""
     zone = pcbnew.ZONE(board)
     zone.SetLayer(_LAYERS[layer])
     zone.SetNet(net)
@@ -4308,10 +4351,23 @@ def _add_zone(board, net, layer, inset, w, h):
     # copper not connected to its net is an antenna, so drop it. The islands that
     # matter are the ones touching a pad, and those are connected by definition.
     zone.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)
-    hw, hh = w / 2.0 - inset, h / 2.0 - inset
+    zone.SetAssignedPriority(priority)
+    if poly:
+        # ⚠ AT LEAST THREE DISTINCT CORNERS, checked here rather than left to the
+        # filler. A degenerate outline does not raise: it fills to zero area, and
+        # PCB_QUALITY A1 then reads the net as "no copper joins" -- a sentence that
+        # points at the routing, not at the typo three files away.
+        pts = [(float(x), float(y)) for x, y in poly]
+        if len(set(pts)) < 3:
+            raise SystemExit("zone on %s: %d distinct corner(s); a pour needs 3"
+                             % (net.GetNetname(), len(set(pts))))
+        corners = pts
+    else:
+        hw, hh = w / 2.0 - inset, h / 2.0 - inset
+        corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
     outline = zone.Outline()
     outline.NewOutline()
-    for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
+    for x, y in corners:
         pt = _to_board(x, y)
         outline.Append(pt.x, pt.y)
     board.Add(zone)
@@ -4690,8 +4746,21 @@ def build(stem):
     for sl in notes.get("outline_slots", ()):
         _edge_slot(board, [tuple(p) for p in sl["poly"]], sl["rects"])
 
-    for net_name, layer, inset in notes.get("zones", []):
-        _add_zone(board, nets_by_name[net_name], layer, inset, *notes["outline_mm"])
+    for z in notes.get("zones", []):
+        # Two spellings, because the three-tuple is every board's ground plane and should
+        # not have to grow a dict to stay itself. A dict is for the rest: `poly` for a
+        # region, `priority` for which of two overlapping pours wins.
+        if isinstance(z, dict):
+            net_name, layer = z["net"], z["layer"]
+            inset, poly = float(z.get("inset", 0.3)), z.get("poly")
+            prio = int(z.get("priority", 0))
+        else:
+            (net_name, layer, inset), poly, prio = z, None, 0
+        if net_name not in nets_by_name:
+            raise SystemExit("zone asks for a pour on %r, which is not a net on this "
+                             "board" % net_name)
+        _add_zone(board, nets_by_name[net_name], layer, inset,
+                  *notes["outline_mm"], poly=poly, priority=prio)
     if notes.get("zones"):
         # ⚠ BUILD THE CONNECTIVITY GRAPH FIRST. A board assembled by script has none --
         # it is built by the editor as you work, and nothing here was ever "worked on".

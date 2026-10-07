@@ -24,6 +24,18 @@ them that are NOT about placement:
     value; `silk_labels` in the board's notes ({"SW1": "RESET"}) names anything else.
   * WHAT A CONNECTOR PIN CARRIES. Each connector (ref J<n>) of LEGEND_MAX_PINS or fewer
     gets its pinout printed -- on the back for choice, where the through-hole tails are.
+  * ...AND WHICH WAY IS WHICH, FROM THE SIDE THE PLUG GOES IN. The block on the back is
+    read with the board turned over, which is not how a lead gets plugged. So each of
+    those connectors also gets ONE WORD PER WAY on its own side, in line with the way it
+    names and all on one side of the row (at one distance where the board allows it,
+    else each at its own nearest, no more than WAY_SPREAD apart), way 1's word led by
+    a "1". Flat where a word is narrower than the pitch, turned to run away from the
+    row where it is not (that turn is what puts each word against its own pin): the net's
+    name where that fits, else its short word (`silk_short` in the board's notes,
+    {"CAN_H": "H"}, over a built-in handful -- G, 24, 5V, 3V3, H, L). Only at the
+    legible size, and all of a connector's ways or none: a row with one way unnamed
+    reads as a row with one way unused. A connector whose row has no room for them is
+    REPORTED ("ways"), and the block is tried on its side instead.
 
   * WHICH PART IS WHICH, when the board asks for it. `silk_refs` in the board's notes
     (or `--refs`) prints each part's designator beside it: `true` / `all` for every part,
@@ -37,6 +49,20 @@ them that are NOT about placement:
     and `Boards.silk()` draws them in the CAD.
 
 WHAT IT DOES NOT DO BY DEFAULT: put a designator beside every passive.
+
+ONE READING DIRECTION PER BOARD. `silk_read` in the board's notes (0, 90, 180 or 270;
+default 0) is the way the lettering reads -- set it to the way a person looks at the
+board INSTALLED, not the way it sat in the layout. Everything this lays reads that way.
+A QUARTER TURN from it (never a half turn, never the other quarter) is the LAST resort,
+and only for a label that belongs to one place -- a test pad's net, a way's word, a
+connector's pinout, a designator: first every site in reach at the reading direction,
+then a wider ring in which the label is still nearer its own part than a rival's, then
+(for a way's word) the short word; a label that is still homeless is turned, and each
+one turned is LOGGED with what it is turned against. Text facing two ways because a
+default site was taken is what this replaced: on four boards a third to a half of the
+labels were turned, and none of them needed to be. The footprints' own designators are
+brought round the same way: KiCad already draws them upright (0 or 90), and the ones
+at 90 are laid flat where there is room for that beside the part.
 
 EVERY LABEL IS SEARCHED FOR A FREE SITE AND DROPPED IF THERE IS NONE. A label is placed
 only where its whole box clears every pad, hole, via, part and other label on that side,
@@ -82,6 +108,8 @@ OPTICS_NAME_CLR = 30.0     # ...and the board's name, which can go anywhere, fur
 SIZE_REF = 1.0             # a designator is printed legibly or not at all
 REF_REACH = 2.0            # mm past the part's own half-diagonal: beside it, or nowhere
 REF_SKIP = ("TP", "H", "MH", "FID", "REF", "G", "LOGO")   # no part there to name
+WIDER = 1.6                # the second ring: this much further out, before any turn
+REF_SLIDE = 2.5            # mm a footprint's own designator may move to lie flat
 
 
 def _box(item):
@@ -100,8 +128,10 @@ def _hit(a, b):
 class Side:
     """Everything a label on one side of the board has to stay off."""
 
-    def __init__(self, board, back, dark=()):
+    def __init__(self, board, back, dark=(), read=0.0):
         self.small = []          # labels that only fitted under the legible size
+        self.read = read % 360.0 # the board's reading direction (`silk_read`)
+        self.turned = []         # (label, why) for each one laid a quarter turn off it
         self.board, self.back = board, back
         self.layer = pcbnew.B_SilkS if back else pcbnew.F_SilkS
         cu = pcbnew.B_Cu if back else pcbnew.F_Cu
@@ -190,6 +220,7 @@ class Side:
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
         t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
         t.SetMirrored(self.back)
+        t.SetKeepUpright(False)           # the angle asked for IS the angle printed
         t.SetTextAngleDegrees(angle)
         t.SetPosition(pcbnew.VECTOR2I(0, 0))
         return t
@@ -203,30 +234,279 @@ class Side:
                 return z
         return 0
 
-    def place(self, s, size, near, reach, angles=(0.0, 90.0), step=0.25, optics=None):
-        """Lay `s` at the free site nearest `near` (a VECTOR2I), no further than `reach`
-        mm. Returns True if it went down."""
+    def _nearest(self, s, size, ang, near, reach, step, optics, rivals=None, inner=0.0):
+        """The free site nearest `near` for `s` at `ang`, within `reach` mm (and outside
+        `inner`): (d2, x, y, box) or None. With `rivals` (points), only a site nearer to
+        `near` than to any of them counts -- a label out there is read as belonging to
+        whatever it is closest to."""
+        t = self.text(s, size, ang)
+        b = _box(t)                                   # about the origin
+        n = int(reach / step)
+        lo = (inner / step) ** 2
         best = None
-        for ang in angles:
-            t = self.text(s, size, ang)
-            b = _box(t)                                   # about the origin
-            n = int(reach / step)
-            for i in range(-n, n + 1):
-                for j in range(-n, n + 1):
-                    d2 = i * i + j * j
-                    if d2 > n * n or (best is not None and d2 >= best[0]):
-                        continue
-                    x, y = near.x + MM(i * step), near.y + MM(j * step)
-                    r = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
-                    if self.free(r, optics):
-                        best = (d2, ang, x, y, r)
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                d2 = i * i + j * j
+                if d2 > n * n or d2 <= lo or (best is not None and d2 >= best[0]):
+                    continue
+                x, y = near.x + MM(i * step), near.y + MM(j * step)
+                if rivals and any((x - q.x) ** 2 + (y - q.y) ** 2
+                                  < (x - near.x) ** 2 + (y - near.y) ** 2 for q in rivals):
+                    continue
+                r = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+                if self.free(r, optics):
+                    best = (d2, x, y, r)
+        return best
+
+    def place(self, s, size, near, reach, step=0.25, optics=None, turn=None,
+              rivals=None, wider=True):
+        """Lay `s` at the free site nearest `near` (a VECTOR2I), no further than `reach`
+        mm, at the board's reading direction. Returns True if it went down.
+
+        Tried in this order, and the first that has a site wins: the reading direction
+        within `reach`; the reading direction in a WIDER ring (unless `wider=False`),
+        where the site must still be nearer `near` than any of `rivals`; and, only for
+        a label given a `turn` reason -- what it belongs beside -- a quarter turn within
+        `reach`. A label with no `turn` is never turned: its default site being taken is
+        not a reason."""
+        ang = self.read
+        best = self._nearest(s, size, ang, near, reach, step, optics)
+        if best is None and wider:
+            best = self._nearest(s, size, ang, near, reach * WIDER, step, optics,
+                                 rivals=rivals, inner=reach)
+        if best is None and turn:
+            ang = (self.read + 90.0) % 360.0
+            best = self._nearest(s, size, ang, near, reach, step, optics)
+            if best is not None:
+                self.turned.append((s.split(chr(10))[0], turn))
         if best is None:
             return False
-        t = self.text(s, size, best[1])
-        t.SetPosition(pcbnew.VECTOR2I(int(best[2]), int(best[3])))
+        t = self.text(s, size, ang)
+        t.SetPosition(pcbnew.VECTOR2I(int(best[1]), int(best[2])))
         self.board.Add(t)
-        self.rects.append(_grow(best[4], MM(0.15)))
+        self.rects.append(_grow(best[3], MM(0.15)))
         return True
+
+
+# A net's short word for a per-way label, where the board's notes give none. Matched in
+# order against the net's name; the first that fits wins.
+SHORT = (("GND", "G"), ("+24V", "24"), ("V24", "24"), ("+12V", "12"), ("+5V", "5V"),
+         ("V5", "5V"), ("+3V3", "3V3"), ("VBUS", "5V"))
+WAY_REACH = 9.0            # mm from the pad row to the near end of a way's word
+WAY_GAP = 0.5              # ...and the nearest it starts
+WAY_SPREAD = 5.0           # how far apart a row's words may start, where they cannot line up
+
+
+def _short(net, given):
+    """The short word for `net`: the board's own, a supply's, a bus line's last letter
+    (CAN_H / CANA_L -> H / L), else what follows its last underscore, to four letters."""
+    if net in given:
+        return given[net]
+    for head, word in SHORT:
+        if net.upper().startswith(head):
+            return word
+    tail = net.rsplit("_", 1)[-1].lstrip("+")
+    return tail[:4] if tail else net[:4]
+
+
+def _ways(side, fp, pins, forms):
+    """One word per way on `side`, in line with each pad, or nothing. `pins` is
+    {number: pad}; `forms` is [{number: text}], the fullest wording first. Returns True
+    if the whole row went down.
+
+    The row has to be a ROW: its pads on one line along X or Y. The words all go on one
+    side of it. They start the same distance out where there is such a distance -- the
+    nearest, on either side, at which every one is free. On a board too full for that
+    each starts at its own nearest free distance, as long as the row's words stay
+    within WAY_SPREAD of each other: in line with its way a word is still that way's,
+    but one that has wandered a centimetre past its neighbours is beside something else.
+
+    FLAT BEFORE TURNED. At the board's reading direction a word's LENGTH lies along
+    one axis; where that is across the row, or the word is narrower than the pitch, it
+    goes down flat. Every wording is tried flat before any is turned, so a short word
+    read the right way up beats a long one on its side; the quarter turn (the word
+    running away from the row) is what is left for a pitch too fine for even the short
+    words, and it is logged as what it is: each word against its own pin.
+    A connector of ONE way gets its word at the nearest free site beside the pad."""
+    nums = sorted(pins)
+    pos = [pins[k].GetPosition() for k in nums]
+    xs, ys = [q.x for q in pos], [q.y for q in pos]
+    if len(nums) == 1:
+        return side.place(forms[0][nums[0]], SIZE_J, pos[0], 5.0,
+                          turn="beside its own pad")
+    if max(ys) - min(ys) < MM(0.05):
+        along_x = True
+    elif max(xs) - min(xs) < MM(0.05):
+        along_x = False
+    else:
+        return False                      # two rows, a ring, a diagonal: the block's job
+    line = xs if along_x else ys
+    pitch = min(abs(line[i + 1] - line[i]) for i in range(len(nums) - 1))
+    steps = [WAY_GAP + 0.25 * i for i in range(int((WAY_REACH - WAY_GAP) / 0.25) + 1)]
+
+    def lay(words, ang):
+        texts = [side.text(words[k], SIZE_J, ang) for k in nums]
+        boxes = [_box(x) for x in texts]      # about the origin
+        # across the pitch each word needs its own width and a gap to the next
+        if max((b[2] - b[0]) if along_x else (b[3] - b[1]) for b in boxes) > pitch - MM(0.2):
+            return None
+
+        def site(q, b, sgn, d, taken):
+            half = (b[3] - b[1]) / 2.0 if along_x else (b[2] - b[0]) / 2.0
+            off = int(sgn * (MM(d) + half))
+            x, y = (q.x, q.y + off) if along_x else (q.x + off, q.y)
+            r = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+            if not side.free(r) or any(_hit(r, o[2]) for o in taken):
+                return None
+            return (x, y, r)
+
+        best = None
+        for sgn in (1, -1):                   # 1. one distance for the whole row
+            for d in steps:
+                if best is not None and d >= best[0]:
+                    break
+                sites = []
+                for q, b in zip(pos, boxes):
+                    s_ = site(q, b, sgn, d, sites)
+                    if s_ is None:
+                        break
+                    sites.append(s_)
+                else:
+                    best = (d, sites)
+                    break
+        if best is None:
+            for sgn in (1, -1):               # 2. each its own, the row kept together
+                sites, ds = [], []
+                for q, b in zip(pos, boxes):
+                    for d in steps:
+                        s_ = site(q, b, sgn, d, sites)
+                        if s_ is not None:
+                            sites.append(s_)
+                            ds.append(d)
+                            break
+                    else:
+                        break
+                if len(sites) == len(pos) and max(ds) - min(ds) <= WAY_SPREAD and (
+                        best is None or max(ds) < best[0]):
+                    best = (max(ds), sites)
+        return None if best is None else (texts, best[1])
+
+    flat, turned = side.read, (side.read + 90.0) % 360.0
+    for ang in (flat, turned):
+        for words in forms:
+            got = lay(words, ang)
+            if got is None:
+                continue
+            for x_, (x, y, r) in zip(*got):
+                x_.SetPosition(pcbnew.VECTOR2I(int(x), int(y)))
+                side.board.Add(x_)
+                side.rects.append(_grow(r, MM(0.15)))
+            if ang != flat:
+                side.turned.append(("%s ways" % fp.GetReference(),
+                                    "each word against its own pin: at %.2f mm pitch "
+                                    "none fits flat" % (pitch / 1e6)))
+            return True
+    return False
+
+
+def _flatten_refs(board, read):
+    """Bring each footprint's own designator, where it prints, to the reading direction.
+
+    KiCad draws a footprint's text "upright": whatever the part's rotation, at 0 or 90.
+    So nothing prints upside down -- but a part laid at 90 or 270 has its designator on
+    its side, and a board read from another edge (`silk_read`) has all of them facing
+    the layout's way. Each is turned to the reading direction where its box, there or
+    within REF_SLIDE of there, is clear of every pad, part and other designator; one
+    with no such site keeps a quarter turn and is returned as (ref, why)."""
+    read = read % 360.0
+    quarter = (read + 90.0) % 360.0
+    refs = [fp for fp in board.GetFootprints()
+            if fp.Reference().IsVisible()
+            and fp.Reference().GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)]
+    kept = []
+    for fp in sorted(refs, key=lambda f: f.GetReference()):
+        r = fp.Reference()
+        back = r.GetLayer() == pcbnew.B_SilkS
+        cu = pcbnew.B_Cu if back else pcbnew.F_Cu
+        drawn = r.GetDrawRotation().AsDegrees() % 360.0
+        if abs(drawn - read) < 0.5:
+            r.SetKeepUpright(False)
+            r.SetTextAngleDegrees(read)
+            continue
+        if abs(abs(drawn - read) - 180.0) < 0.5:
+            # a HALF turn: the same box, the other way up. Turned about the box's own
+            # centre it covers exactly what it covered, so there is nothing to search
+            # for and nothing new it can touch.
+            was_c = r.GetBoundingBox().GetCenter()
+            r.SetKeepUpright(False)
+            r.SetTextAngleDegrees(read)
+            now_c = r.GetBoundingBox().GetCenter()
+            q = r.GetPosition()
+            r.SetPosition(pcbnew.VECTOR2I(int(q.x + was_c.x - now_c.x),
+                                          int(q.y + was_c.y - now_c.y)))
+            continue
+        rects = []
+        for o in board.GetFootprints():
+            for pad in o.Pads():
+                if pad.IsOnLayer(cu) or pad.GetAttribute() in (pcbnew.PAD_ATTRIB_PTH,
+                                                               pcbnew.PAD_ATTRIB_NPTH):
+                    rects.append(_grow(_box(pad), MM(PAD_CLR)))
+            # ...and every OTHER part's body. Not its own: a designator laid inside its
+            # own part's courtyard (a connector's, between its rows) was put there by the
+            # layout and prints; what it must not do is land under a neighbour.
+            if o.IsFlipped() == back and o.GetReference() != fp.GetReference():
+                cy = o.GetCourtyard(pcbnew.B_CrtYd if back else pcbnew.F_CrtYd)
+                if cy.OutlineCount():
+                    b = cy.BBox()
+                    rects.append([b.GetLeft(), b.GetTop(), b.GetRight(), b.GetBottom()])
+            if o is not fp and o.GetReference() != fp.GetReference():
+                q = o.Reference()
+                if q.IsVisible() and q.GetLayer() == r.GetLayer():
+                    rects.append(_grow(_box(q), MM(0.1)))
+        e = board.GetBoardEdgesBoundingBox()
+        edge = _grow([e.GetLeft(), e.GetTop(), e.GetRight(), e.GetBottom()], -MM(EDGE_CLR))
+        was = (r.GetTextAngleDegrees(), r.IsKeepUpright(), r.GetPosition())
+        home = r.GetPosition()
+        stood = _box(r)                   # what it covers as it stands
+        mid = r.GetBoundingBox().GetCenter()
+        r.SetKeepUpright(False)
+        r.SetTextAngleDegrees(read)
+        r.SetPosition(pcbnew.VECTOR2I(0, 0))
+        b = _box(r)
+        n = int(REF_SLIDE / 0.25)
+        best = None
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                d2 = i * i + j * j
+                if d2 > n * n or (best is not None and d2 >= best[0]):
+                    continue
+                x, y = home.x + MM(i * 0.25), home.y + MM(j * 0.25)
+                box = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+                if (box[0] >= edge[0] and box[1] >= edge[1] and box[2] <= edge[2]
+                        and box[3] <= edge[3] and not any(_hit(box, o) for o in rects)):
+                    best = (d2, x, y)
+        if best is not None:
+            r.SetPosition(pcbnew.VECTOR2I(int(best[1]), int(best[2])))
+            continue
+        # No CLEAR site -- but the layout may have stood it on its own pad, or against a
+        # neighbour, to begin with. Laid flat about its own middle, if it touches nothing
+        # it was not already touching and stays on the board, it is no worse placed than
+        # it was and reads the right way.
+        c0 = pcbnew.VECTOR2I(int((b[0] + b[2]) // 2), int((b[1] + b[3]) // 2))
+        x, y = mid.x - c0.x, mid.y - c0.y
+        box = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+        if (box[0] >= edge[0] and box[1] >= edge[1] and box[2] <= edge[2]
+                and box[3] <= edge[3]
+                and all(_hit(stood, o) for o in rects if _hit(box, o))):
+            r.SetPosition(pcbnew.VECTOR2I(int(x), int(y)))
+            continue
+        # no room to lie flat: where it was, on the quarter turn the fab would have
+        # printed anyway (never the half turn, never the other quarter)
+        r.SetPosition(was[2])
+        r.SetTextAngleDegrees(quarter)
+        kept.append((fp.GetReference(), "its own designator: no room to lie flat within "
+                                        "%.1f mm of where it stands" % REF_SLIDE))
+    return kept
 
 
 def _net(pad):
@@ -243,7 +523,8 @@ def _want_ref(refs, ref):
     return ref.rstrip("0123456789") in tuple(refs)
 
 
-def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
+def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=None,
+         read=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site
     (designators asked for by `refs` are reported but not returned: on a dense board
     most of them having no site is the expected result, not a finding)."""
@@ -255,13 +536,20 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
         short = _notes.get("silk_name") if short is None else short
         refs = _notes.get("silk_refs") if refs is None else refs
         rev = _notes.get("silk_rev") if rev is None else rev
+        way_words = _notes.get("silk_short", {}) if way_words is None else way_words
+        read = _notes.get("silk_read") if read is None else read
+    way_words = dict(way_words or {})
+    read = float(read or 0.0) % 360.0
+    if read not in (0.0, 90.0, 180.0, 270.0):
+        raise SystemExit("silk_read is %r: a board reads at 0, 90, 180 or 270" % read)
     rev = rev or REV
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
     name = os.path.basename(stem)
     old = [d for d in board.GetDrawings()
            if d.GetClass() == "PCB_TEXT" and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)]
     dark = tuple(dark)
-    sides = {False: Side(board, False, dark), True: Side(board, True, dark)}
+    ref_turned = _flatten_refs(board, read)      # BEFORE the sides read where they are
+    sides = {False: Side(board, False, dark, read), True: Side(board, True, dark, read)}
     fps = sorted(board.GetFootprints(), key=lambda f: f.GetReference())
     done, missed = [], []
 
@@ -275,9 +563,21 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
         label = net if net and len(net) <= 10 else ref
         label = (labels or {}).get(ref, label)      # the board's own word for it wins
         s = sides[fp.IsFlipped()]
-        if s.place_legible(label, SIZE_TP, fp.GetPosition(), 5.0):
+        others = [o.GetPosition() for o in fps
+                  if o.GetReference().startswith("TP") and o is not fp
+                  and o.GetReference() != ref]
+        why = "beside its own pad (%s)" % ref
+        # the net's name flat, then the pad's own (shorter) name flat, and only then
+        # either of them turned
+        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
             done.append("%s=%s" % (ref, label))
-        elif label != ref and s.place_legible(ref, SIZE_TP, fp.GetPosition(), 5.0):
+        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
+            done.append("%s=%s" % (ref, ref))
+        elif s.place_legible(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others,
+                             turn=why):
+            done.append("%s=%s" % (ref, label))
+        elif label != ref and s.place_legible(ref, SIZE_TP, fp.GetPosition(), 5.0,
+                                              rivals=others, turn=why):
             done.append("%s=%s" % (ref, ref))
         else:
             missed.append(ref)
@@ -299,10 +599,39 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
         if ref not in wanted or ref.startswith("TP"):      # test pads were step 1
             continue
         s = sides[fp.IsFlipped()]
-        if s.place_legible(wanted[ref], SIZE_TP, fp.GetPosition(), 10.0):
+        if s.place_legible(wanted[ref], SIZE_TP, fp.GetPosition(), 10.0,
+                           rivals=[o.GetPosition() for o in fps
+                                   if o.GetReference() in wanted and o.GetReference() != ref],
+                           turn="beside the part it names (%s)" % ref):
             done.append("%s=%s" % (ref, wanted[ref]))
         else:
             missed.append("%s (%s)" % (ref, wanted[ref]))
+
+    # 1c. each connector's ways, named on the connector's OWN side, in line with the way.
+    #     Before the name and the blocks: a way's word has one place it can be, and the
+    #     name can go anywhere. The net's own name first, then the short words.
+    wayless = []
+    for fp in fps:
+        ref = fp.GetReference()
+        if not (ref.startswith("J") and ref[1:].isdigit()):
+            continue
+        pads = {int(q.GetNumber()): q for q in fp.Pads()
+                if q.GetNumber().isdigit() and _net(q)}
+        if not pads or len(pads) > LEGEND_MAX_PINS:
+            continue
+        first = min(pads)
+        full = {k: (labels or {}).get(_net(q), _net(q)) for k, q in pads.items()}
+        brief = {k: _short(_net(q), way_words) for k, q in pads.items()}
+        forms = []
+        for words in (full, brief):
+            words = dict(words)
+            words[first] = "%d %s" % (first, words[first])
+            if words not in forms:
+                forms.append(words)
+        if _ways(sides[fp.IsFlipped()], fp, pads, forms):
+            done.append("%s ways (%s)" % (ref, "back" if fp.IsFlipped() else "front"))
+        else:
+            wayless.append(ref)
 
     # 2. the board's own name, as large as will fit, front for choice. BEFORE the
     #    pinouts: on a 10 x 17 mm board there is room for one or the other, and which
@@ -324,10 +653,21 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
         t = (len(words) + 2) // 3
         forms.append(chr(10).join(" ".join(words[i:i + t]) for i in range(0, len(words), t)))
         forms.append(chr(10).join(words[:-2] + [" ".join(words[-2:])]))
-    for size, ident, back in [(z, f, b) for z in SIZES_ID for f in forms for b in (False, True)]:
-        if sides[back].place(ident, size, centre, reach, step=0.5, optics=OPTICS_NAME_CLR):
-            done.append("name %.1f mm (%s)" % (size, "back" if back else "front"))
-            break
+    # Every size, wording and face at the reading direction first. The name belongs to no
+    # one place, so it has no claim on a quarter turn -- except that a board with no name
+    # cannot be told from its mirror image, so as the very last thing it is turned, and
+    # logged as that.
+    tries = [(z, f, b) for z in SIZES_ID for f in forms for b in (False, True)]
+    for why in (None, "the board's name: no site at the reading direction, at any size, "
+                      "on either face"):
+        for size, ident, back in tries:
+            if sides[back].place(ident, size, centre, reach, step=0.5,
+                                 optics=OPTICS_NAME_CLR, turn=why, wider=False):
+                done.append("name %.1f mm (%s)" % (size, "back" if back else "front"))
+                break
+        else:
+            continue
+        break
     else:
         missed.append("BOARD NAME")
 
@@ -339,7 +679,8 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
             continue
         s = sides[fp.IsFlipped()]
         shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
-        if not shown and not s.place_legible(ref, SIZE_J, fp.GetPosition(), 12.0):
+        if not shown and not s.place_legible(ref, SIZE_J, fp.GetPosition(), 12.0,
+                                             turn="beside its own connector (%s)" % ref):
             missed.append(ref)
         pins = {}
         for pad in fp.Pads():
@@ -352,8 +693,30 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
         # decides whether it goes down at a legible size or at all.
         legend = ref + "\n" + "\n".join(
             "%d %s" % (k, (labels or {}).get(v, v)) for k, v in sorted(pins.items()))
-        for size, back in [(z, b) for z in (SIZE_J, SIZE_SMALL) for b in (True, False)]:
-            if sides[back].place(legend, size, fp.GetPosition(), 14.0, step=0.5):
+        brief = ref + "\n" + "\n".join(
+            "%d %s" % (k, _short(v, way_words)) for k, v in sorted(pins.items()))
+        own = fp.IsFlipped()
+        rivals = [o.GetPosition() for o in fps if o is not fp and o.GetReference() != ref
+                  and o.GetReference().startswith("J")]
+        why = "the pinout beside its own connector (%s)" % ref
+        if ref in wayless:
+            # no room for a word per way: the block on the connector's own side is the
+            # next best thing to read while plugging, at the legible size or not at all.
+            # The full names flat, the short words flat, and only then either turned.
+            for text, turn in ((legend, None), (brief, None), (legend, why), (brief, why)):
+                if sides[own].place(text, SIZE_J, fp.GetPosition(), 14.0, step=0.5,
+                                    rivals=rivals, turn=turn):
+                    done.append("%s pinout (%s, in place of its ways)"
+                                % (ref, "back" if own else "front"))
+                    break
+            else:
+                missed.append(ref + " ways")
+            if own and (ref + " ways") not in missed:
+                continue                  # that IS the back: no second copy beside it
+        for size, back, turn in [(z, b, w) for z in (SIZE_J, SIZE_SMALL)
+                                 for w in (None, why) for b in (True, False)]:
+            if sides[back].place(legend, size, fp.GetPosition(), 14.0, step=0.5,
+                                 rivals=rivals, turn=turn):
                 done.append("%s pinout (%s)" % (ref, "back" if back else "front"))
                 if size < SIZE_J:
                     sides[back].small.append(ref + " pinout")
@@ -377,7 +740,8 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
             continue                         # its own designator is already in ink
         b = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd).BBox()
         half = max(b.GetWidth(), b.GetHeight(), MM(1.0)) / 2e6
-        if s.place(ref, SIZE_REF, fp.GetPosition(), half * 1.42 + REF_REACH):
+        if s.place(ref, SIZE_REF, fp.GetPosition(), half * 1.42 + REF_REACH, wider=False,
+                   turn="a designator beside its own part"):
             ref_done.append(ref)
         else:
             ref_missed.append(ref)
@@ -392,6 +756,17 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None):
             "; no site beside: " + ", ".join(sorted(ref_missed)) if ref_missed else ""))
     if missed:
         print("  no free site for: %s" % ", ".join(missed))
+    # how the board reads: every printed text, the footprints' own designators included
+    turned = sides[False].turned + sides[True].turned + ref_turned
+    total = len([d for d in board.GetDrawings()
+                 if d.GetClass() == "PCB_TEXT"
+                 and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)]) + len(
+        [f for f in fps if f.Reference().IsVisible()
+         and f.Reference().GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)])
+    print("  reads at %d deg; %d of %d text(s) a quarter turn off it%s"
+          % (read, len(turned), total, ":" if turned else ""))
+    for what, why in turned:
+        print("      turned: %-12s %s" % (what, why))
     small = sides[False].small + sides[True].small
     if small:
         print("  placed at %.1f mm, under the legible %.1f (no site at full size): %s"

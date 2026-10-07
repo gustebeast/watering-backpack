@@ -5,7 +5,7 @@
 
 A gate nobody has seen FAIL is a gate nobody has tested. A16 is the rule that says every
 net's worst-case voltage is declared and every pin on it is rated for what it sees, so the
-harness asks it five different questions and insists on five different answers:
+harness asks it six different questions and insists on six different answers:
 
   0  the board as it is                     -> no A16 failure, and a MEASUREMENT (the
                                                tightest steady-state margin), not a silence
@@ -19,6 +19,9 @@ harness asks it five different questions and insists on five different answers:
   5  a transient raised above a rating      -> FAIL, and a DIFFERENT one from case 1: the
                                                clamped transient, which is soft, where the
                                                steady-state failure is hard
+  6  a pin over its rating with a signed,   -> passes, prints OVER ITS RATING with who and
+     bounded `accepted` entry                  how far, and is counted; an entry set too
+                                               low or left unsigned FAILs hard as before
 
 Each case works on a COPY of the board, in a temporary directory: nothing here can touch
 the project's own files. Exit code 0 = every case answered as it should.
@@ -173,6 +176,36 @@ def main(stem):
           bool(trans) and " over, for as long as the clamp conducts" in trans[0][1])
     if trans:
         print("       %d pin(s) over, e.g. %s" % (len(trans), trans[0][1]))
+
+    # ── 6. a pin run over its rating ON PURPOSE, signed and bounded ──────────────
+    # Case 1's lie again (C17 rated 16 on the 20 V net), with an `accepted` entry. It
+    # passes only complete and only up to its stated voltage; it prints, and is counted.
+    print("case 6  a signed acceptance, and the two ways it does not count")
+
+    def accept(**acc):
+        return lambda q: q["pin_volts"].update(
+            {"C17": {"max": 16.0, "peak": 50.0,       # the transient is not this case
+                     "src": "the A16 harness: a deliberate lie", "accepted": acc}})
+    full = dict(v=20.0, by="the harness", date="2026-10-06", why="to see it print")
+    rows = _case(stem, "accepted", accept(**full))
+    fails = _fails(rows)
+    said = [t for st, s_, t in rows if st == "ok" and s_ == "C17.1"]
+    check("passes", not fails, "%r" % (fails,))
+    check("and says so out loud, with who and how far",
+          said and "OVER ITS RATING" in said[0] and "the harness" in said[0]
+          and "20 V" in said[0], "%r" % (said,))
+    check("and is counted",
+          any("signed acceptance" in t for st, _s, t in rows if st == "note"))
+    rows = _case(stem, "accepted too low", accept(**dict(full, v=18.0)))
+    hit = [t for s_, t in _fails(rows) if s_ == "C17.1"]
+    check("an acceptance under the net's voltage FAILs, hard",
+          bool(hit) and "only up to 18 V" in hit[0] and quality.is_hard("A16", hit[0]),
+          "%r" % (hit,))
+    rows = _case(stem, "accepted unsigned", accept(**dict(full, by="")))
+    hit = [t for s_, t in _fails(rows) if s_ == "C17.1"]
+    check("an acceptance nobody signed FAILs, hard",
+          bool(hit) and "lacks by" in hit[0] and quality.is_hard("A16", hit[0]),
+          "%r" % (hit,))
 
     print("\n%s" % ("every case answered as it should" if ok else "A16 HARNESS FAILED"))
     return 0 if ok else 1

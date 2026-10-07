@@ -152,6 +152,16 @@ L4 = ("F.Cu,In1.Cu,In2.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,"
 # is described and which rows the placeholder rule applies to.
 GENERIC = re.compile(r"^(R_|C_|Fuse_|Jumper:|Diode_SMD:D_SOD|Diode_SMD:D_SM[AB]|"
                      r"Inductor_SMD|Crystal:)")
+# ⚠ A GENERIC LAND TRUSTS ITS VALUE TO BE SOMETHING YOU CAN BUY, and for the diode lands
+# above that trust is doing real work. D_SOD and D_SM[AB] are here because a diode in one
+# of those is normally named by PART NUMBER -- "SMBJ24A", "1N4148W" -- which is orderable
+# as written. A value that is instead a REQUIREMENT ("SCHOTTKY-60V-3A") is not, and this
+# pattern cannot tell the difference: watering-backpack added exactly that and the package
+# counted it among the generics rather than among the open items, so a part nobody had
+# sourced read as sourced. There is no mechanical test for "is this a real part number",
+# so the answer is the declaration: OPEN_VALUES is how a requirement-shaped value is
+# accounted for, and a project that writes requirements into `value` must list them there.
+#
 # ⚠ ONLY PASSIVES ARE VALUE-CHOSEN. An 0402 is picked from its value; an LED in an 0805
 # land is picked from its part number, and "IR17-21C/TR8" is a perfectly good value that
 # simply does not start with a digit. The placeholder rule below applies to this subset.
@@ -346,7 +356,10 @@ def fab(board):
         csv.writer(g).writerows(rows)
 
     # ---- BOM, grouped by (value, footprint) the way JLCPCB reads it ----
-    groups, open_real, open_generic, uncoded = {}, set(), set(), []
+    # MERGE: both sides added a name and the body below uses BOTH -- upstream's
+    # `uncoded` list and this repo's `n_lines` counter. Taking either hunk whole
+    # would have raised NameError on the first board with an uncoded value.
+    groups, open_real, open_generic, n_lines, uncoded = {}, set(), set(), 0, []
     for ref, val, fp in _parts(stem):
         groups.setdefault((val, fp), []).append(ref)
     # ONE ROW PER PART NUMBER. Two rows that name the same part ("100nF" and "100nF/50V",
@@ -372,10 +385,31 @@ def fab(board):
             # attribute never reaches it.
             if COPPER_ONLY.search(fp.split(":", 1)[0]):
                 continue
-            code = code_for(val, fp)
+            # Counted here and not as len(groups), which includes the copper-only
+            # group just skipped: the ten test pads made the run report 30 BOM
+            # lines for a 29-line BOM.
+            n_lines += 1
+            code = code_for(val, fp)      # upstream's lookup; was LCSC.get(val, "")
             if not code:
                 uncoded.append((val, fp.split(":", 1)[1], sorted(refs)))
                 generic = bool(GENERIC.search(fp.split(":", 1)[1]) or GENERIC.search(fp))
+                # ⚠ A DECLARATION BEATS THE FOOTPRINT GUESS. "Generic" is inferred from
+                # the footprint, and a footprint cannot know whether the VALUE in front
+                # of it is orderable: GENERIC matches Diode_SMD:D_SOD, which is right
+                # for "1N4148W" and wrong for a Zener nobody has sourced yet. The
+                # watering-backpack board declared ZENER-10V-0W5 in OPEN_VALUES, and
+                # because D_SOD-123 looked generic it was counted as SOURCED and left
+                # out of the "cannot be ordered assembled" list -- while sitting in the
+                # BOM with a blank LCSC field. Thirty BOM lines reported as 17 generic
+                # + 12 open, and the thirteenth was the rail that makes the pumps
+                # switch at all.
+                #
+                # So OPEN wins. If the project has said a value is undecided, no regex
+                # over the footprint gets to say otherwise; the placeholder rule below
+                # is skipped for the same reason -- it is there to CATCH undeclared
+                # placeholders, and this one is declared.
+                if val in OPEN_VALUES:
+                    generic = False
                 # ⚠ A GENERIC PASSIVE STILL NEEDS A VALUE, and "generic" was letting
                 # placeholders through. JLCPCB picks an 0402 100nF from the value field;
                 # it cannot pick an 0402 "Rf". The optical board carried FIFTY-THREE
@@ -482,7 +516,11 @@ def fab(board):
     if unchecked:
         print("  %s: %d placement(s) NOT fitted to the fab's footprint -- see "
               "ROTATION-CHECK.txt" % (board, len(unchecked)))
-    return n, len(groups), sorted(open_real), sorted(open_generic), z, opts or {}
+    # n_lines, NOT len(groups): upstream reverted this and it is a real count bug,
+    # not a preference. len(groups) includes the copper-only group (the ten test
+    # pads), which reported 30 BOM lines for a 29-line BOM -- a number that goes
+    # on the order form.
+    return n, n_lines, sorted(open_real), sorted(open_generic), z, opts or {}
 
 
 def _check_gerbers(gdir, notes, board, pcb):
@@ -511,7 +549,10 @@ def _check_gerbers(gdir, notes, board, pcb):
     F.Cu and B.Cu fragment freely and are meant to -- optical's F.Cu is 26 islands --
     which is why only the DECLARED plane is held to one.
     """
-    zones = {z[1] for z in notes.get("zones", []) or []}
+    # A zone note is a (net, layer, inset) tuple or a dict; both carry "layer",
+    # and reading it positionally out of a dict raises rather than skipping.
+    zones = {(z["layer"] if isinstance(z, dict) else z[1])
+             for z in notes.get("zones", []) or []}
     planes = set(notes.get("plane_layers", ()) or ())
     seen = {}
     for fn in sorted(os.listdir(gdir)):

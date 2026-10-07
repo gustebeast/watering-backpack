@@ -320,6 +320,7 @@ def finish(stem, rounds=1, keep_route=False):
     else:
         _run("layout.py", stem)
         _run("route.py", stem)
+        _run("unwick.py", stem)
         _run("repair_planes.py", stem)
     best_n, nets, best_v = _drc(stem)
     print("  %s: %d unconnected, %d violation(s)"
@@ -355,6 +356,7 @@ def finish(stem, rounds=1, keep_route=False):
         try:
             _run("layout.py", stem)
             _run("route.py", stem)
+            _run("unwick.py", stem)
             _run("repair_planes.py", stem)
         except SystemExit as exc:
             print("  ⚠ pass %d FAILED (%s) -- keeping pass %d's board and stopping the "
@@ -398,6 +400,19 @@ def finish(stem, rounds=1, keep_route=False):
         # six were put back and the board stayed at six open. So a failed attempt names
         # the nets its new violations are on, and the next attempt leaves those alone --
         # up to four times, each from the same untouched board.
+        #
+        # ⚠ unwick.py STAYS IN THE CHAIN: close_last -> unwick -> repair_planes, not
+        # close_last -> repair_planes. close_last lays new track AND NEW VIAS, and unwick
+        # is what keeps a via out of a pasted land and out of another hole's minimum
+        # (PCB_QUALITY M29 / A14). Dropping it puts back open barrels under solder paste
+        # SILENTLY, because the board model reports those vias as tented -- so every gate
+        # downstream still passes. It has to be a step in this loop and not a pass at the
+        # end, because the vias it moves are made inside the loop.
+        #
+        # This lived as a project-side edit to a vendored copy for one board's lifetime,
+        # with a comment explaining that the merge kept two of its three call sites by
+        # luck. That was the warning, not the fix; the pass and all three calls are
+        # upstream now, which is the only version of "it stays in the chain" that holds.
         _skip = set()
         import time as _time
         _close_t0 = _time.time()
@@ -410,6 +425,7 @@ def finish(stem, rounds=1, keep_route=False):
             os.environ["CLOSE_LAST_SKIP"] = ",".join(sorted(_skip))
             try:
                 _run("close_last.py", stem)
+                _run("unwick.py", stem)
                 _run("repair_planes.py", stem)
                 _n3, _nets3, _v3 = _drc(stem)
                 print("  close_last: %d unconnected, %d violation(s)" % (_n3, _v3))
