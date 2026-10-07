@@ -752,60 +752,216 @@ is not a detail.
    anticipated a fault on this wire; this finding just notes we are now adding one
    more place for it to start.
 
-### 21 — J5 is on the WRONG EDGE of the board, against a requirement stated in words
+### 21 — CLOSED: all five terminals are on the −Y edge, and the board still passes everything
 
-Found while starting the wiring model the owner asked for, which is the point of
-drawing cables: you cannot route one without asking where it leaves from.
-
-**The requirement, from the owner, verbatim and never withdrawn:**
+*(Raised as "J5 is on the WRONG EDGE of the board, against a requirement stated in
+words". It was. The requirement, from the owner, verbatim and never withdrawn:)*
 
 > *"Avoid moving the wiring connections to other sides of the board since it'll be
 > convenient to have them all in the same side facing down."*
 
-**Where the five field terminals actually are, off the routed board:**
+**Found while starting the wiring model the owner asked for**, which is the point of
+drawing cables: you cannot route one without asking where it leaves from. J5 sat on
+the **+Y** edge — world z 120.0 against the other four at 28.0 — so a four-conductor
+cable had to climb 92 mm down the face of the board inside the sealed bay to reach the
+only exit. Not a plan-view problem: 92 mm of **height**.
 
-| | board y | world z | |
-|---|---|---|---|
-| J1 pack, J2 pump A, J3 pump B, J4 joystick | −52.35…−41.05 | **28.0** | bottom edge, facing down, over the chase |
-| **J5 level sensor** | **+39.65…+50.95** | **120.0** | **top edge — 92 mm up, at the far end of the bay** |
+**Two documents said otherwise and both were wrong,** and the code already knew.
+`src/housing.py` said *"the level sensor's lead leaves through this chase too"* and
+`CIRCUIT.md` §7 said the same, while `_edge_connector_span()` **filtered J5 out**
+(`if y0 > -PCB_L / 4.0: continue`, commented *"not on the bottom border"*). The chase
+was sized from four terminals while the prose claimed five. **Both now agree with the
+board**: the span measures 106.922…194.582 and J5 is in it.
 
-The chase is in the bay **floor**, world y 115.3…192.0 at z 13.4. J5's world *y* of
-172.1 does sit inside that span, so this is not a plan-view problem — it is 92 mm of
-**height**. A four-conductor cable has to climb from J5 down the full face of the
-board, inside the sealed bay, to reach the only exit.
+**No gate caught it, and that is the finding behind the finding.**
+`elec/cad_geom_check.py` checks the routed board against the CAD, `check_overlaps.py`
+weighs solids, the quality pass reads the board. **An internal cable that no model
+draws is in none of them.**
 
-**Two documents say otherwise and both are wrong.** `src/housing.py` says *"the level
-sensor's lead leaves through this chase too"* and `CIRCUIT.md` §7 says the same. The
-lead does eventually reach the chase; neither says it crosses the board to get there.
-Worse, `housing.py`'s own `_edge_connector_span()` **filters J5 out** — `if y0 >
--PCB_L / 4.0: continue`, commented *"not on the bottom border"* — so the chase was
-sized from four terminals while the prose claimed five use it. The code knew.
+#### What it actually took
 
-**No gate catches this, and the reason is worth stating.** `elec/cad_geom_check.py`
-checks the routed board against the CAD, `check_overlaps.py` weighs solids, and the
-PCB quality pass reads the board. **An internal cable that no model draws is in none
-of them** — which is exactly why the owner asking for wiring in the CAD surfaced it
-on the first query.
+Not a re-space. The terminal **order** had to change, and that was the blocker the
+working notes stopped on: J1 is the pack inlet and the only VBAT_RAW terminal, and
+sitting it between the two pump terminals put a higher-priority VBAT_RAW stub
+(x −14.65…−8.45) exactly across **VBAT's riser A** (x −12.0…−9.7), the path both
+pumps' VBAT must take to D2's cathode tab. Both alternatives were shut — 0.61 mm to
+PUMP_A_LO's column on the left, 0.36 mm to Q2's courtyard on the right — and the tab
+could not be fed from the left either, PUMP_A_LO's bar being across that approach.
 
-**THE FIX IS FEASIBLE WITHOUT GROWING THE BOARD, measured:**
+Final order **J5, J2, J3, J1, J4**: the two pump terminals adjacent so one VBAT bus
+serves both, and the pack and its fuse beyond them. Courtyards, 0.5 mm gaps:
 
-| | mm |
-|---|---|
-| J2 + J1 + J3 + J4 + J5 bodies | 10.26 + 10.26 + 10.26 + 25.50 + 20.42 = **76.70** |
-| usable −Y edge on the 95 mm board, 2 mm clear each end | **91.00** |
-| left for the four gaps | **14.30** → 3.57 mm each |
+| | courtyard mm | placement x |
+|---|---|---|
+| J5 level (4-way) | 21.41 | −36.30 |
+| J2 pump A | 11.26 | −19.50 |
+| J3 pump B | 11.26 | −7.75 |
+| J1 pack | 11.26 | +4.00 |
+| J4 joystick (5-way) | 26.49 | +28.40 |
+| **sum** | **81.68** into 91.00 usable | |
 
-So all five fit on the edge they were supposed to be on, at the width the board
-already is. It costs a re-space of the terminal row, a re-route and a full
-re-verification — not a bigger board, and not the +Y growth the owner authorised.
+**VBAT cannot reach C1 along the bottom, and the first plan was wrong.** A column at
+x −38…−35.5 rising from the bus would have to cross the pad band at y −48.3…−45.7,
+where J5.2's pad occupies x −40.14…−37.54. The gap between J5.2 and J5.3 is 2.48 mm,
+**1.68 after clearance, against the 3.18 mm IPC-2221 wants at 7.5 A.** So VBAT rises
+**right of J5** instead, in the 6.84 mm between J5.4's GND pad (−27.38) and J2.2's
+PUMP_A_LO pad (−18.46) — J2.1 being VBAT, the riser may land on its own net's pad
+rather than clear it.
 
-**Open: the owner's call, because the board is otherwise orderable at 0 FAIL / 0
-OPEN and parts are being bought around it.** Doing it means re-routing a board that
-currently passes everything. Not doing it means a 92 mm four-conductor run across the
-face of the board inside a sealed box, on the one circuit whose whole protection
-story (F1, the PTC) is about that lead being the exposed one.
+Every edge is a measured clearance, not a round number:
+
+| edge | against | clear |
+|---|---|---|
+| bus top **−48.8** | J5's pads (−48.3) and J1.1's | 0.50 |
+| bus bottom **−54.0** | the board outline | 2.00 |
+| riser right of J5 **−20.74** | J5.4's GND pad −27.38 / J2.2's −18.46 | in the 6.84 mm gap |
+| PUMP_A_LO link top **−29.3** | D2's tab pad bottom −28.90 | 0.40 |
+| PUMP_A_LO bar right **−19.49** | D2's tab left edge −19.09 | 0.40 |
+| PUMP_A_LO column right **−15.26** | VBAT_RAW's left edge −14.65 | 0.61 |
+| VBAT riser B right **+14.60** | J4's courtyard +15.16 | 0.56 |
+| VBAT riser B left **+8.10** | J1.2's GND pad +7.84 | 0.26 |
+
+Bus height **5.2 mm** against the 3.18 IPC-2221 wants at 7.5 A.
+
+#### ⚠ VBAT FILLED AS TWO ISLANDS, AND NO CLEARANCE ARITHMETIC WOULD HAVE CAUGHT IT
+
+The left column was first drawn 2.5 mm wide (x −38.0…−35.5) to thread between D1's
+pads. It passed every clearance check and **severed anyway**, because F1.1 — a pad on
+**VBAT's own net** — sits inside it, and thermal relief around a same-net pad in a
+2.5 mm channel leaves **0.13 mm a side**, below the fill's minimum width. Foreign-pad
+clearance arithmetic cannot see this: the offending pad is not foreign. Widened to
+**4.1 mm**, which also picks up D1.1 directly. Recorded because the next narrow pour
+channel will look just as safe.
+
+#### What moved, and what deliberately did not
+
+Thirteen placements moved: J5 J2 J3 J1 J4 F2 C21 C17 C20 C16 F1 C18 R23. Two support
+pads moved from y −50 to y −40 — a BOSS_D 10.4 boss at −50 lands on J5's new solder
+tail at x −43.92 and J4's at +38.56.
+
+**C1, C2, D1, Q1, Q2, D2 and D3 never moved.** Bulk capacitance stays at the switches,
+the TVS stays at the entry. That was the owner's condition — *"so long as it doesn't
+negatively impact the performance of the board"* — and it is the reason each pour
+became an **L** (a column up from the terminal, a link below the diode's tab, then the
+original bar on the tab and anodes) rather than a straight run.
+
+#### The progression, because the middle of it is instructive
+
+| step | unconnected | violations |
+|---|---|---|
+| first cut of the reorder | 8 | 2 (11 FAIL) |
+| pours re-derived | 1 | 0 |
+| VBAT column widened to 4.1 | 0 | 0 |
+| R23 moved to the receiver | **4** | 0 |
+| R23 reverted, A15 exempted | **0** | **0** |
+
+**A better FAIL count was a worse board.** Moving R23 to the receiver cleared the A15
+return-slot finding honestly — a pull-up on an open-collector line does belong at the
+receiver — and cost 4 unconnected, because the router then took an F.Cu diagonal for
+LEVEL across the power section and severed PUMP_A_LO and VBAT. Reverted, and the
+remaining finding is accepted as **25** below rather than bought with routing damage.
+
+**Closed at 0 unconnected / 0 violations / 0 FAIL / 0 OPEN**, 59 placements, 34 BOM
+lines, 17 frames corrected and 0 unfitted. The board did not grow: still 95 × 112.
 
 ---
+
+### 25 — ACCEPTED: ESP_RX_FROM_PROG crosses a 7.17 mm return slot, against a 5.00 limit
+
+**A15 measures the widest ground-return gap any signal crosses.** One net fails:
+`ESP_RX_FROM_PROG` at **7.17 mm against the 5.00 limit**, cut at board
+(+27.66, +29.97).
+
+**What forms the slot:** the MCU's fan-out bundle on the +Y side — PWM_A, PWM_B,
+BUZZ, IO0, a 1.00 mm +3V3 trace and LEVEL — running side by side between U2 and the
+board edge. LEVEL is in that bundle *because* J5 moved to the −Y edge, so this finding
+is a direct cost of closing 21 and is recorded as one.
+
+**All four corridor lanes were tried and none is routable.** `notes["corridors"]` lays
+a 5-segment Manhattan pre-route across a barrier; the lane at **y −44.0 was placeable
+and broke the board** — 10 unconnected, 3 violations — because that band carries
+VBAT's leftward run. The other three had no room. All four are written into
+`elec/main.py` beside the exemption so the next attempt does not repeat them.
+
+*(Two process notes, because both cost time. `notes["corridors"]` is only read inside
+the `local_nets` block — a board that defines no local nets accepts the key, ignores
+it, and says nothing. And the corridor is laid during `finish.py`, not `main.py`, so
+the confirmation line is not where you first look. I briefly credited the corridor
+with a 0-unconnected result that actually came from removing the R9/TP2 stub.)*
+
+**Why it is acceptable, named and measured rather than lumped:** `ESP_RX_FROM_PROG` is
+J6's UART **receive** line, 115200 baud, live **solely while a USB-serial adapter is
+plugged into the programming header**. It carries no signal at all in operation — the
+machine runs with J6 empty. A return-path discontinuity costs edge-rate fidelity and
+radiated emissions; at 115200 baud on a bench, with the board in a hand rather than on
+a backpack, neither is a failure mode. **Every operational net passes**: the widest an
+operating signal crosses is 3.02 mm, by JOY_FILT.
+
+**The exemption has been made to fail — six ways.** It is net-scoped
+(`return_slot_ok`), and `a15fail.py` runs the real A15 rule against the real routed
+board with only that dict varied:
+
+| case | result |
+|---|---|
+| as shipped, ESP_RX_FROM_PROG exempted | passes; widest 3.02 mm by JOY_FILT, 13 crossings |
+| no exemption at all | **the 7.17 mm finding returns** |
+| exempt an operational net instead (PWM_A) | ESP_RX still fails |
+| exempt LEVEL instead — the net J5's move put in the bundle | ESP_RX still fails |
+| exempt a net that does not exist | ESP_RX still fails |
+| exempt **everything** | passes differently — widest 2.56 mm by +3V3 |
+
+An exemption that would also swallow an operational net is not an exemption, it is a
+disabled gate. This one names one net and **cannot cover for another**.
+
+---
+
+### 26 — CLOSED: moving J5 ate the board's Z retention, and the CAD gate caught it
+
+**Found by `py -3.12 -m src.build` refusing to run** immediately after 21 landed:
+
+> *a Z stop is only 2.3 mm long (min 4.0): the cable chase at 104.9..196.6 has eaten
+> the floor it needs*
+
+The cable chase is **derived from the routed terminals**, which is what makes it
+correct and what made this bite. With five terminals on that edge the group spans
+106.922…194.582 — 87.66 mm of the laminate's 95.0 — and with `CHASE_MARGIN` either
+side the chase becomes **104.922…196.582: 91.7 mm, running 1.01 mm PAST the
+laminate's +Y edge**, because J5's own outline ends 0.99 mm short of the board edge.
+The two Z-stop bands derived from it came out **2.35 mm and inverted** (197.58, 194.57
+— a negative length).
+
+**Lowering the 4.0 mm minimum was the wrong answer, and the measurement says why.**
+The chase exclusion was never protecting the ribs from the chase **cut**: the chase
+removes the bottom wall over z 13.35…15.75, the −Z rib lives at z **16.05…18.45**,
+and they clear by `RET_STOP_CLR`. The ribs were never in it.
+
+**What was in the cable's way is the rib's OVERHANG.** It reached to
+`BOARD_X1 - RET_STOP_OVER` = **−201.2**, which is 2.4 mm outboard of the laminate's own
+face at **−198.8** — out in the space the terminal bodies and their cables occupy. A
+rib crossing the chase with that overhang would stand in the descent path of the very
+wires the chase exists for.
+
+**The fix is an invariant, not a clearance guess.** The −Z rib now stops **at** the
+laminate's outboard face: every connector body and every cable is outboard of
+`BOARD_X1`, every part of that rib is inboard of it, so the two cannot meet — and the
+laminate's full 1.6 mm thickness is still spanned, which is all a stop has to do. The
+2.4 mm of margin it gives up bought nothing the laminate's own thickness did not
+already provide. The **+Z** rib sits 115 mm up in Z from the chase, where there is no
+cable to obstruct, and keeps its overhang.
+
+Both therefore run the laminate's full length. **The stop is now 93.0 mm — longer than
+the two-band scheme ever achieved**, on a board whose bottom edge is now entirely
+connectors, and it is one continuous rib per Z edge instead of four short ones.
+
+**Made to fail five ways, each by its own assert:** the −Z rib given the +Z pair's
+overhang; the −Z rib stopping 1 mm short of the laminate; the ribs sunk into the
+chase's Z band (the assumption that was implicit before and is now checked); the band
+shortened back to a bump; the band running off the end of the laminate. All five
+caught, and the file imports clean afterwards.
+
+Verified after: 10/10 `tools/check_*.py` pass, **0 unintended overlaps**, every shipped
+part still prints without support, and `cad_geom_check` reports 59/59 routed parts
+where the CAD draws them.
 
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 

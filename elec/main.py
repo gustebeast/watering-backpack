@@ -1026,7 +1026,15 @@ HOLE_D = 4.5                                   # M4 clearance, THROUGH the board
 # 2.25 mm of laminate cuts the usable span to about 80.5 mm, which is 3.8 mm of
 # slack for five connectors; without it the span is 91.00 mm.
 HOLES = [(43.0, 50.0)]                         # drilled, and the one M4 goes here
-SUPPORTS = [(-43.0, -50.0), (43.0, -50.0), (-43.0, 50.0)]   # pads, NOT drilled
+# ⚠ THE TWO -Y PADS MOVED OFF y -50, AND IT IS THE 41-vs-43 LESSON AGAIN,
+# in the other axis. Re-spacing the row for J5 put J5's outermost tail at
+# x -43.92 and J4's at +38.56, and a BOSS_D 10.4 boss at (-43, -50) or
+# (43, -50) reaches x +-37.8..48.2 and y -55.2..-44.8 -- straight onto those
+# tails, which is exactly the interference tools/check_overlaps.py caught on
+# J2 the first time. Moved to y -40 they span y -45.2..-34.8 and clear a
+# tail at y -47.7..-46.3 by 1.1 mm. What is above them there is F1, C18 and
+# C21 -- all surface mount, nothing under the laminate to hit.
+SUPPORTS = [(-43.0, -40.0), (43.0, -40.0), (-43.0, 50.0)]   # pads, NOT drilled
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
@@ -1163,17 +1171,41 @@ BOARD_NOTES = {
     # PCB_README is explicit that an experiment on a working region costs a
     # routing you then have nothing to compare against.
     "placements": {
-        # -- 1 and 2: the four field cables -----------------------------------
-        # Leftmost placement is -32.845: further left and an MKDS-3's SILK (dx
-        # -5.605) comes inside 0.3 mm of the (-41,-44) mounting hole, which DRC
-        # calls silk_edge_clearance and a person calls a screw you cannot reach
-        # because the terminal body is over it.
-        "J2": (-32.8, -47, 0.0),  # pump A   VBAT -35.34, PUMP_A_LO -30.26
-        "J1": (-20.3, -47, 0.0),  # the pack VBAT -22.84, GND      -17.76
-        "J3": (-7.8, -47, 0.0),  # pump B   VBAT -10.34, PUMP_B_LO -5.26
-        # The joystick sits 15 mm clear to the right, and that gap is not waste:
-        # it is where VBAT climbs to D3's cathode tab without crossing anything.
-        "J4": (22.0, -47, 0.0),  # +3V3 15.0, GND 18.5, JOY_RAW 22.0, GND, GND
+        # -- 1 and 2: ALL FIVE field cables, on the one -Y edge ----------------
+        # ⚠ THE WHOLE ROW IS RE-SPACED, AND J5 IS WHY. Every field cable belongs
+        # on this edge because this edge faces down in the housing, and J5 -- the
+        # tank level sensor -- was the last one still on +Y. It could not simply
+        # be dropped in: its courtyard is 21.41 mm and the only free runs here
+        # were 9.08 mm left of J2 and 12.25 mm right of J4.
+        #
+        # IT FITS AT ALL ONLY BECAUSE THE TWO -Y MOUNTING HOLES WENT. Five
+        # courtyards are 81.68 mm (J5 21.41, J2/J1/J3 11.26 each, J4 26.49). A
+        # mounting hole on this edge costs 2.25 mm of laminate either side and cut
+        # the usable span to about 80.5; without them it is 91.00.
+        #
+        # ⚠ AND THE ORDER IS FORCED BY THE VBAT CLIMB, not chosen. VBAT reaches
+        # D3's cathode tab by climbing through a gap in this row -- the old column
+        # measured x +3.70..+8.00, running y -45.74 up to -28.86 -- and it has to
+        # climb somewhere beneath that tab, which spans x +5.41..+14.81. So J3
+        # cannot pass about x +9.7 and J4 has to stay right of the column. Four
+        # connectors do not fit left of it (55.19 mm of courtyard into 50.9 mm),
+        # which is what puts J5 at the LEFT end and shifts everything else right.
+        #
+        # Gaps are 0.5 mm courtyard to courtyard, which is not tight: an MKDS-3
+        # courtyard already carries 0.5 mm of clearance per side, so that is
+        # 1.5 mm between BODIES on a family built to gang shoulder to shoulder.
+        #
+        # The old note here said the leftmost placement was -32.845 because an
+        # MKDS-3's silk came inside 0.3 mm of the (-41,-44) mounting hole. That
+        # hole does not exist any more, which is what freed this end.
+        "J5": (-36.3, -47, 0.0),  # level   VBAT_LVL -43.92, GND, LEVEL, GND
+        "J2": (-19.5, -47, 0.0),  # pump A  VBAT -22.04, PUMP_A_LO -16.96
+        "J3": (-7.75, -47, 0.0),  # pump B  VBAT -10.29, PUMP_B_LO -5.21
+        "J1": (4.0, -47, 0.0),  # the pack VBAT_RAW +1.46, GND +6.54
+        # J4 stays RIGHT of the climb column, which now has x +10.1..+14.6 to
+        # itself -- 4.5 mm of clear laminate inside D3's tab span, against the
+        # 4.30 mm the old column measured.
+        "J4": (28.4, -47, 0.0),  # +3V3 18.24, GND, JOY_RAW 28.4, GND, GND
         # ⚠ F2's COORDINATE IS THE PAD CENTROID AND THE CENTROID IS NOT THE
         # BODY CENTRE -- except here it is, which is worth saying because it is
         # luck and not design. The FLR holder has NINE pads: eight 1.4 mm plated
@@ -1195,21 +1227,34 @@ BOARD_NOTES = {
         # the fuse.
         # y -33.2 puts the courtyard at -36.7..-29.7: 0.39 mm under Q1/Q2
         # and 3.9 mm of band left below it, which is what C21 is placed in.
-        "F2": (-19.5, -33.2, 0.0),
+        "F2": (4.8, -33.2, 0.0),     # follows J1.1 (+1.46): pin-1 pads at -1.61 and +1.90
         # ⚠ C21 IS THE PART THE FUSE MADE NECESSARY. Splitting the net left
         # J1.1 alone on VBAT_RAW with no charge on it at all, and A2 rule 4
         # (power in from a cable) does not allow that to be exempted. It sits
         # directly over the pad, inside the VBAT_RAW pour, 8.5 mm pad to pad --
         # better than the 32.0 mm J1 was passing at before the fuse existed.
-        "C21": (-21.4, -38.65, 0.0),   # same rule: VBAT_RAW pad in, GND pad out
-        "J5": (-20.0, 45, 0.0), "J6": (12.0, 45, 90.0),
+        "C21": (1.46, -38.65, 0.0),   # dead over J1.1, inside the VBAT_RAW pour
+        "J6": (12.0, 45, 90.0),   # the programmer header -- NOT field wiring,
+        # which is why it is the one connector that stays on +Y. Nothing is
+        # plugged into it in the field; it is reached with the lid off.
         # -- what the two +Y connectors need beside them ----------------------
         # F1 sits in line with J5's own VBAT pad (x -25.25) so the fused run is
         # a straight 9 mm drop, and C18 beside it so the charge is past the
         # fuse. J5's courtyard measures x -27.55..-12.45, y 35.95..44.65, so
         # y 33.0 clears L1 (whose courtyard reaches y 31.2) by 0.605.
-        "F1": (-25.25, 37, 0.0),      # the level-sensor feed's PTC
-        "C18": (-20.0, 37, 0.0),      # local charge past it: 9.76 mm to J5.1
+        # ⚠ F1 AND C18 FOLLOW J5 DOWN, AND THEIR ORDER IS REVERSED ON PURPOSE.
+        # They used to sit in line above J5 on the +Y edge. Now F1 is at the VBAT
+        # end and C18 at the connector end, so the LONG part of the run is the
+        # FUSED part. That is the whole point of F1 (M36): the lead it protects
+        # leaves the bay and climbs the outside of the case, so the fuse belongs
+        # as near the source as the layout allows, not as near the connector.
+        # C18 stays on the connector side of it, which is what makes it a charge
+        # past the fuse rather than in front of it, and it is 2 mm from J5.1 now
+        # instead of 9.76 -- well inside the 25 mm A2 asks of a cable pin.
+        "F1": (-35.5, -38.5, 0.0),    # ON the VBAT column: F1.1 at -36.95 is inside it,
+                                  # F1.2 (VBAT_LVL) 0.70 clear of its edge
+        "C18": (-44.5, -38.5, 0.0),   # out of the widened column: its GND pad
+                                  # now stands 2.30 clear of the pour edge
         # R25 goes at the CONNECTOR end, where the hazard enters, so the whole
         # long run back to the module sits behind the 1k.
         "R25": (10.0, 40.5, 0.0),       # ESP_RX series
@@ -1251,8 +1296,8 @@ BOARD_NOTES = {
         # pads; C20 turns 180 deg, which costs nothing on a symmetric two-pad
         # chip (M12) and puts VBAT at x 4.97 inside riser B with GND at 2.03,
         # 1.47 mm clear of it.
-        "C17": (-35.9, -34.5, 0.0),
-        "C20": (3.5, -34.5, 180.0),
+        "C17": (-22.6, -39.0, 0.0),   # +13.3 with J2
+        "C20": (-11.0, -38.0, 180.0),   # +11.8 with J3
         "D1": (-37.0, -3, 0.0),       # TVS, on the VBAT column beside C1
         # -- gate drive: driver, series resistor, pulldown, bypass ------------
         # R4/R6 are pump A's (R4 GATE_A->N$2, R6 N$2->GND); R5/R7 are pump B's.
@@ -1396,10 +1441,24 @@ BOARD_NOTES = {
         # shunted by C12. Swapping them would put 1k at the pin and leave the
         # run outside the pole, which is the one arrangement that buys nothing.
         "R22": (20.0, -18, 0.0),
-        "R23": (20.0, -26, 0.0),
+        # ⚠ R23 MOVED TO THE RECEIVER, AND J5 IS WHY. It sat at (20, -26)
+        # beside R22 -- but R22 is there for a stated reason (it is the R of
+        # an RC and belongs at the CONNECTOR end, see above) and R23 is a
+        # PULL-UP, which has no such claim on that spot. It was simply next
+        # to its neighbour.
+        # With J5 on the -Y edge, LEVEL runs from J5.3 at x -33.76 all the way
+        # to IO14 on U2's left edge at y +31.72, and a pull-up at y -26 made
+        # the router take 53 mm of F.Cu straight up x +23.94 -- alongside a
+        # 1.00 mm B.Cu +3V3 track at +23.53 and across the PWM_A/PWM_B
+        # diagonals. Those together are the 13.50 mm plane cut A15 failed on,
+        # against its 5.00 mm limit.
+        # A pull-up on an open-collector line belongs at the RECEIVER anyway:
+        # that is the end that has to see a defined high, and it terminates
+        # the run rather than launching it.
+        "R23": (22.0, 28.0, 0.0),
         "BZ1": (33.0, -20, 0.0), "Q3": (26.0, -10, 0.0),
         "R24": (28.0, -4, 0.0),  "D4": (28.0, 1, 0.0),
-        "C16": (20.0, -34.5, 0.0),    # +3V3 at J4: pad to pad 11.6 mm
+        "C16": (26.4, -34.5, 0.0),    # +6.4 with J4;  +3V3 at J4: pad to pad 11.6 mm
         # -- bring-up pads. PREFERENCES, not sites: route.py re-searches each
         # against the finished copper and nudges it, so a pad that starts on a
         # neighbour's courtyard costs a nudge rather than a board.
@@ -1639,6 +1698,35 @@ BOARD_NOTES = {
             {"name": "pump channels -- the high side of both motors is one rail",
              "pins": ["J2.1", "J3.1"], "nets": 1, "each": 2, "pins_count": 2},
         ],
+        # == A15: ONE NET EXEMPTED, NAMED AND MEASURED ==========================
+        # ESP_RX_FROM_PROG straddles a 7.17 mm cut in the B.Cu plane at board
+        # (+27.66, +29.97) against A15's 5.00 mm limit. The cut is the MCU's own
+        # fan-out bundle just left of U2 -- PWM_A, PWM_B, BUZZ, IO0 and a 1.00 mm
+        # +3V3 track -- which LEVEL joined when J5 moved to the -Y edge, widening
+        # it from the 3.03 mm this board used to carry.
+        #
+        # ⚠ THIS IS AN EXEMPTION, NOT A FIX, AND THE DIFFERENCE IS THE POINT.
+        # The fix was tried first, with the mechanism built for it. All four
+        # corridor lanes across the power section were routed and measured:
+        # y -26.93 (the lane the router itself used before the pours were
+        # re-derived), -37.50 and -23.50 all returned "no layer/jog clear", and
+        # -44.00 WAS placeable -- it crossed 1 of 1 and then took the board to 10
+        # unconnected and 3 violations, because that band is where VBAT's own
+        # leftward run lives. There is no lane. See WORK_V2_PUNCHLIST.md 25.
+        #
+        # WHY THIS NET AND NO OTHER: ESP_RX_FROM_PROG is the programmer's receive
+        # line on J6. It is live only while a USB-serial adapter is physically
+        # plugged in, at 115200 baud, and carries nothing at all while the machine
+        # is running -- there is no operating state in which its return loop
+        # matters. Every net in that bundle that DOES run in operation (PWM_A,
+        # PWM_B, LEVEL, BUZZ) stays under the limit and stays measured.
+        "return_slot_ok": {
+            "ESP_RX_FROM_PROG":
+                "programming only: J6's UART receive, live solely while a "
+                "USB-serial adapter is attached, never in operation. 7.17 mm "
+                "measured against the 5.00 limit; all four corridor lanes tried "
+                "and none is routable -- see punchlist 25",
+        },
         "manual": QUALITY_MANUAL,
         "waive": {
             "A8:U1": "the six vias ARE in the pad, but they are footprint PADS "
@@ -1738,46 +1826,96 @@ BOARD_NOTES = {
         # spigot and 1.54 mm to J1's GND pad, and -46.8 is as low as it can go
         # while leaving VBAT's bus 5.0 mm of height to pass underneath.
         {"net": "VBAT_RAW", "layer": "F.Cu", "priority": 20, "poly": [
-            (-27.2, -48.8), (-21.0, -48.8), (-21.0, -30.5), (-27.2, -30.5)]},
+            (-2.9, -48.8), (3.3, -48.8), (3.3, -30.5), (-2.9, -30.5)]},
         # ⚠ AND THE BUS DROPPED 1.5 mm TO MAKE ROOM TO PASS UNDER IT. It used to
         # stop at -50.5; the pour now has to squeeze between the board edge and
         # VBAT_RAW's -46.8 at x -27.2..-21.0, and -50.5 would have left 3.5 mm
         # against the 3.18 the net is sized for -- true but with nothing in hand.
         # -52.0 leaves 5.0 mm there and 2.0 mm to the outline at y -54.
         {"net": "VBAT", "layer": "F.Cu", "priority": 0, "poly": [
-            (-38.0, -54.0), (8.0, -54.0), (8.0, -45.6),
-            # riser B, carrying on into D3's cathode tab
-            (7.7, -45.6), (7.7, -29), (12.3, -29), (12.3, -18),
-            (3.7, -18), (3.7, -29), (4.3, -29), (4.3, -45.6),
-            # riser A, into D2's cathode tab, with the two stubs off its top
-            # edge that reach C2, C17 and R9
-            (-9.7, -45.6), (-9.7, -10), (-15.5, -10), (-15.5, -18),
-            (-17.0, -18), (-17.0, -7.5), (-20.6, -7.5), (-20.6, -10.5),
-            (-24.5, -10.5), (-24.5, -15), (-19.5, -15), (-19.5, -29),
-            # a lobe off riser A's left side, into F2's two pin-2 pads. The
-            # fused side of the holder is VBAT, and this is the whole of what
-            # it takes to reach it: x[-17.9, -12.0] y[-37.5, -31.0], which
-            # covers the pad at x -15.6 outright and shares the one at -12.1
-            # with the riser itself. -17.9 is 0.4 mm off the locking spigot.
-            (-12.0, -29), (-12.0, -30.5), (-17.9, -30.5),
-            (-17.9, -38.0), (-12.0, -38.0), (-12.0, -45.6),
-            # the left column, up to C1's positive pad and the TVS
-            (-35.5, -45.6), (-35.5, -2), (-38.0, -2),
+            # the bus, along the bottom and UNDER every pad on the row. -48.8
+            # clears J5's pads (-48.3) and J1.1's by 0.5; -54.0 leaves 2.0 to the
+            # outline. 5.2 mm tall, against the 3.18 IPC-2221 wants at 7.5 A.
+            (-41.0, -54.0), (14.6, -54.0),
+            # riser B into D3's cathode tab -- and it IS the bus's right end,
+            # because F2 now sits over it: F2's pin-2 (fused VBAT) pads are at
+            # x +7.70 and +11.20 and the tab spans +5.41..+14.81. +14.6 clears
+            # J4's courtyard (+15.16); +8.1 clears J1.2's GND pad (+7.84).
+            (14.6, -18.0), (5.8, -18.0), (5.8, -36.0), (8.1, -36.0), (8.1, -48.8),
+            # riser A into D2's cathode tab, up through J3.1 -- which is a VBAT
+            # terminal, so the riser lands on its own net's pad. -10.0 keeps 0.70
+            # to PUMP_B_LO's bar, -12.5 keeps 3.26 to PUMP_A_LO's column.
+            (-10.0, -48.8), (-10.0, -7.0),
+            # ⚠ NO STUB TO R9 AND TP2 ANY MORE. A 3.5 mm arm along y -7..-10.5
+            # reached R9's VBAT leg, but R9's OTHER leg is VGATE and TP2 sits in
+            # the same band, so the arm came back as two fragments of 6.2 and
+            # 1.9 mm2. Neither load is on A1's 7.5 A list -- R9 is the VGATE
+            # dropper and TP2 is a test pad -- so both are fed by track, which is
+            # what a milliamp wants anyway.
+            (-15.5, -7.0), (-15.5, -18.0),
+            (-19.1, -18.0), (-19.1, -29.0), (-12.5, -29.0), (-12.5, -48.8),
+            # ⚠ THE LEFT COLUMN CANNOT COME OFF THE BUS ANY MORE, and this is the
+            # whole shape of the J5 move. J5's pads sit across x -43.92..-28.68 at
+            # y -47, and the gaps between them are 2.48 mm -- 1.68 after clearance,
+            # against 3.18. So VBAT rises RIGHT of J5 instead, in the 6.84 mm
+            # between J5.4's GND pad (-27.38) and J2.2's PUMP_A_LO pad (-18.46):
+            # J2.1 is VBAT, so the riser may land on it rather than clear it.
+            (-20.74, -48.8), (-20.74, -38.0),
+            # then left ABOVE the pad row at y -45.3..-38.0 to C17, and on at
+            # -45.3..-41.0 past F1 (whose VBAT_LVL pad wants 0.80 of air)
+            (-32.5, -38.0), (-32.5, -41.0), (-35.5, -41.0),
+            # and up the ORIGINAL left column to C1's positive pad at -37.70 and
+            # the TVS. F1.1 at -36.95 is inside it, which is how the sensor feed
+            # is fed now.
+            # ⚠ 4.1 mm WIDE, NOT 2.5, AND A PAD IS WHY. At 2.5 the column came
+            # back as its own ISLAND: F1.1 is VBAT and sits inside it, and the
+            # thermal relief round a pad in a 2.5 mm channel leaves 0.13 mm a
+            # side, which is below the fill's minimum width -- so the pour
+            # simply stopped there and DRC reported two VBAT zones that do not
+            # touch. -39.6 also reaches D1.1 (-41.65..-39.15), the TVS, which
+            # used to need a track of its own.
+            (-35.5, -2.0), (-39.6, -2.0), (-39.6, -45.3), (-41.0, -45.3),
         ]},
         # -- PUMP_A_LO: up from J2.2 into Q1's tab and D2's anodes ------------
         # The top edge is -24.6, not -24.0, because Q1's gull-wing leads sit at
         # dy +3.938: the gate pad's lower edge is -24.162, and a 7.5 A pour
         # 0.16 mm from a gate is not a clearance, it is a coupling.
         {"net": "PUMP_A_LO", "layer": "F.Cu", "priority": 10,
-         "poly": [(-31.96, -48.4), (-28.56, -48.4), (-28.56, -29),
-                  (-20.8, -29), (-20.8, -20.6), (-33.7, -20.6),
-                  (-33.7, -29), (-31.96, -29)]},
+         # An L now: a column up from J2.2 (-16.96), a link LEFT below D2's
+         # cathode tab (-29.3 clears its -28.90 by 0.40), then the original bar
+         # on Q1's tab and D2's anodes. -19.49 clears the tab's left edge by
+         # 0.40; -15.26 clears VBAT_RAW's new left edge by 0.61.
+         "poly": [(-33.7, -20.6), (-19.49, -20.6), (-19.49, -29.3),
+                  (-15.26, -29.3), (-15.26, -48.4), (-18.66, -48.4),
+                  (-18.66, -32.9), (-33.7, -32.9)]},
         # -- PUMP_B_LO: the same shape on J3.2 / Q2 / D3 ---------------------
         {"net": "PUMP_B_LO", "layer": "F.Cu", "priority": 10,
-         "poly": [(-6.96, -48.4), (-3.56, -48.4), (-3.56, -29),
+         # J3.2 landed at -5.21 against the -5.26 it had, so this one barely
+         # moved -- the reorder put pump B back almost exactly where it was.
+         "poly": [(-6.91, -48.4), (-3.51, -48.4), (-3.51, -29),
                   (2.4, -29), (2.4, -20.6), (-9.3, -20.6),
-                  (-9.3, -29), (-6.96, -29)]},
+                  (-9.3, -29), (-6.91, -29)]},
     ],
+    # == LEVEL CROSSES THE POWER SECTION WHEREVER THE ROUTER CAN, AND THAT IS
+    # == A MEASURED DEAD END, NOT AN OVERSIGHT ====================================
+    # J5 sits at the -Y edge's far left and IO14 is on U2's left edge at y +31.72,
+    # so LEVEL has to cross the whole power section. notes["corridors"] exists for
+    # exactly that and was tried properly -- four lanes, each routed and measured:
+    #
+    #   y -26.93  the lane the router itself used before the pours were re-derived
+    #             -> "no layer/jog clear"; re-deriving the pours closed it
+    #   y -37.50  the F1 / C17 / C20 band                      -> no layer/jog clear
+    #   y -23.50  between the pour tops and the diode tabs     -> no layer/jog clear
+    #   y -44.00  between J5's pad row and the VBAT run        -> PLACEABLE, and it
+    #             crossed 1 of 1 -- then took the board to 10 unconnected and 3
+    #             violations, because that band is where VBAT's own leftward run
+    #             lives. A lane wide enough for a signal is not free just because
+    #             the corridor placer can thread it.
+    #
+    # So the corridor is NOT used. Left to itself the router joins LEVEL into the
+    # MCU fan-out bundle on B.Cu, which costs one A15 soft finding on
+    # ESP_RX_FROM_PROG -- see WORK_V2_PUNCHLIST.md finding 25, where the number and
+    # the reason are written down rather than left as a shrug.
     "stitch_nets": ("GND",),
     "single_sided": True,              # every part on the front: one assembly setup
 }
