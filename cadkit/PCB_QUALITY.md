@@ -515,6 +515,98 @@ proves nothing.
 fixed, and if the declaration is wrong it is corrected to what the design means. A board
 with nothing repeated says so with an empty `net_groups` list; leaving the key out fails.
 
+### A16 — No pin sees more than it is rated for
+
+**Rule.** Every net on the board is declared with the **worst-case voltage it reaches**
+(`net_volts`), and every part with a pin on a net above 0 V is declared with **what that pin
+is rated for, and where the number was read** (`pin_volts`). A pin whose rating is below its
+net's steady-state worst case fails. A pin whose rating is below the net's *transient* worst
+case — a clamp, a hot-plug ring, an inductive kick — fails separately, because the two are
+different claims. A net with no declared voltage fails, a pin with no declared rating fails,
+and a board that declares nothing is told it cannot make a claim rather than being passed.
+
+**Why.** Every other rule in this file compares the board with itself. This one compares it
+with the parts' datasheets, which is where the nominal voltage stops being the number that
+matters: a rail called 18 V is 20 V on a fresh pack, is 38.9 V while its TVS conducts, and a
+part rated 24 V survives one of those and not the other. **M5** has always asked for this,
+and the way M5 is signed is prose — so it is signed by naming the parts the designer thought
+of. On the board this came from, M5's sign-off judged five parts against the 38.9 V clamp
+(the buck's VIN and EN, the pump FETs, the gate drivers, the module's 3V3) and never
+mentioned the two parts on the same rail whose ratings are *under* it: a 30 V PTC and a 32 V
+blade-fuse holder. Nothing was wrong with the board — both are current-interrupting devices
+whose voltage rating is an interruption rating, which is a real argument — but nobody had
+made the argument, because nobody had enumerated the pins. A list of pins is exactly what a
+script can enumerate, and prose cannot.
+
+**Steady and transient.** `v` is the worst case the board holds indefinitely; `peak` is the
+worst case it reaches for as long as something conducts. They are graded against separate
+ratings (`max`, `peak`) because a part's absolute maximum is usually a DC figure and its
+transient capability is a different line of the datasheet, if the datasheet has one at all.
+A board may declare `"peak": "none"` **on a pin** with a `why` — the transient is then not
+graded on that pin, and the `why` has to say what makes it inapplicable (the part IS the
+clamp; the rating is an interruption rating, not a withstand rating; the pulse is shorter
+than anything the part responds to). That is a declaration, which prints, not a waiver.
+
+**How a board declares it.**
+
+```python
+"net_volts": {
+    "GND": 0,                      # 0 V: nothing to exceed, its pins are not graded
+    "+3V3": 3.3,
+    "VBAT*": {"v": 20.0, "peak": 38.9,     # a pattern covers a family of nets
+              "why": "a fresh Makita LXT pack is 20 V; 38.9 V is D1's own clamp"},
+},
+"pin_volts": {
+    # by ref.pin, ref, value or footprint -- exact key first, then the fnmatch pattern
+    # with the most literal characters. `src` is where the number was READ.
+    "LMR14020SDDA": {"src": "TI SNVSAA5B 5.1 absolute maximum ratings",
+                     "max": 44.0, "pins": {"1": {"max": "none", "why": "BOOT is rated "
+                                                 "to SW, not to ground"}}},
+    "R_0603*":      {"max": 50.0, "src": "UNI-ROYAL 0603WAF: 50 V working voltage"},
+    "TP*":          {"max": "none", "src": "-", "why": "a bare test pad, not a part"},
+},
+```
+
+A capacitor whose BOM value already carries its rating as a qualifier (`10u/25V`, which
+**A11** expects to be spelled exactly once) needs no entry: the value text IS the
+declaration, and the rule says so in its report. Nothing else is inferred from a value —
+`ZENER-10V` and a `3V` buzzer state an operating point, not a limit.
+
+**How it is checked.** Each net is resolved to its declaration, each pin on it to its
+rating, and the two compared. 0 V nets are skipped (a ground pin cannot be over-volted by
+its own net, and that is a third of the pads on a typical board). The report names the pin,
+the part, the net, both numbers and the source, and ends with the **tightest margin on the
+board** — so a run that finds nothing still produces a measurement rather than a silence.
+Pin-level `"max": "none"` declarations are counted in that line.
+
+**Why an unrated pin FAILS rather than going OPEN.** `OPEN` is the status for a question a
+script cannot ask — it belongs to the `M` rules. Here the script asks the question
+precisely, of a named pin, and gets no answer: that is a reading nobody has done, and it is
+the state the rule exists to end. Passing it would be worse than not having the rule, since
+the report would then say `ok` about a pin nobody has looked up. So it is a FAIL, and the
+fix is one line of declaration.
+
+**How strict.** **Hard:** a pin over its rating at steady state; a pin with no rating at
+all; a net with no declared worst case; a rating with no `src`; a `"none"` with no `why`; a
+board that declares nothing (the finding says it can make no claim). None of those is a
+thing to waive — the part changes, or the declaration is written. **Soft:** the transient,
+which is the half a reading of the clamp can answer. *Break it when:* (a) the
+part IS the clamp that sets the transient (declare `peak` as the clamp voltage, or `"none"`
+with that sentence); (b) the rating is about interrupting current rather than withstanding
+voltage (a fuse, a PTC, a switch's breaking capacity) and the interruption cannot coincide
+with the transient — say why, with the sequence; (c) the datasheet gives a repetitive or
+transient figure higher than the DC maximum (cite it, and put it in `peak`); (d) the
+transient reaches the pin only through an impedance that the pin's own clamp absorbs — give
+the impedance, the current it passes and the voltage the clamp holds. *Do not break it* for
+a semiconductor junction, a ceramic's dielectric, or an electrolytic's surge voltage on a
+rail whose clamp you have measured: those are what the transient is for.
+
+**The harness.** `pcbflow/test_quality_a16.py` breaks a real board on purpose — a 20 V net
+on a 16 V part, one pin's rating deleted, every rating deleted, no net voltages at all, a
+transient raised over a rating — and checks that each case produces a *different* correct
+answer, alongside the unbroken board. A gate nobody has watched fail is a gate nobody has
+tested; run it after changing this rule.
+
 ## Manual checks
 
 Sign each in `quality["manual"]` with what you checked against. If a rule does not apply
@@ -571,8 +663,11 @@ access the bring-up will need.
   lost most of its capacitance — use ≥ 2× the rail.
 - **M5 — Nothing is run past its ratings.** Every part on a rail survives that rail's
   WORST case — a fresh battery, a supply's tolerance, an inductive spike, a hot-plug —
-  with margin. Check absolute-maximum voltage on every pin a rail can reach, GPIO levels
-  between domains. (Heat is **M25**.)
+  with margin. **A16 now measures the voltage half of this pin by pin**, against the
+  worst case each net declares, so what is left here is the judgement it cannot make:
+  whether the declared worst case is really the worst case, whether the transient a pin
+  is excused from can genuinely not reach it, and the ratings that are not voltages at all
+  — current per pin and per contact, GPIO levels between domains, dV/dt. (Heat is **M25**.)
 - **M6 — High-speed buses are matched and have an unbroken reference.** Clocked parallel
   buses and anything above ~50 MHz or with fast edges (ULPI, SDIO, RGMII, SPI at tens of
   MHz) are in `match` groups with a budget derived from the bit time. Each runs over a
@@ -817,4 +912,5 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-06 | five boards walked through the fab's order page | the placement file carried our footprints' origins and angles and the fab places its own: a 1x20 header previewed 24 mm off its holes (our origin is pin 1, theirs the middle), and a right-angle two-row header previewed with its pins pointing into the board (the two libraries number its rows opposite ways, which no pad fit can see). The form also kept the previous board's paid options | M30 extended; `pcbflow/fab_frames.py` (new) writes the placement file in the fab's frames and the package lists what it could not measure |
 | 2026-10-06 | ten more boards walked through the fab's order page to the quote | (1) every part on an all-back-side board previewed a half turn out: the fab turns a back-side part over left to right, KiCad top to bottom. (2) two BOM rows naming one part number left one row at quantity 0. (3) a row whose designators mix prefixes arrives unticked. (4) the assembly TIER is decided by things that are not in the BOM: back-side assembly, a black solder mask and one "Standard only" part each force the dearer tier | `fab_frames.apply` turns back-side parts half round; the package writes one BOM row per part number and lists the rows that have to be ticked; M30 names the tier |
 | 2026-10-06 | a 24 V inlet and twenty photodiodes, both found in the fab's previewer | (1) the inlet's nets were assigned from the SUPPLY's pin table onto the JACK's pad numbers; the two makers number the four contacts differently and the board shorted the supply. (2) the photodiode's footprint numbered anode 1, the maker and the fab number the cathode lands 1 and 4, and the placement frame had been matched by number: all twenty a half turn out | M1 names the translation and asks for the position -> pad -> net table; M2 says a number fit is not orientation evidence |
+| 2026-10-06 | the 18 V watering-backpack board, its own M5 sign-off read back against its parts list | M5 had been signed in prose, and prose signs the parts the writer thought of: five parts were judged against the TVS's 38.9 V clamp and the two on the same rail rated UNDER it — a 30 V PTC and a 32 V blade-fuse holder — were not mentioned. The board was fine; the check was not made | **A16** (new, measured): every net declares its worst case, every pin its rating, and the pass names the tightest margin on the board |
 | 2026-10-06 | a fret-light board: two pairs of frets wired to the same four driver outputs | a loop in the generator read an index left over from the loop above. 24 nets where 32 were meant and eight outputs idle; routed, DRC-clean, quality-clean, because every check compared the board with its own netlist | A13: the board declares its unconnected pins and its nets per group, and the pass fails on any difference |
