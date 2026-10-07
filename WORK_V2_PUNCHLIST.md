@@ -1959,6 +1959,189 @@ resolution and is not merely counting parts.
 parts and 104/104 labels; all ten `check_*.py` pass; 32 components, 0 unintended overlaps.
 
 
+### 44 — the owner asked whether one 18 V pack can run the motors AND the ESP32. It can, and here is the arithmetic — with three things that were not checked
+
+**Verdict first: the scheme is sound, and the parts of it most likely to be wrong are
+already right.** What follows is what held up, then three gaps, one of which is a real
+unchecked margin on a part that is already in the cart.
+
+#### What holds, and why
+
+**The buck cannot be browned out by the motors.** This is the fear the question is really
+about and it is the easiest one to retire. VBAT runs 15–20 V and the LMR14020's input range
+reaches down to 4.5 V, so even an absurd sag leaves the 3V3 rail alone. The buck is asked
+for `BUCK_IOUT = 0.6 A` of a rated 2.0 A, against an ESP32 that bursts ~500 mA on WiFi TX
+and averages ~100 mA. **There is no operating point where the motors starve the MCU.**
+
+**Switching noise on the shared rail does not reach the MCU in any amount that matters.**
+The pumps chop 7.5 A at 20 kHz, and the ripple that puts on VBAT is the chopped current
+times the source impedance — roughly 3.7 A RMS into ~60 mΩ of pack plus a very short
+14 AWG pair, so of order **0.2 V p-p on a 15–20 V rail**. Behind a buck with 500 kHz
+switching and 22 µF of output, that is microvolts at the ESP32. The analog inputs are the
+exposed ones, and they are already handled: both sit on **ADC1** because ADC2 is unusable
+with WiFi up, and JOY_FILT has its own RC.
+
+**The gate rail is real and sized.** VGATE is a 1k5 dropper and a 10 V Zener, not a third
+regulator, and it exists because the UCC27517 is a 4.5–18 V part and 3V3 is under its UVLO
+(audit finding 2). At a **flat** pack the dropper delivers `(15 − 10) / 1500 = 3.33 mA`
+against a declared 1.5 mA of driver quiescent plus Qg × fsw, and `elec/main.py` asserts
+that inequality rather than trusting it. R9's own dissipation is asserted too, at 67 mW of
+a 125 mW 0805.
+
+**One pump at a time is what makes several of these numbers true**, and it is enforced in
+firmware and gated by `tools/check_pump_dirs.py` — not merely intended.
+
+#### Gap 1 — the input electrolytics' RIPPLE CURRENT is not checked anywhere, and it is marginal
+
+**This is the one worth acting on.** The pump's low-side switch chops the *source* current
+while the freewheel diode keeps the *motor* current continuous. So C1/C2 and the pack see a
+square wave, and its RMS content is
+
+> I_rms = I_pump × √(D(1−D))
+
+The firmware holds effective motor voltage constant as the pack sags, so duty sits around
+**0.6–0.8**, giving **3.0–3.7 A RMS** — and at 20 kHz the **electrolytics**, not the
+ceramics, are the capacitive branch that carries it. C17/C20 are 10 µF 1206 parts whose
+impedance at 20 kHz is ~0.8 Ω; they are there for the switching *edges* and for local
+charge, and they do not help here. Splitting the chopped current between the pack (~60 mΩ)
+and two 100 µF electrolytics (~0.2 Ω including ESR) puts of order **0.8–0.9 A RMS in the
+pair, ~0.4 A each.**
+
+Comparable 100 µF 50 V parts are rated **229–389 mA at 120 Hz**, which at 20 kHz becomes
+roughly 300–580 mA each with the usual frequency multiplier. **So the estimate lands inside
+the band where the datasheet decides it, and nothing in this repo reads that datasheet.**
+`FUSE_ATC_A`-style arithmetic exists for the fuse, the inductor's Irms and Isat, the
+output capacitance's ESR and the Zener's shunt — the input capacitors' ripple rating is the
+one figure in the power path with **no number and no gate.**
+
+Said plainly: this is a **lifetime** question, not a does-it-work question. An electrolytic
+run over its ripple rating does not fail on the bench, it fails in a year with a dried-out
+ESR, and it is the single most common failure of an 18 V motor-drive board. **Read C371283's
+Irms before ordering** — and if it is under ~500 mA, the answer is more bulk, not a bigger
+cap: the ripple divides between branches, so a second pair halves each part's share.
+
+#### Gap 2 — nothing asserts the 10 A fuse HOLDS 7.5 A
+
+`FUSE_ATC_A = 10.0` appears exactly twice in `elec/main.py`, and both uses are the dock
+**inrush I²t**. The steady case — does a 10 A ATO blade carry 7.5 A continuously, inside a
+sealed bay, without nuisance-blowing — **is not checked at all.** 7.5/10 = **75 %**, which
+is precisely the conventional ceiling for a fuse's continuous duty, and that ceiling is
+quoted at 25 °C ambient. The bay is sealed and contains the pumps' switches.
+
+This is not a re-spin — the holder and the blade are both the owner's existing parts, and
+the fix if it ever nuisance-blows is a 15 A blade in the same holder. It is recorded
+because *the figure that decides it has never been written down*, and a fuse that opens on
+a hot day reads to the user as a dead machine.
+
+#### Gap 3 — CIRCUIT.md called the buck "Synchronous", in the one line that names the topology
+
+§2 read **"Synchronous buck, VBAT → 3.3 V"**. The LMR14020 is not synchronous; it has a
+high-side switch and an **external catch diode**. The table in §Supply, §6 and audit finding
+4a all said so — and 4a is the record of the board being laid out **with no catch diode at
+all**, because somebody believed this sentence. *The word had already cost a part once.*
+Corrected, with the reason, so the one place a reader could pick up the wrong topology now
+points at the finding instead.
+
+#### What was checked and found already correct, recorded so it is not re-reviewed
+
+The 40 V floor on every part on the battery rail against a 20 V fresh pack and a 38.9 V TVS
+clamp; the TVS's I²t against the fuse's; the catch diode's reverse rating against the clamp;
+the buck's duty and minimum on-time at the highest input; the inductor's Isat against the
+regulator's own current limit rather than against the load; the level sensor's PTC voltage
+against a fresh pack; and the FET's 60 V against an inductive clamp at VBAT + Vf. **None of
+those needed changing, and all of them are asserted in the file that chooses the part.**
+
+---
+
+### 45 — CLOSED: J3 leaves through the port like J1, and the slot's own arithmetic was never holding the harness
+
+The owner's call: *"Let's have J3 wiring go through the port as well instead of going
+around. That'll make it more similar to J1."* It does, it is **86 mm shorter**, and it
+turned up two things that had nothing to do with routing.
+
+#### It moves the model TOWARDS finding 3 rather than away from it
+
+Finding 3 sized the plate's wire slot at **17.8 mm**, and the arithmetic behind that figure
+was **J1, J2 and J3 laid side by side**. Until today only J1 actually crossed — 6.6 mm of
+the 17.8 — and the gate holding the 17.8 was asserting a **hand-written tuple** of those
+three refs. So it was holding *finding 3's sizing sum*, which no longer described anything,
+while the live harness went unchecked. A figure nobody could falsify, in the gate whose
+whole job was to falsify it (M10's lesson again).
+
+Now there are two numbers and they are separate:
+
+| | what it is | value |
+|---|---|---|
+| `SLOT_SIZED_FOR` | finding 3's claim: J1+J2+J3, still named, still has to fit | **17.8 mm** |
+| `_LAID_W` | what crosses **today**, derived from `crosses_plate` | **12.2 mm** |
+
+Both are asserted, and `_LAID_W <= SLOT_SIZED_FOR` is the one that matters: *growing* past
+what the slot was justified for fails; J3 taking it from 6.6 to 12.2 does not.
+
+#### The route, and the thing the gate found in it
+
+J3's mouth is at **y 155.82**, already inside the slot's 127..167, so like J1 it drops
+straight down and straight out with **no sideways move under the bay at all**.
+
+Then it stops being like J1, and the overlap gate said so immediately: **246.8 mm³ of
+conductor inside the wood, per conductor.** J1 can turn and run down the back of the plate
+because the dock is at y 46 and that side is open. Going the other way meets the frame's +Y
+end plank, which at `DOCK_RUN_X` is **solid timber from y 172 to 210 at every height** —
+probed on a y-z grid at ten heights from z 8 to z 200, with no way over, under or through.
+
+So the route steps **inboard in X first**, into the gap between that plank and the pump
+assembly, and `PASS_X` is **derived from the pump** rather than picked: the pump assembly is
+the harder of the two limits because it is 200 mm deep in Y (it spans y 2..208), which is
+also the reason no cable can cross the machine *inside* the frame and why the cross-machine
+run happens beyond y 210 at `CROSS_Z`.
+
+#### Three gates that were self-selecting, and are not now
+
+1. **The slot asserts named J1 in the code as well as in the message.** Two cables use the
+   slot, so a check that only ever looked at J1 would have said nothing about J3 — the
+   same shape of mistake as the slot-fit asserts that once looped over a list they also
+   selected. Both are now `for _ref in LAID_FLAT`.
+2. **`FAN_ORDER` was a hand-written tuple.** It is now the **complement of
+   `crosses_plate`**, with asserts that the two sets partition the cables and do not
+   intersect. Listing it was how J3 could change route and still be handed a lane, a band
+   height and a turn offset that nothing used.
+3. **Nothing checked that two cables in one slot are in different places in it.** They lie
+   flat, side by side, so what separates them is Y: half of each bundle's laid width plus
+   air, derived from the mouths. J1 and J3 have **11.75 mm of mouth spacing against 6.1 mm
+   of half-widths**.
+
+**Made to fail — fourteen cases across the two harnesses, all fourteen caught.** The four
+new ones: a port cable's mouth outside the slot's Y span; two port cables' bundles
+overlapping inside the slot; the pass lane derived outboard of the back plate; and a cable
+both crossing the plate and taking a lane in the band.
+
+**And three existing cases had to be repaired, which is the useful part.** Each failed for
+its own reason and none of them because an assert was wrong:
+
+* *"the pack pair is declared not to cross the plate"* replaced the **first**
+  `crosses_plate=True`. That emptied the port when J1 was the only crossing cable; now it
+  leaves J3 crossing, so **the case stopped testing what it names**. It replaces every flag.
+* *"the slot's own sizing justification is broken"* thickened 16 AWG to 3.20 mm and now
+  fires on **J3's bend into the slot** instead — see the residual below. Perturbation
+  reduced to 2.85 mm so it reaches the sum it is aiming at.
+* *"the pack pair has no room to turn"* expected the words *"cannot make that corner"*, and
+  generalising the assert to every port cable changed them to *"the corner"*. **A gate whose
+  harness matches on message text is a gate whose message is part of its interface.**
+
+#### Residual, measured and thin
+
+**J3's turn into the slot has 0.4 mm of margin.** It is declared `flex=True` — worn, walked
+past, pulled — so it gets the 5×-OD bend radius: 2.80 × 5 = **14.0 mm needed against the
+14.4 mm** of drop from mouth to slot. It passes, and the assert holds it, but it is the
+tightest number in this file and anything that raises the bay floor or thickens that
+conductor takes it out. **Not fudged by reclassifying J3 as `fixed`**, which is the obvious
+way to buy 5.6 mm and would be a lie about a cable that leaves the machine.
+
+Clean afterwards: **32 components, 0 unintended overlaps**, 5157 mm of conductor (down from
+5389), and all ten `check_*.py` plus the CAD/fab agreement pass.
+
+---
+
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 
 **Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full
