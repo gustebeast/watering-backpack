@@ -1482,7 +1482,46 @@ def return_path_slots(ctx):
     # copper layers in stack-up order, front to back
     order = {l: k for k, l in enumerate(b.GetEnabledLayers().CuStack())}
 
-    gaps, checked = [], 0
+    # ⚠ THIS SAMPLES THE CHAINED POLYLINE, AND SAMPLING SEGMENTS WAS A REAL MISS.
+    # KiCad splits a track at every vertex, so a run that leaves the plane, turns a
+    # corner, and comes back is two segments -- and the old code tested each one on its
+    # own and required plane on both sides WITHIN that segment. A crossing whose far
+    # bank lay past a corner was therefore counted by NEITHER segment. On the board
+    # that found this, JOY_FILT -- the joystick ADC input -- straddled 9.04 mm of slot
+    # against a 5.00 mm limit and A15 reported its widest crossing as 4.56 mm and
+    # passed. The two short jogs either side of the corner were also under the 1.0 mm
+    # floor below, so they were skipped outright.
+    #
+    # The floor now applies to the CHAIN, not to each segment: a 0.4 mm jog inside a
+    # 30 mm run is part of that run, and dropping it was how 29 mm of copper on that
+    # board went unsampled.
+    def _chains(segs):
+        """Connected polylines, as point lists. Splits at a junction of three or more,
+        where there is no single way to continue."""
+        ends = {}
+        for k, t in enumerate(segs):
+            for p in (t.GetStart(), t.GetEnd()):
+                ends.setdefault((p.x, p.y), []).append(k)
+        used, out = set(), []
+        for k, t in enumerate(segs):
+            if k in used:
+                continue
+            used.add(k)
+            pts = [t.GetStart(), t.GetEnd()]
+            for head in (0, 1):
+                while True:
+                    tip = pts[0] if head == 0 else pts[-1]
+                    nxt = [j for j in ends.get((tip.x, tip.y), []) if j not in used]
+                    if len(nxt) != 1 or len(ends.get((tip.x, tip.y), [])) > 2:
+                        break
+                    used.add(nxt[0])
+                    a2, e2 = segs[nxt[0]].GetStart(), segs[nxt[0]].GetEnd()
+                    far = e2 if (a2.x, a2.y) == (tip.x, tip.y) else a2
+                    pts.insert(0, far) if head == 0 else pts.append(far)
+            out.append(pts)
+        return out
+
+    bychain = {}
     for t in b.GetTracks():
         if t.GetClass() == "PCB_VIA":
             continue
@@ -1498,37 +1537,48 @@ def return_path_slots(ctx):
         # return is in whichever is there.
         if lid not in order:
             continue
+        bychain.setdefault((net, lid), []).append(t)
+
+    gaps, checked = [], 0
+    for (net, lid), segs in bychain.items():
         dist = {l: abs(order[l] - order[lid]) for l in planes if l != lid and l in order}
         if not dist:
             continue
         near = min(dist.values())
         others = [l for l in dist if dist[l] == near]
-        ln = MM(t.GetLength())
-        if ln < 1.0:
-            continue
-        checked += 1
-        a, e = t.GetStart(), t.GetEnd()
-        n = max(2, int(ln / step))
-        if True:
-            cov = []
-            for i in range(n + 1):
-                f = i / float(n)
-                pt = pcbnew.VECTOR2I(int(a.x + (e.x - a.x) * f), int(a.y + (e.y - a.y) * f))
+        for pts in _chains(segs):
+            seglen = [math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y)
+                      for k in range(len(pts) - 1)]
+            total = MM(sum(seglen))
+            if total < 1.0:
+                continue
+            checked += 1
+            # one sample list for the WHOLE polyline, at the same 0.25 mm step
+            samp, cov = [], []
+            for k in range(len(pts) - 1):
+                a, e = pts[k], pts[k + 1]
+                n = max(1, int(MM(seglen[k]) / step))
+                for i in range(n if k < len(pts) - 2 else n + 1):
+                    f = i / float(n)
+                    samp.append(pcbnew.VECTOR2I(int(a.x + (e.x - a.x) * f),
+                                                int(a.y + (e.y - a.y) * f)))
+            for pt in samp:
                 cov.append(any(covered(lid2, pt) for lid2 in others))
+            m = len(cov) - 1
+            d = total / float(m) if m else 0.0
             i = 0
-            while i <= n:
+            while i <= m:
                 if cov[i]:
                     i += 1
                     continue
                 j = i
-                while j <= n and not cov[j]:
+                while j <= m and not cov[j]:
                     j += 1
                 # STRADDLED only: plane on BOTH sides. A track running off the edge of
                 # the pour is a different thing, and is not what this rule is about.
-                if i > 0 and j <= n:
-                    f = (i + j) / 2.0 / n
-                    gaps.append(((j - i) * ln / n, net,
-                                 MM(a.x + (e.x - a.x) * f), MM(a.y + (e.y - a.y) * f)))
+                if i > 0 and j <= m:
+                    mid = samp[(i + j) // 2]
+                    gaps.append(((j - i) * d, net, MM(mid.x), MM(mid.y)))
                 i = j + 1
 
     if not checked:
