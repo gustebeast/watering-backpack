@@ -1548,7 +1548,7 @@ def return_path_slots(ctx):
     is the area between the two."""
     b = ctx.board
     limit = float(ctx.q.get("return_slot", RETURN_SLOT))
-    allowed = set(ctx.q.get("return_slot_ok", {}) or {})
+    allowed = dict(ctx.q.get("return_slot_ok", {}) or {})
     step = 0.25                       # mm between samples along a track
 
     # the ground copper, by the layer it is on
