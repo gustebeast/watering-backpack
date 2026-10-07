@@ -179,23 +179,25 @@ def _end_misses(shape, parts, c, u, v, up, t):
 
 
 def _shapes(obj):
-    """Every solid in a part, a Workplane, or a list of either."""
+    """Every solid in a part, a Workplane, or a list of either -- or every FACE of one
+    that has no solids (lettering is drawn as flat faces, `Boards.silk`)."""
     if obj is None:
         return []
     if isinstance(obj, (list, tuple)):
         return [s for o in obj for s in _shapes(o)]
     out = []
     for v in (obj.vals() if hasattr(obj, "vals") else [obj]):
-        out += v.Solids() if hasattr(v, "Solids") else []
+        if hasattr(v, "Solids"):
+            out += v.Solids() or v.Faces()
     return out
 
 
 def _ink_misses(ink, geom, pose, ink_refs):
     """The routed board's labels that have no ink in the CAD: [(text, side, x, y)].
 
-    Each glyph is its own solid, so a label is "drawn" when some ink solid's centre lies
-    in the label's box, at the height of the face it prints on. Centres, not a boolean:
-    a few hundred letters against a few dozen boxes is arithmetic."""
+    Each glyph is its own face (or solid), so a label is "drawn" when some glyph's centre
+    lies in the label's box, at the height of the face it prints on. Centres, not a
+    boolean: a few hundred letters against a few dozen boxes is arithmetic."""
     c, u, v, up = pose
     t = geom["thickness_mm"]
     dots = []

@@ -100,7 +100,8 @@ HEIGHT = {
     "JST_PH_S4B-PH-SM4-TB_1x04-1MP_P2.00mm_Horizontal": 5.5,   # cadkit.pcb PH_SIDE_H
     "JST_PH_S6B-PH-SM4-TB_1x06-1MP_P2.00mm_Horizontal": 5.5,
     "JST_PH_S8B-PH-SM4-TB_1x08-1MP_P2.00mm_Horizontal": 5.5,
-    "JST_XH_S4B-XH-SM4-TB_1x04-1MP_P2.50mm_Horizontal": 5.75,  # JST eXH p.4
+    "JST_XH_S4B-XH-SM4-TB_1x04-1MP_P2.50mm_Horizontal": 6.0,   # JST eXH p.6 (was 5.75,
+                                                               # the TOP-entry part's depth)
     "JST_XH_S4B-XH-A_1x04_P2.50mm_Horizontal": 6.1,            # JST eXH p.5, side entry THT
     "JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal": 2.95,  # JST SH side view: 6.25 x 2.95
     # headers and sockets
@@ -221,7 +222,8 @@ THT_TAIL = _pcb.XH_POST_TAIL                  # 3.4
 # reaches past the socket body, by footprint-name prefix.
 SIDE_PLUG_RUN = {"JST_PH_": _pcb.PH_PLUG_RUN, "JST_XH_": 7.5}
 
-SILK_T = 0.02            # ink, drawn proud of the laminate so it is a solid of its own
+SILK_T = 0.02            # ink stands this far off the laminate, so its faces are not
+                         # coplanar with the board's and a viewer does not fight over them
 SILK_CAP = 0.72          # a KiCad text "size" is its capital height; a font size is its em
 
 
@@ -477,6 +479,13 @@ class Boards:
         board, so it cannot say something the fab's ink does not. None where the board
         has no lettering on that side.
 
+        THE PART IS FACES, NOT SOLIDS: one flat face per glyph, SILK_T off the laminate,
+        facing out. Ink has no thickness worth drawing, and drawn as a raised solid every
+        glyph carried a wall per outline segment: on the assembly this came from the
+        lettering was 64 % of all faces and two thirds of all edges, and the viewer
+        slowed to a crawl with the whole instrument in frame. It has no volume, so
+        nothing can collide with it, and anything that measures it should count faces.
+
         `refs=False` leaves out the footprints' own designators (the entries the exporter
         marks "kind": "ref") and keeps the board-level text: a board with a designator
         beside every passive is a few hundred small text solids, which a large assembly
@@ -496,22 +505,25 @@ class Boards:
                 w = (cq.Workplane("XY").text(line, lab["size"] / SILK_CAP, SILK_T,
                                              halign="center", valign="center")
                      .translate((0.0, ((len(lines) - 1) / 2.0 - k) * pitch, 0.0)))
+                # each glyph's TOP face and nothing else
+                tops = [f for v in w.vals() if hasattr(v, "Faces") for f in v.Faces()
+                        if f.Area() > 0 and abs(f.Center().z - SILK_T) < 1e-6
+                        and abs(f.normalAt(f.Center()).z) > 0.99]
+                if not tops:
+                    continue
+                w = cq.Workplane("XY").newObject([cq.Compound.makeCompound(tops)])
                 if side == "B":
                     # BACK-SIDE INK IS ON THE BACK, AND READS FROM THE BACK. Seen from
                     # above (the frame everything here is drawn in) it is mirror writing,
                     # hanging under the laminate. It used to be laid on the TOP face the
                     # right way round, i.e. in the one place the fab does not print it.
-                    w = w.mirror("YZ").translate((0.0, 0.0, -SILK_T))
+                    w = w.mirror("YZ").translate((0.0, 0.0, -2 * SILK_T))
                 w = (w.rotate((0, 0, 0), (0, 0, 1), lab["angle"])
                      .translate((lab["x"], lab["y"], t if side == "F" else 0.0)))
-                out += ([s for s in w.vals() if s.Volume() > 0]
-                        if hasattr(w.val(), "Volume") else [])
+                out += [f for v in w.vals() for f in v.Faces()]
         if not out:
             return None
-        solids = []
-        for s in out:
-            solids += s.Solids()
-        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(solids)])
+        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(out)])
 
     def ink(self, board: str, refs: bool = True):
         """ALL the board's lettering, both faces, as one part in solid()'s frame; None
@@ -522,11 +534,11 @@ class Boards:
         sides = [w for w in (self.silk(board, s, refs) for s in ("F", "B")) if w is not None]
         if not sides:
             return None
-        solids = []
+        faces = []
         for w in sides:
             for v in w.vals():
-                solids += v.Solids()
-        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(solids)])
+                faces += v.Faces()
+        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(faces)])
 
     def solid(self, board: str, mated: bool = False, omit: tuple = (),
               skip=()) -> cq.Workplane:
