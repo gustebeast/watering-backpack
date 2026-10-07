@@ -93,6 +93,12 @@ HINT = {
            "an UNRATED pin is a reading nobody has done: put the number and the document "
            "it came from in quality.pin_volts. A clamped transient over a rating is judged "
            "on the clamp's own pulse -- PCB_QUALITY.md A16, 'Steady and transient'",
+    "A18": "cadkit/pcbflow/silkfit.py moves every silk FIELD clear automatically, so a "
+           "failure here is something it cannot move: a footprint OUTLINE or a board "
+           "drawing over a pad. Put that footprint's prefix in the board's `strip_silk` "
+           "note, which relocates its graphics to .Fab. There is no declaration for this "
+           "rule and there should not be -- ink over a mask opening is not printed, so "
+           "signing for it would be signing that the plot may lie",
     "A17": "cadkit/kicad_silk.py prints all three (a word a way, else a pinout block and "
            "a way-1 mark): give it room -- `silk_short` words, a wider board edge, a part "
            "moved off the connector's own side. A pinout that can only go on the other "
@@ -121,6 +127,7 @@ HARD = {
     "A13": ("",),
     "A17": ("nothing on its own side says which contact is way",
             "but gives no reason", "stale declaration"),
+    "A18": ("will be clipped",),
     "A16": ("steady-state worst case", "can make NO CLAIM",
             "no worst-case voltage is declared", "NO voltage rating is declared",
             "states no `max`", "with no `src`", "gives no `why`"),
@@ -2097,6 +2104,64 @@ def _silk_ink(ctx):
 def _box_gap(a, b):
     """Clear distance between two boxes (x0, y0, x1, y1); 0 where they touch or overlap."""
     return math.hypot(max(a[0] - b[2], 0.0, b[0] - a[2]), max(a[1] - b[3], 0.0, b[1] - a[3]))
+
+
+@rule("A18")
+def silk_prints_as_drawn(ctx):
+    """Nothing is drawn on the silkscreen that the solder mask will clip away.
+
+    ⚠ THE RULE IS THE OWNER'S AND IT IS ABOUT HONESTY, NOT TIDINESS: the design
+    must not show a letter that is missing on the real board. A fab prints silk and
+    then opens the mask, and ink over an opening is removed -- so a designator half
+    over a neighbour's pad is drawn in full in every render, plot and review, and
+    arrives with a letter gone.
+
+    ⚠ WHY NOTHING CAUGHT IT FOR SO LONG, which is the part worth keeping. A12 had
+    measured silk for HEIGHT and STROKE since the beginning and said nothing about
+    position, and the one position claim anybody made -- 'the fitter holds 0.20 mm to
+    any mask opening' -- was TRUE of the objects the fitter places and silent about
+    the rest. A footprint's reference designator arrives with the land, from whoever
+    drew it, and went onto the board untouched. One class of silk was fitted, another
+    was not, and a sign-off read the first and asserted the board. The same shape as
+    A1 waving a pour through and A15 reading one segment at a time.
+
+    THERE IS NO DECLARATION FOR THIS RULE, deliberately. Every other hard rule here
+    can be signed for with a measurement and a reason, because every other one is a
+    judgement about whether something is good enough. This one is not: ink over an
+    opening is not printed, full stop, so a declaration would be signing that the
+    plot may lie about what arrives. The escape is to move the object to .Fab -- the
+    assembly drawing, which is where something nobody can see once the board is
+    populated belongs -- and silkfit does that automatically for anything it cannot
+    place. `strip_silk` does it for footprint graphics.
+    """
+    try:
+        from . import silkfit
+    except Exception as e:                                  # noqa: BLE001
+        return [("silk clipped", None,
+                 "silkfit is not importable (%s), so NO claim is made about whether "
+                 "this board's silk prints as drawn" % type(e).__name__)]
+    try:
+        bad = silkfit.clipped(ctx.board, pcbnew=pcbnew)
+    except Exception as e:                                  # noqa: BLE001
+        return [("silk clipped", None,
+                 "the check itself failed: %s: %s" % (type(e).__name__, e))]
+    n_silk = 0
+    for fp in ctx.fps.values():
+        for f in fp.GetFields():
+            if f.IsVisible() and f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+                n_silk += 1
+        for g in fp.GraphicalItems():
+            if g.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+                n_silk += 1
+    if not bad:
+        return [("silk clipped", True,
+                 "every one of the %d silk object(s) on this board prints as drawn: "
+                 "none overlaps a solder-mask opening" % n_silk)]
+    worst = bad[0]
+    return [("silk clipped", False,
+             "%d of %d silk object(s) will be clipped by the solder mask and so are "
+             "drawn but not printed; the worst is %s, losing %.4f mm2 at (%.2f, %.2f)"
+             % (len(bad), n_silk, worst[0], worst[1], worst[2][0], worst[2][1]))]
 
 
 @rule("A17")
