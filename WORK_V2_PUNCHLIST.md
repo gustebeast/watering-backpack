@@ -1061,6 +1061,446 @@ ready to hide the first real clash that appears.
 
 ---
 
+### 30 — OPEN, the most serious finding of the pre-order review: LEVEL reaches IO14 unprotected, from a terminal block that also carries the raw pack
+
+**Found by validation pass 1** (independent pin-by-pin review against the makers'
+datasheets, by a reviewer with no access to `elec/main.py`). Highest severity of
+anything the four passes produced.
+
+`J5.3` (LEVEL) reaches **U2 pin 13 = IO14** with nothing in the path but R23's 10 k
+pull-up to +3V3. **No series resistor, no clamp diode, no divider.** And `J5.1` on
+the *same screw terminal block* carries **VBAT_LVL — the unregulated pack at
+18–21 V**, behind F1's PTC.
+
+The module's limit is **VDD + 0.3 V ≈ 3.6 V** (ESP32-WROOM-32E datasheet v2.1,
+**Table 15**, p. 28; abs max 3.6 V in **Table 13**).
+
+**Why this reads as an omission rather than a decision:** every other external input
+on this board is protected. JOY_FILT has R22 1 k + C12 100 n. VBAT_SENSE has the
+100 k/18 k divider. LEVEL has neither, and it is the input whose cable is the most
+exposed conductor in the machine — the one M36 already singles out for leaving the
+sealed bay and climbing the outside of the case to the tank.
+
+**What puts 21 V on IO14 on a built board:** a slip between adjacent screws on a
+5.08 mm block; a wet connector bridging J5.1 to J5.3; or a level sensor whose output
+is a voltage rather than a dry contact. Any of the three destroys the module.
+
+A second, smaller note from the same finding: IO14 is **MTMS/HS2_CLK** (v2.1
+Table 3) and is driven by the chip during boot, so a sensor that is a hard short to
+GND makes the pad drive into a short for the first milliseconds.
+
+**The fix is one or two parts:** a 1 k series resistor into IO14 plus a clamp to
+3V3/GND, or divide J5.3 the way VBAT_SENSE is divided. ⚠ **NOT APPLIED.** It is a
+re-route and a BOM line (about $1.28 of feeder, finding 22), and it is the one
+finding here that is arguably a **re-spin rather than a decision** — so it is the
+owner's call and it is recorded, measured, at the top of the list.
+
+### 31 — CLOSED, and the finding does NOT stand: the VGATE shunt holds, because only one pump ever switches
+
+**Pass 1 raised this as a droop risk and it was right to make us check — but its
+premise is wrong, and the check it asked for is the thing that settles it.** Recorded
+in full rather than quietly dropped, because an independent reviewer's wrong finding
+is still evidence about what the design record fails to make obvious.
+
+**What pass 1 computed.** VGATE is a shunt: R9 1k5 from VBAT, clamped by D5 BZT52C10
+(9.4–10.6 V, 500 mW), feeding both UCC27517s. Available current = (VBAT − 10)/1500 →
+**5.3 mA at 18 V**, 3.3 mA at 15 V, 7.3 mA at 21 V. Demand = **2 ×** Qg × fSW ≈
+**4 mA at 20 kHz** — therefore marginal at nominal and in deficit at a sagging pack.
+It explicitly flagged that the PWM frequency was not derivable from the fab files and
+**asked for it to be checked against the firmware.** It is 20 kHz
+(`firmware/src/pins.h`: `PWM_FREQ = 20000`), which is exactly the frequency the
+finding was pointed at.
+
+**⚠ THE ERROR IS THE FACTOR OF 2, AND THIS BOARD STRUCTURALLY FORBIDS IT.** The two
+pumps are **mutually exclusive** — they would fight through the shared tees and pull
+2 × 7.5 A off one pack. `firmware/src/main.cpp` makes the exclusion structural in
+`drivePumps`, and `tools/check_pump_dirs.py` is the gate that holds it, raising
+`BOTH PUMPS DRIVEN` if it ever stops being true. CIRCUIT.md §7 states the consequence
+for a different reason entirely: *"J1 never sees both pumps."*
+
+So the switching demand is **one** FET's Qg × fSW, not two. And CIRCUIT.md §2 had
+already costed it: *"the drivers' quiescent plus Qg×fsw, **about 1.5 mA with one pump
+running at 20 kHz**"*.
+
+| pack | shunt delivers | demand, one pump at 20 kHz | margin |
+|---|---|---|---|
+| 21 V fresh | 7.3 mA | ≈1.5 mA | 4.9× |
+| 18 V nominal | 5.3 mA | ≈1.5 mA | 3.5× |
+| **15 V flat** | **3.3 mA** | ≈1.5 mA | **2.2×** |
+
+**The shunt holds at every pack voltage, including a flat one.**
+
+**And the second half of the finding was already answered in the design record, with
+the same numbers.** Pass 1 reported the standing drain as a discovery; CIRCUIT.md §2
+states it: *"It costs 3.3 mA of standing current at a flat pack and 6.7 mA at a fresh
+one, which is nothing beside the ESP32's 100 mA and the level sensor's own draw; this
+machine has no low-power idle state to protect. A 60 V LDO would be tidier and would
+not idle, if you would rather spend the part."* That is the same arithmetic, the
+decision already taken, and the alternative already named. **Accepted, not newly
+found.**
+
+#### The one number that is genuinely unpinned, and it does not change the answer
+
+The hinge is whether IRLR3636's **Qg = 49 nC is quoted at VGS 4.5 V or 10 V.** Pass 1
+read it as 4.5 V and doubled it to ≈100 nC at the 10 V rail; CIRCUIT.md's 1.5 mA
+total implies ≈49 nC at 10 V. Pass 1's own caveats say its WebFetch quota ran out,
+and IR PD-96224 was not re-read for this. **Taken both ways:**
+
+* 49 nC at 10 V → 0.98 mA switching + ≈0.5 mA quiescent = **1.5 mA**, margin 2.2× at a flat pack
+* ≈100 nC at 10 V → 2.0 mA switching + 0.5 quiescent = **2.5 mA**, margin **1.3×** at a flat pack
+
+**Either way the shunt holds with one pump running**, so the finding closes on the
+worse of the two readings. Worth pinning the Qg condition when the datasheet is next
+open, because 1.3× at a flat pack is thin enough that a future frequency increase
+would need re-checking — and `PWM_FREQ` is one editable constant with no gate tying
+it to this budget. **That missing gate is the real residue of this finding**, and it
+is the thing to fix rather than the circuit.
+
+#### Why a correct review produced a wrong finding, which is worth more than the finding
+
+Pass 1 was given the netlist, the BOM, the placement and the datasheets, and
+deliberately **not** `elec/main.py` or `CIRCUIT.md` — that ignorance is the whole
+design of the pass. Mutual exclusion is a **firmware and gate** property; it is
+invisible in the fab package. So a reviewer reading only what the fab reads will
+assume two switching FETs every time, and should. The cost of independence is findings
+like this one; the benefit is finding 30, which no amount of reading our own documents
+would have produced. **Both come from the same ignorance and it is not possible to
+keep one without the other.**
+
+### 32 — OPEN: four of U1's six thermal vias sit inside the stencil apertures
+
+**Pass 1, reading the gerbers rather than the footprint source.** In
+`wbp:SOIC-8-1EP-FABDRILL`, pad 9 is a 2.29 × 3.0 mm land with six 0.3 mm plated vias
+at (±0.65, −1), (±0.65, 0), (±0.65, +1). The paste is four F.Paste-only windows of
+0.96 × 1.25 mm at (±0.57, ±0.75), spanning x 0.09…1.05 and y 0.125…1.375 — which
+**encloses the four vias at (±0.65, ±1.0)**. Confirmed in F_Mask, which carries the
+full EP opening at 64.0/−70.0, aperture 2.29 × 3.0: the vias are **open, unfilled
+and untented**, with paste printed straight over them.
+
+Solder wicks through at reflow, reducing EP solder volume and leaving bumps on B.Cu.
+TI SNVSAA5B **Table 4-1, p. 3**: pin 9 is "the major heat dissipation path of the
+die. Must be connected to ground plane on PCB."
+
+**Consequence: a degraded, not absent, heat path** — fine at the few hundred mA the
+3V3 rail actually draws, a thermal-shutdown risk if it is ever loaded near 2 A.
+
+**The board's own ESP32 footprint does this correctly, which is the useful part of
+the finding:** there the vias sit *between* the paste pads, 0.7 mm off. So the fix is
+to copy what the other footprint already does — move the EP vias off the aperture
+centres, or tent them from the top.
+
+### 33 — OPEN: the VBAT_SENSE divider saturates above ~20.3 V, and TWO passes found it independently
+
+**Passes 1 and 2 reached this separately**, which is what makes it worth acting on:
+pass 1 from the divider arithmetic, pass 2 from the ADC's characterised range.
+
+R20 100 k / R21 18 k gives a gain of 18/118 = **0.15254** into U2 pin 7 (IO35,
+**ADC1_CH7**). At a full pack:
+
+| pack | at IO35 |
+|---|---|
+| 18 V nominal | 2.75 V |
+| **20.3 V** | **≈3.1 V — ADC1 11 dB full scale** |
+| 21.0 V fresh | **3.20 V** |
+
+**No damage** — Table 15 allows VDD + 0.3 — but everything above about **20.3 V reads
+as the same saturated value**, and that is precisely the end of the range a
+"battery full" reading needs. Pass 2 adds that `analogReadMilliVolts` with
+`ADC_11db` is factory-characterised to roughly 3100 mV, and that 3.05–3.20 V sits
+well above the 150–2450 mV **linear** suggestion, so the reading is compressed
+before it is clipped.
+
+⚠ **AND THE ERROR IS IN THE DANGEROUS DIRECTION.** Compression reads the pack
+**low**, which **raises** the duty cap — the same failure direction `main.cpp`'s own
+clipping comment warns about. So this is not merely a cosmetic range issue.
+
+#### ⚠ THE OBVIOUS FIX COSTS A BOM LINE. CHANGE THE BOTTOM LEG, NOT THE TOP.
+
+Both passes proposed raising the top leg — 150 k/18 k or 180 k/18 k. **That is the
+finding-22 trap, and it caught me too: I wrote "changes no BOM line count" before
+reading the BOM.** `100k` is **one line shared by four parts — R1, R20, R6 and R7**
+(`100k,"R1,R20,R6,R7",0603,C25803`). Moving R20 off it creates a **second** line while
+100 k is still needed for the other three: **+1 line, about +$1.28 of feeder**, to fix
+a reading error.
+
+`18k` is **R21 alone** (`18k,R21,0603,C25810`). So changing the **bottom** leg is
+value-for-value and the line count is identical.
+
+Derived against the ADC's own numbers — 11 dB full scale ≈**3.100 V**, linear
+suggestion **0.150–2.450 V**:
+
+| divider | ratio | 15 V flat | 18 V nom | **21 V fresh** | clamp 38.9 V |
+|---|---|---|---|---|---|
+| **100k/18k as built** | 0.15254 | 2.288 | 2.746 | **3.203 — clipped** | 5.93 |
+| 100k/15k | 0.13043 | 1.957 | 2.348 | 2.739 — on scale, past linear | 5.07 |
+| 100k/13k | 0.11504 | 1.726 | 2.071 | 2.416 — just inside linear | 4.48 |
+| **100k/12k — recommended** | 0.10714 | 1.607 | 1.929 | **2.250** | **4.17** |
+
+**100k/12k puts the entire 15–21 V operating range inside the ADC's linear band**
+(1.607–2.250 V against 0.150–2.450), with 0.85 V of headroom to full scale instead of
+being 0.10 V over it. 12 k is E24 and ordinary. 13 k also works and is tighter; 15 k
+clears the clipping but leaves the top of the range in the compressed region, which is
+the half of the problem that actually biases the duty cap.
+
+**It improves finding 36's transient at the same time** — the clamped 38.9 V arrives at
+IO35 as **4.17 V instead of 5.93 V** on a 3.6 V pin. Same divider, both ends, one
+change. That is the argument for doing it rather than living with it.
+
+**The ratio is already derived, not typed**, so the edit is one string:
+`RDIV_TOP, RDIV_BOT = "100k", "18k"` at `elec/main.py:39`, with `SENSE_RATIO` spelled
+from it on line 43 and A16's `net_volts` for VBAT_SENSE reading through it — so the
+quality declaration, the assert and the firmware's scaling all follow automatically.
+
+⚠ **NOT APPLIED, and the one thing missing is a part code, which I will not invent.**
+`REQUIRE_CODES` means a value needs an LCSC code that is actually stocked and Basic;
+guessing one is the fabrication this repo has scars from. **The remaining step is to
+look up a Basic 0603 12 k (or 13 k) and confirm it is stocked, then change the one
+string and re-run the chain.** Everything else about the change is derived.
+
+Pass 2's alternative stands in the meantime: **a bench check of `readVbat()` against a
+meter at a full pack during bring-up** is enough to order the board on, because nothing
+here is a damage mechanism — only a reading one. Pass 2's
+alternative is a bench check of `readVbat()` against a meter at a full pack during
+bring-up, which is enough to order the board on.
+
+### 34 — Three lower-severity notes from pass 1, recorded rather than actioned
+
+**a. No high-frequency ceramic directly at U1's VIN.** The nearest VBAT bypass to
+U1 pin 2 is C15 (4.7 µF, **1206**) at 4.3 mm; C17/C20 (10 µF 1206) and C1/C2 (100 µF
+electrolytic) are further. TI SNVSAA5B Table 4-1 p. 3, VIN: "Path from VIN pin to
+high frequency bypass CIN and GND must be as short as possible", reinforced in §7.4.
+A 1206 X7R has markedly more loop inductance than an 0603 100 n. Effect: more SW-node
+ringing and EMI and more stress on the internal high-side FET, at 500 kHz on a 21 V
+input. **A 100 n 0603 beside pins 2/7 would cost one BOM line** — and per finding 22
+that is the real price, about $1.28, not the part.
+
+**b. IO0 has no external pull-up.** U2 pin 25 goes only to J6 pin 6, so boot-mode
+selection relies on the internal pull-up with a header stub attached. Standard
+devkits fit 10 k. Pass 2 independently confirmed the **boot state is correct**
+(wpu → 1 → SPI Boot Mode, v2.1 §4 Table 4 and Table 6), so this is a robustness
+note, not a defect — and pass 1 said so itself, having no datasheet requirement to
+cite for the resistor.
+
+**c. No reverse-battery protection beyond D1 and F2.** Reversing J1 forward-biases
+the SMCJ24A and relies on the ATO fuse clearing; C1/C2 are polarised and the pumps
+see reverse voltage until it does. Conventional for this topology, but worth a
+**conscious** decision given J1 is a screw terminal a person wires by hand in a
+garden — which is exactly the case where a connector *can* be mated backwards.
+
+### 35 — CLOSED: pre-order validation passes 1 and 2 ran, and most of what they checked was right
+
+**Two of the four passes in `VALIDATION_AGENTS.md` are complete.** Both were run by
+reviewers with **no access to `elec/main.py`**, which was the whole point: a reviewer
+who has read the generator re-derives the generator's assumptions and agrees with
+them.
+
+**The feedback divider — the live hook the pass was pointed at — is correct, derived
+from the datasheet's own equation rather than from our arithmetic.** VFB = 0.750 V
+typ (SNVSAA5B §5.5, p. 5; 0.744–0.756 at 25 °C). §6.3.5 Eq. 1:
+VOUT = 0.75 × (1 + RFBT/RFBB) = 0.75 × (1 + 100 000/29 400) = **3.301 V**, worst case
+**3.21–3.39 V** with 1 % parts — inside the module's 3.0–3.6 V (v2.1 Table 14) and
+under the 3.6 V abs max. RFBB 29.4 k is inside the recommended 10 k–100 k.
+
+**The bottom-view-as-top-view trap was tested by SOLVING THE TRANSFORM, not by
+looking.** From the gerbers, U2's pad 1 at (144.0756, 68.2839) and pad 25 at
+(127.5656, 85.7839) give a transform with **determinant +1 — a plain 270° rotation,
+not a mirror** — and numbering runs counter-clockwise from top-left exactly as v2.1
+Figure 3 draws it. Pitch 1.27 mm, rows at ±8.75. **The antenna overhangs the board
+edge and no copper sits in the keep-out.**
+
+**D2/D3 were the reviewer's top suspect and they are correct**, which also disposes of
+an alarm raised mid-review. LCSC C260296 is **MBRB2060CT, a dual common-cathode
+Schottky**, not a 2-pin part: onsemi MBRB2060CT/D p. 1 cites **CASE 418B STYLE 3 =
+anode / cathode / anode / cathode(tab)**. The netlist puts pins **1 and 3 both on
+PUMP_x_LO** (anodes paralleled) and pad 2 on VBAT — correct freewheel orientation for
+a low-side switch. The land was checked too, not just the name: our `TO-263-2` places
+pads 1 and 3 at **5.08 mm** with pad 2 as the 9.4 × 10.8 tab, and onsemi's own
+soldering footprint (CASE 418B-04 p. 2) is "2× 3.504 × 1.016, 5.080 PITCH" — the
+D2PAK-3 of this device has only the two outer leads. **A sub-agent flagged this part
+as a mismatch against a 15 A / 0.59 V expectation; the parent resolved it against the
+netlist and the land, and the flag was wrong.** Recorded because the alarm was
+circulated before the resolution was.
+
+**Pass 2's headline: no re-spin on pin functions.** VBAT_SENSE is on IO35 =
+**ADC1_CH7** and JOY_FILT on IO34 = **ADC1_CH6** (v2.1 §3.2 Table 3; ESP32 Series DS
+v5.3 Appendix A.4 Table IO_MUX rows 10/11). **Both analogue inputs are on ADC1, so
+the ADC2-is-unusable-with-WiFi trap never applies** — the single highest-value check
+in that pass. The ADC2 pads that are populated carry digital roles only.
+
+**All five strapping pins boot to the right value, four of them by being deliberately
+unpopulated** (v2.1 §4 Table 4: the internal weak pull sets the level when a pin is
+"not connected to any circuit"): IO0 wpu→1 → SPI Boot; IO2 wpd→0, only consulted
+when IO0=0; **IO12/MTDI wpd→0 → VDD_SDIO 3.3 V, which the module's flash requires
+and nothing on this board can pull up**; IO15/MTDO wpu→1 → boot log on U0TXD, wanted
+for bring-up over J6; IO5 wpu→1 → SDIO slave timing, don't-care.
+
+⚠ **AND THE SIGN-OFF'S OWN ARGUMENT WAS WEAKER THAN THE RESULT.** M8 argued "no pump
+gate or the buzzer lands on a strapping pin" — true, but it only tests the pins that
+*are* used. The question that matters is what the five strapping pads see at reset,
+which is the table above. The conclusion survives; the reasoning has been replaced
+with one that actually addresses it.
+
+**Also confirmed, each against its datasheet:** U3/U4's IN− tied to GND is what
+SLUSAY4D explicitly requires for non-inverting use ("OUT held LOW if IN- is unbiased
+or floating"), and with "Output Held Low When Input Pins Are Floating" plus R6/R7's
+100 k gate pulldowns **the pumps cannot self-start while the ESP32 is in reset**.
+UART0 is **not** crossed (pin 35 TXD0 → J6.3, pin 34 RXD0 ← J6.4 via R25). EN has
+R3 + C8, satisfying Table 3's "do not leave the pin floating". Diode polarity was
+resolved from the library's F.Fab cathode bar rather than assumed, giving D6
+cathode→SW (correct for a non-synchronous catch diode), D1 cathode→VBAT,
+D4 cathode→+3V3, D5 cathode→VGATE. Q1/Q2 gate/drain/source and the ±16 V VGS limit
+against a 10 V rail. L1's ripple computes to 0.56 A pk-pk at 21 V/500 kHz, peak
+2.28 A against Isat 4.6 A, and min on-time 314 ns against the 75 ns limit (§5.6).
+F2 is in the pack lead with **D1 on the fused side** — the right order.
+
+**Pass 2 also closed a gate gap it was not asked to find.** `tools/check_pin_map.py`
+had rules for ADC1, ADC2, input-only and strapping pins but **none for GPIO6–11, the
+module's internal flash bus** (v2.1 Table 3 note 2; module pins 17–22 are NC). A
+firmware pin moved onto 6–11 would have passed. `FLASH_BUS` added. The netlist puts
+nothing there, so this is a gate gap, not a board defect.
+
+**And the deliverable is the firmware, which is the check.** `firmware/src/pins.h`
+and `pins.cpp` name all twelve connected module pins with a datasheet reason each,
+and preserve one ordering that matters: **both gates are driven LOW as plain outputs
+before `ledcAttach`**, because `ledcAttach` leaves the pad driven from a channel whose
+duty is undefined until the first `ledcWrite`. Pass 2 also established that the
+**no-twitch guarantee during boot is hardware, not firmware** — IO25/26/27/14 are
+`oe=0, ie=0` with no internal pull from reset until `pinsInit()` runs (DS v5.3
+Appendix A.4, "At Reset" column), so what holds the pumps off is UCC27517's internal
+IN+ pull-down plus R6/R7, and what holds LEVEL at "not full" is R23.
+
+#### ⚠ What these two passes could NOT verify, named rather than glossed
+
+Pass 1's WebFetch quota ran out after the critical parts. **Not read from their own
+datasheets:** SMCJ24A (C310039 — the clamp-coordination check above used Littelfuse
+SMCJ-series figures Vwm 24 / Vbr min 26.7 / **Vc 38.9 V** from memory; every
+downstream part survives 38.9 V, but **confirm those three numbers**, because M26 and
+finding 31's headroom both lean on them), MMBT3904 (C20526 — pinout taken as the
+standard SOT-23 NPN B/E/C, which the circuit corroborates), D6 (C7428237, 60 V/3 A
+from the BOM comment and the LCSC listing only), F1 (C69680), F2's holder (C207061),
+BZ1 (C252936), and the Phoenix MKDS blocks. For D2/D3 it used onsemi's and Vishay's
+MBRB2060CT datasheets rather than SMC/Sangdest's own, which LCSC would not serve as
+text — the pin style and 5.08 mm two-lead footprint are JEDEC CASE 418B and not
+vendor-specific, but the SMC drawing is the one to glance at to make it airtight.
+
+**Passes 3 and 4 are still running** (the new voltage-vs-pin-rating rule in canonical
+cadkit, and the custom footprints against the makers' land patterns). Pass 4 was
+holding for its own research sub-agent's citations rather than report three parts
+uncited, which is the right instinct and is why it is not here yet.
+
+---
+
+### 36 — CLOSED: validation pass 3 built the missing rule, and it found two pins M5 never mentioned
+
+**The lead's pass 3 was right that no rule covered voltage against rating.** There is
+one now: **A16, "No pin sees more than it is rated for"**, in **canonical**
+`../cadkit` (commit `652cc8b`) and propagated to **11/11 consumers with no repo
+skipped** — not hand-edited into the vendored copy, which is the drift that collided
+with the pedal steel project's A13 and cost a day. A16 was the next genuinely free
+id, confirmed against `RULES` in `quality.py` rather than assumed.
+
+**Nothing is baked into the rule.** A project declares two things in
+`BOARD_NOTES["quality"]`, in the same style as `power_paths` and `pinouts`:
+
+* `net_volts`: net name **or fnmatch pattern** → steady `v`, transient `peak`, and a
+  `why`. Exact key beats pattern, most-literal pattern wins. **An undeclared net is a
+  hard FAIL**, so the rule cannot be defeated by silence.
+* `pin_volts`: `ref.pin` / `ref` / `value` / `footprint` (or pattern) → `max`, `peak`,
+  per-pin overrides, and a **required `src`** wherever there is a number.
+  `"max": "none"` plus a `why` declares "no net-to-ground rating applies here" and
+  **prints** — 14 such pins on this board (the test pads, L1's winding, U1's
+  BOOT/RT/SS).
+
+One default only: a capacitor whose BOM value already carries its rating (`10u/25V`)
+is read there. **`ZENER-10V` and a `3V` buzzer are deliberately NOT parsed — an
+operating point is not a limit**, and that distinction is the kind of thing that makes
+a rule trustworthy rather than merely green.
+
+**Steady state and clamped transient are separate claims against separate ratings**,
+which is the design decision worth recording: steady over-rating is **hard**; a
+transient over-rating is **soft** and answerable only by a declaration naming what
+makes it inapplicable — the part *is* the clamp, the rating is an *interruption*
+rating, the datasheet gives a transient figure, or the surge reaches the pin only
+through an impedance its own clamp absorbs.
+
+#### Made to fail — six ways, on temp copies of the real board
+
+| case | answer |
+|---|---|
+| unbroken board | **no failure, and a measurement**: 119 pins graded, 105 against a number, tightest steady margin **0.3 V at U2.10 (PWM_B), 3.3 V on a 3.6 V pin** |
+| 20 V net on a 16 V part | hard: names part, pin and both numbers; **a waiver is ignored** |
+| one pin's rating deleted | **hard FAIL, not OPEN** — justified: OPEN is for questions a script cannot ask, and here it asked a named pin and got no answer |
+| every rating absent | hard: "not one of the 119 pins on a live net has a NUMBER … A16 can make **NO CLAIM**" |
+| no net voltages at all | hard: "an unmade check, not a clean board", and nothing is graded |
+| transient raised to 100 V | **44 soft** clamped-transient failures and **zero** steady-state ones — a different, correct answer |
+
+The unbroken case passing is the half that makes the harness mean anything, and the
+"no claim" case is the one that matters most: a rule whose data is missing must say so
+rather than report a clean board. That is the same failure mode as `fab_frames.derive`
+saving an empty table (finding 24).
+
+#### ⚠ The two real findings — both pins M5 judged against the clamp and never named
+
+M5 weighed five parts against D1's 38.9 V clamp. **Writing the declaration found two
+more it had missed.** Both survive, and the reasons are now per-pin declarations read
+on **every** run rather than prose, and appended to M5's sign-off:
+
+**1. F1 is the one part on VBAT rated UNDER the clamp — a 30 V PPTC against 38.9 V.**
+(`PTC-30V-200mA`, on VBAT and VBAT_LVL.) It survives because **a PPTC's voltage rating
+is a withstand rating for the TRIPPED device.** It is not tripped during a surge —
+milliseconds against a thermal time constant of seconds — so it is a sub-ohm resistor
+in series with the load and the 38.9 V is across the pair. The only time it holds off a
+voltage is after it opens, and what is behind it then is the **20 V pack**, because
+D1's failure mode is a short that crowbars the rail. Steady state clears by 10 V.
+
+**2. The clamp does not stop at the rail: U2.7 (IO35) sees 5.93 V on a 3.6 V pin.**
+38.9 V × 18/118 through the sense divider. It survives because it arrives through
+**100 k**: the pin's own ESD diode holds the node near 3.9 V while taking ≈20 µA, and
+the tap's RC (100k∥18k × C11 = **1.5 ms**) is the same order as the 10/1000 µs
+waveform D1's VC is specified on, so the node never reaches 5.93 V. The DC case —
+which is what a 3.6 V absolute maximum is written for — is **3.05 V** and is asserted.
+
+⚠ **Note how finding 2 here and finding 33 are the same divider seen from two ends.**
+A16 says its transient is survivable; pass 2 and pass 1 say its *steady* reading
+saturates above 20.3 V. Both are true, and the 150k/18k change finding 33 proposes
+would improve both margins at once. That is the argument for doing it.
+
+**Every figure in the declaration is either one of `elec/main.py`'s own constants or a
+cited reading** — `VBAT_MAX`, `TVS_CLAMP`, `VGATE_V`, `PUMP_FET_VDS_MIN/VGS_MAX`,
+`FREEWHEEL_VR_MIN`, `BUCK_VIN_ABSMAX`, `BUCK_CATCH_VR_MIN`, `LVL_FUSE_V_MIN` — with
+three added rather than retyped: `SENSE_RATIO` (spelled from `RDIV_TOP`/`RDIV_BOT`),
+`BOOT_SW_MAX` and `BUCK_CTRL_ABSMAX`, both 5.5 V from **SNVSAA5B rev B**, the revision
+M35's own reading caught.
+
+**Citations carried in `src`:** TI SNVSAA5B §5.1 (VIN/EN/SW 44 V; FB and BOOT-to-SW
+5.5 V, rev B); TI SLUSAY4D §8.1/8.3 (UCC27517 VDD 20 V abs, 18 V rec, inputs 20 V and
+**not** restricted by VDD); Espressif v2.1 Table 13 (3.6 V); Littelfuse SMCJ24A
+(VWM 24, VBR 26.7, **VC 38.9 at 38.6 A** — which also answers pass 1's open caveat
+that those three numbers were quoted from memory); Littelfuse FLR 178.6165 holder
+**80 V/30 A, so F2 is NOT under the clamp**; onsemi MMBT3904 (VCEO 40, VEBO 6.0);
+1N4148W 75 V; and the LCSC lines in `elec/fab.py` for the two capacitors whose value
+string carries no rating. Resistors use class figures; the WJ500V terminals and the
+2.54 header use conservative declared figures, **stated as such in `src`**.
+
+**Board result: 0 unconnected, 0 violations, quality 0 FAIL, 0 OPEN** (1 pre-existing
+waiver). A16 itself: **151 rows checked, 0 FAIL.**
+
+#### Two things to know about the propagation
+
+* `public-steel-guitar/elec/out/can_tee` — the only other project with a routed board
+  — was **already at 5 FAILs and 22 OPENs**, and A16 adds a 6th because it declares no
+  `net_volts`. **A new rule failing an old, already-unclean board is the documented
+  behaviour, not a regression**, but that project now owes A16 a declaration.
+* Running that board's pass **overwrote its untracked `can_tee.quality.json`**. Harmless
+  (it is a build artifact) but recorded, because a validation pass that writes into
+  another project's tree is the kind of side effect that should never be a surprise.
+
+**M5 was narrowed to the judgement A16 cannot make**, rather than left overlapping it,
+and the learnings log carries a row. Pass 4 — the custom footprints against the
+makers' land patterns — is the one pass still outstanding.
+
+---
+
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 
 **Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full
