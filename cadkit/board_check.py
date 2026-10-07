@@ -169,11 +169,16 @@ def _end_misses(shape, parts, c, u, v, up, t):
 
 
 def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
-          strict_ends=False):
+          strict_ends=False, ends_ok=None):
     """Number of disagreements between `solid` (the CAD's board, any pose) and `geom`
     (the routed board): missing parts + 1 if mirrored + cutout mismatches (+ bodies that
     stop short of a routed end, with `strict_ends`). Raises RuntimeError if no face of
-    the solid is the routed outline's size."""
+    the solid is the routed outline's size.
+
+    `ends_ok` is {ref: reason} for the bodies drawn to their real shape that honestly do
+    not reach the board face at an end of their fab rectangle (a jack's round bushing).
+    Their end probes are printed with the reason and not counted. A ref named there that
+    no longer misses an end IS counted: a stale declaration."""
     w, l = geom["outline_mm"]
     t = geom["thickness_mm"]
     shape = solid.val() if hasattr(solid, "val") else solid
@@ -203,6 +208,10 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
                     best = (misses, mirrored, plate, (c, u, v, up))
     misses, mirrored, plate, pose = best
     short = _end_misses(shape, parts, *pose, t)
+    ends_ok = dict(ends_ok or {})
+    declared = [s for s in short if s[0] in ends_ok]
+    short = [s for s in short if s[0] not in ends_ok]
+    stale = sorted(set(ends_ok) - {s[0] for s in declared})
     faces = [pl for _c, _d, pl in plates]
     holes = _hole_check(_through_wires(plate, faces, plate.normalAt()), geom, verbose)
     if verbose:
@@ -215,6 +224,13 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
         for ref, name, which, px, py in short:
             print("      SHORT OR SHIFTED %-6s %-36s no body %.2f mm inside its %s end "
                   "(%.2f, %.2f)" % (ref, name[:36], END_INSET, which, px, py))
+        for ref, name, which, px, py in declared:
+            print("      declared: %-6s stops short of its %s end -- %s"
+                  % (ref, which, ends_ok[ref]))
+        for ref in stale:
+            print("      STALE ends_ok: %-6s reaches both its ends, or is not on the board"
+                  % ref)
         if short and not strict_ends:
             print("      (%d end probe(s) found no body: reported, not counted)" % len(short))
-    return len(misses) + (1 if mirrored else 0) + holes + (len(short) if strict_ends else 0)
+    return (len(misses) + (1 if mirrored else 0) + holes + len(stale)
+            + (len(short) if strict_ends else 0))
