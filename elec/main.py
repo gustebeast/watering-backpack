@@ -37,6 +37,17 @@ PUMP_A   = 7.5           # per pump, peak
 # Battery sense divider: VBAT_MAX must land under 3.3 V at the ADC with margin.
 # 100k/18k -> 20 V * 18/118 = 3.05 V. 100k top leg keeps idle draw ~170 uA.
 RDIV_TOP, RDIV_BOT = "100k", "18k"
+# Spelled from those same two strings rather than retyped, because A16 grades the
+# ADC pin against what this divider DELIVERS -- at a fresh pack and at the clamp.
+assert RDIV_TOP.endswith("k") and RDIV_BOT.endswith("k")
+SENSE_RATIO = float(RDIV_BOT[:-1]) / (float(RDIV_TOP[:-1]) + float(RDIV_BOT[:-1]))
+
+# U1's two low-voltage absolute maxima, both of them the numbers REVISION B of the
+# datasheet lowered (SNVSAA5B 5.1; rev A had 6.5 and 7). The M35 sign-off is where
+# that reading is recorded; these are the figures A16 judges U1's control pins and
+# the BOOT node against, so they live here as constants rather than in prose.
+BOOT_SW_MAX       = 5.5      # V, BOOT to SW
+BUCK_CTRL_ABSMAX  = 5.5      # V, FB to GND -- and the ceiling U1's internal rail sets
 
 # ── The buck's feedback divider, DERIVED from the datasheet's own reference ──
 # It was R1=100k / R2=31k6, with the comment "FB bottom -> 3.3 V". It is not
@@ -1613,6 +1624,298 @@ BOARD_NOTES = {
                     "EN, IO0. The two UART pins are named from the BOARD's end "
                     "on purpose (PCB_QUALITY M26): an adapter's own TXD goes to "
                     "ESP_RX, not to a pin that also says TXD",
+        },
+        # ── A16: what every net reaches, and what every pin is rated for ──
+        # ⚠ THE WORST CASE ON THIS BOARD IS NOT 18 V AND IT IS NOT 20 V EITHER.
+        # The pack is 20 V fresh (VBAT_MAX) and D1 clamps at 38.9 (TVS_CLAMP),
+        # so every net the pack reaches has TWO numbers, and the parts on it are
+        # judged against both. Every figure below is one of this file's own
+        # constants or a reading cited in `src` -- nothing here is retyped.
+        #
+        # STEADY vs TRANSIENT, and how this board treats the clamp: `v` is what
+        # the net holds whenever the machine is on, `peak` is what it reaches
+        # while D1 conducts. A pin is excused from the transient ONLY by naming
+        # what makes it inapplicable, and three pins are:
+        #   F1.1/F1.2  a PPTC's 30 V is a withstand rating for the TRIPPED
+        #              device. During a clamp the PTC is not tripped -- its
+        #              thermal time constant is seconds and the surge is
+        #              milliseconds -- so it is a sub-ohm resistor carrying
+        #              current, with ~0 V across it. The 38.9 V appears across
+        #              the PTC AND its load in series, and the PTC only ever has
+        #              to hold off a voltage when it has opened, which it does
+        #              against the 20 V pack.
+        #   D1.1/D1.2  the part IS the clamp. 38.9 V is its own VC.
+        #   U2.7       the tap of the 100k/18k divider. See its entry.
+        "net_volts": {
+            "GND": {"v": 0.0, "why": "the reference: nothing to exceed"},
+            # The pack rails and the two motor legs. One pattern, because they
+            # are one node as far as voltage goes -- VBAT_RAW is in front of the
+            # fuse, VBAT_LVL behind the PTC, PUMP_x_LO under the motor, and a
+            # clamp event arrives at all four.
+            "VBAT*": {"v": VBAT_MAX, "peak": TVS_CLAMP,
+                      "why": "a fresh Makita LXT pack is %.0f V (VBAT_MAX), and "
+                             "D1's own clamp is %.1f V (TVS_CLAMP, Littelfuse "
+                             "SMCJ24A VC max at 38.6 A)" % (VBAT_MAX, TVS_CLAMP)},
+            "PUMP_?_LO": {"v": VBAT_MAX, "peak": TVS_CLAMP,
+                          "why": "the motor's low side: the pump leg sits at VBAT "
+                                 "whenever its FET is off, so it is the same two "
+                                 "numbers as the rail"},
+            "SW": {"v": VBAT_MAX, "peak": TVS_CLAMP,
+                   "why": "SW follows VIN whenever U1's high-side switch is on, "
+                          "which is the coupling the BUCK_CATCH_VR_MIN assert "
+                          "above already carries"},
+            # BOOT. The bootstrap capacitor rides on SW, so this node is a
+            # diode drop above the switch node plus U1's internal VCC.
+            # ⚠ N$1 IS SKiDL'S AUTO-NAME FOR THE BOOT NODE (C3.1 - U1.1), and
+            # the four N$ nets are keyed exactly so that a renumber cannot
+            # quietly move a rating: an unmatched name is a hard A16 failure.
+            "N$1": {"v": VBAT_MAX + BOOT_SW_MAX, "peak": TVS_CLAMP + BOOT_SW_MAX,
+                    "why": "BOOT = SW + U1's internal VCC; BOOT-to-SW is %.1f V "
+                           "(SNVSAA5B rev B 5.1, the number the M35 reading "
+                           "caught being lowered from 6.5)" % BOOT_SW_MAX},
+            # The gate rail and the two gate nodes past the 10R.
+            "VGATE": {"v": VGATE_V, "peak": VGATE_V + 0.5,
+                      "why": "a shunt rail: D5 sets it. At the clamp R9 passes "
+                             "(%.1f-%.0f)/1k5 = %.0f mA and a 0W5 10 V zener's "
+                             "dynamic resistance adds a few tenths"
+                             % (TVS_CLAMP, VGATE_V, (TVS_CLAMP - VGATE_V) / 1.5)},
+            "GATE_?": {"v": VGATE_V, "peak": VGATE_V + 0.5,
+                       "why": "a UCC27517 output swings to its own VDD, which is "
+                              "VGATE"},
+            "N$2": {"v": VGATE_V, "peak": VGATE_V + 0.5,
+                    "why": "Q1's gate, past R4; same rail as GATE_A"},
+            "N$3": {"v": VGATE_V, "peak": VGATE_V + 0.5,
+                    "why": "Q2's gate, past R5; same rail as GATE_B"},
+            # The 3V3 domain: the rail, every logic net on it, and the buzzer
+            # drive. The buck's own control pins are below.
+            "+3V3": {"v": 3.3, "why": "the buck's output, asserted at 3.301 V by "
+                                      "the feedback arithmetic above"},
+            "PWM_?": 3.3, "BUZZ": 3.3, "N$4": 3.3, "BUZZ_DRV": 3.3,
+            "EN": 3.3, "IO0": 3.3, "ESP_*": 3.3, "PROG_RX_IN": 3.3,
+            "JOY_*": 3.3,
+            "LEVEL": {"v": 3.3,
+                      "why": "the XKC-Y25's output is an open collector that only "
+                             "pulls DOWN; R23 to +3V3 is the only thing that "
+                             "raises it. A sensor fault putting its own %.0f V "
+                             "supply on this wire is M10/M18, not a voltage this "
+                             "net is designed to carry" % VBAT_MAX},
+            # The ADC tap. Both numbers are the divider acting on the two above.
+            "VBAT_SENSE": {"v": VBAT_MAX * SENSE_RATIO,
+                           "peak": TVS_CLAMP * SENSE_RATIO,
+                           "why": "%s/%s on the rail: %.2f V at a fresh pack and "
+                                  "%.2f V at the clamp"
+                                  % (RDIV_TOP, RDIV_BOT, VBAT_MAX * SENSE_RATIO,
+                                     TVS_CLAMP * SENSE_RATIO)},
+            # U1's own control pins. Nothing outside the part drives any of
+            # them: FB is the divider's tap at 0.750 V, RT is a resistor to
+            # ground, SS a capacitor to ground. The ceiling is U1's internal
+            # rail, and the datasheet's own absolute maximum for these pins is
+            # what that ceiling is declared as.
+            "FB": {"v": 3.3,
+                   "why": "0.750 V in operation (BUCK_VFB). FB is an INPUT -- U1 "
+                          "senses it -- so the only thing that can drive this "
+                          "node is the +3V3 rail through R1, which is where it "
+                          "goes if R2 ever opens"},
+            "RT": {"v": BUCK_CTRL_ABSMAX,
+                   "why": "a 49k9 to ground off U1's internal reference. Nothing "
+                          "outside the part touches it, so the ceiling is U1's "
+                          "own internal rail, declared at the %.1f V that "
+                          "SNVSAA5B rev B gives its control pins"
+                          % BUCK_CTRL_ABSMAX},
+            "SS": {"v": BUCK_CTRL_ABSMAX,
+                   "why": "charged by U1's own 3 uA source into C14; same "
+                          "ceiling, for the same reason, as RT"},
+        },
+        # What each part is rated for, and WHERE THAT NUMBER WAS READ. Keyed by
+        # ref.pin, ref, value or footprint -- the same resolution A4 uses for
+        # pinout citations. The per-pin tables are not decoration: a DPAK FET's
+        # gate is rated 20 V and its drain 60, and grading both at 60 would miss
+        # the half of the part that the gate rail protects.
+        "pin_volts": {
+            # ── the two semiconductors the pack lands on ──────────────────
+            PUMP_FET_VALUE: {
+                "src": "CIRCUIT.md section 1 requirements, carried in "
+                       "PUMP_FET_VDS_MIN / PUMP_FET_VGS_MAX -- the value string "
+                       "itself states the Vds, so a part that does not meet it "
+                       "cannot be fitted under this BOM line",
+                "pins": {"1": PUMP_FET_VGS_MAX, "2": PUMP_FET_VDS_MIN,
+                         "3": PUMP_FET_VDS_MIN},
+            },
+            FREEWHEEL_VALUE: {
+                "max": FREEWHEEL_VR_MIN,
+                "src": "CIRCUIT.md section 1, FREEWHEEL_VR_MIN; the reverse "
+                       "voltage is in the value string",
+            },
+            BUCK_CATCH_VALUE: {
+                "max": BUCK_CATCH_VR_MIN,
+                "src": "SNVSAA5B 7.2.2.5 sized at BUCK_CATCH_VR_MIN, which the "
+                       "value string carries and the TVS_CLAMP assert couples",
+            },
+            "SMCJ24A": {
+                "max": 24.0, "peak": TVS_CLAMP,
+                "src": "Littelfuse SMCJ24A: VWM 24 V, VBR(min) 26.7 V, "
+                       "VC 38.9 V max at IPP 38.6 A, 1500 W",
+                "why": "this part IS the clamp that sets every peak above",
+            },
+            "ZENER-10V-0W5": {
+                "max": VGATE_V + 0.5,
+                "src": "the value string: a 10 V zener, which is what VGATE_V "
+                       "is and what the VGATE assert is written against",
+            },
+            "1N4148W": {"max": 75.0,
+                        "src": "1N4148W, 75 V / 150 mA -- read on the LCSC "
+                               "listing for C81598 (elec/fab.py)"},
+            # ── the ICs, pin by pin ───────────────────────────────────────
+            "LMR14020SDDA": {
+                "src": "TI SNVSAA5B 5.1 Absolute Maximum Ratings (the revision "
+                       "matters: rev B lowered two of these, see M35)",
+                "pins": {
+                    "2": BUCK_VIN_ABSMAX, "3": BUCK_VIN_ABSMAX,      # VIN, EN
+                    "8": BUCK_VIN_ABSMAX,                            # SW
+                    "5": BUCK_CTRL_ABSMAX,                           # FB
+                    "1": {"max": "none",
+                          "why": "BOOT's absolute maximum is given with respect "
+                                 "to SW (%.1f V, rev B), not to ground, and a "
+                                 "net-to-ground rule cannot express a "
+                                 "differential rating. What holds it is C3, a "
+                                 "100n/50V across BOOT-SW; signed in M7/M35"
+                                 % BOOT_SW_MAX},
+                    "4": {"max": "none",
+                          "why": "RT is driven only by U1's own reference "
+                                 "through R8 to ground; the datasheet gives no "
+                                 "net-to-ground maximum for it"},
+                    "6": {"max": "none",
+                          "why": "SS is driven only by U1's own 3 uA source "
+                                 "into C14; no net-to-ground maximum is given"},
+                    "7": 0.0, "9": 0.0,                              # GND, EP
+                },
+            },
+            "UCC27517": {
+                "max": 20.0,
+                "src": "TI SLUSAY4D 8.1 Absolute Maximum Ratings: VDD 20 V, "
+                       "and 8.3's recommended maximum is 18 V. The datasheet "
+                       "notes the input pins' 20 V maximum 'is not restricted "
+                       "by the voltage on the VDD pin'",
+            },
+            "ESP32-WROOM-32E": {
+                "max": 3.6,
+                "src": "Espressif ESP32-WROOM-32E datasheet v2.1 table 13, "
+                       "absolute maximum ratings: VDD33 and every IO, 3.6 V",
+                "pins": {
+                    # The one pin on this module that a clamp event can reach.
+                    "7": {"max": 3.6, "peak": "none",
+                          "why": "⚠ THE SECOND THING A16 FOUND, and the reason a "
+                                 "transient is graded separately from a steady "
+                                 "state: the clamp does not stop at the rail, it "
+                                 "goes through the divider. IO35 is the %s/%s "
+                                 "tap, so %.1f V on VBAT is %.2f V on the open "
+                                 "node -- over a 3.6 V pin, and M5's prose never "
+                                 "mentioned it. What makes it survivable is the "
+                                 "IMPEDANCE: the surge arrives through %s, so the "
+                                 "pin's own ESD diode holds the node at about "
+                                 "3.9 V while taking (%.2f - 3.9) / %s = %.0f uA "
+                                 "-- microamps into a clamp built for ESD "
+                                 "currents. The tap's own RC (%s||%s with C11) is "
+                                 "%.1f ms, the same order as the 10/1000 us "
+                                 "waveform D1's VC is specified on, so the node "
+                                 "does not even reach %.2f V. The DC case, which "
+                                 "is what a 3.6 V absolute maximum is written "
+                                 "for, is %.2f V and is asserted above"
+                                 % (RDIV_TOP, RDIV_BOT, TVS_CLAMP,
+                                    TVS_CLAMP * SENSE_RATIO, RDIV_TOP,
+                                    TVS_CLAMP * SENSE_RATIO, RDIV_TOP,
+                                    (TVS_CLAMP * SENSE_RATIO - 3.9) / 100e3 * 1e6,
+                                    RDIV_TOP, RDIV_BOT,
+                                    100e3 * 18e3 / 118e3 * 100e-9 * 1e3,
+                                    TVS_CLAMP * SENSE_RATIO,
+                                    VBAT_MAX * SENSE_RATIO)},
+                },
+            },
+            "MMBT3904": {
+                "src": "onsemi MMBT3904 Maximum Ratings: VCEO 40 V, VCBO 60 V, "
+                       "VEBO 6.0 V",
+                "pins": {"1": 6.0, "2": 6.0, "3": 40.0},
+            },
+            # ── the protection parts ──────────────────────────────────────
+            LVL_FUSE_VALUE: {
+                "max": LVL_FUSE_V_MIN, "peak": "none",
+                "src": "the value string, LVL_FUSE_V_MIN -- the 30 V tier the "
+                       "1206 PPTC class is sold at, asserted above against a "
+                       "%.0f V pack" % VBAT_MAX,
+                "why": "⚠ THE ONE PART ON THIS RAIL RATED UNDER THE CLAMP, AND "
+                       "A16 IS WHAT FOUND IT: 30 V against 38.9. A PPTC's "
+                       "voltage rating is what it must hold off ONCE TRIPPED. "
+                       "It is not tripped during a clamp -- a PPTC trips on "
+                       "self-heating over seconds and the surge is over in "
+                       "milliseconds -- so through the event it is a sub-ohm "
+                       "resistor with the sensor lead in series, and the 38.9 V "
+                       "is across the pair, not across the device. The only "
+                       "time F1 has to withstand a voltage is after it opens, "
+                       "and what is behind it then is the %.0f V pack: D1's "
+                       "failure mode is a short, which crowbars the rail rather "
+                       "than raising it. Steady state is still graded, and "
+                       "clears by %.0f V" % (VBAT_MAX, LVL_FUSE_V_MIN - VBAT_MAX),
+            },
+            "178.6165.0002": {
+                "max": 80.0,
+                "src": "Littelfuse FLR 178.6165 holder datasheet: 80 V, 30 A "
+                       "(quoted at the part in this file). The blade itself is "
+                       "the owner's 10 A 32 V ATC and is not a pad on this "
+                       "board",
+            },
+            # ── connectors, passives, pads ────────────────────────────────
+            "TB-5.08-*": {
+                "max": 300.0,
+                "src": "Kangnex WJ500V-5.08 family (LCSC C8465 and the customer "
+                       "drawing read in elec/fab.py). 300 V is declared, which "
+                       "is the conservative direction: the series' own "
+                       "designation is 500 V, and 300 V is the figure 5.08 mm "
+                       "blocks of this class carry under UL",
+            },
+            "PROG": {
+                "max": 50.0,
+                "src": "PZ2.54-1X6P-H25 (LCSC C42431790), a plain 2.54 mm "
+                       "header. 50 V declared conservatively against a 3.3 V "
+                       "port; the family's listings rate 250 V AC",
+            },
+            "3V-ACTIVE": {
+                "max": 5.0,
+                "src": "INGHAi GMD12065YB-3V2700 (LCSC C252936, elec/fab.py): "
+                       "2 V to 5 V operating, 3 V nominal",
+            },
+            "R_0603*": {
+                "max": 50.0,
+                "src": "the 0603 thick-film class figure -- 50 V maximum "
+                       "working voltage, UNI-ROYAL 0603WAF (the series every "
+                       "0603 in elec/fab.py's LCSC table comes from). Declared "
+                       "at the class figure rather than per value",
+            },
+            "R_0805*": {
+                "max": 150.0,
+                "src": "the 0805 class figure, 150 V maximum working voltage "
+                       "(UNI-ROYAL 0805W8F, LCSC C4310 = R9)",
+            },
+            # The two capacitors whose value string does not carry its rating.
+            # Every other capacitor on the board states its own (100u/50V,
+            # 10u/25V, 22u/16V ...) and A16 reads it there, which is also what
+            # keeps A11's one-spelling rule and this rule from disagreeing.
+            "1u": {"max": 50.0,
+                   "src": "Samsung CL10A105KB8NNNC, 1uF 50V X5R (LCSC C15849, "
+                          "elec/fab.py) -- C8, the EN RC"},
+            "10n": {"max": 50.0,
+                    "src": "0603B103K500NT, 10nF 50V X7R (LCSC C57112, "
+                           "elec/fab.py) -- C14, the soft-start"},
+            "TP*": {"max": "none",
+                    "why": "a 1.5 mm test pad: bare copper on the net it "
+                           "probes, with no part on it and no rating of its own. "
+                           "What it has to clear is spacing, which is A12"},
+            "10uH/4A6sat": {
+                "max": "none",
+                "why": "a wound power inductor between SW and +3V3. Its limits "
+                       "are current and core saturation (BUCK_L_ISAT, M14), not "
+                       "a net-to-ground voltage; Bourns publishes no voltage "
+                       "rating for the SRN6045TA",
+            },
         },
         # == THE MANUAL ITEMS ===============================================
         # Thirty-eight sign-offs, each against a primary source or a
