@@ -17,11 +17,12 @@ Two kinds of rule, both listed in PCB_QUALITY.md:
 
 What the board declares, in BOARD_NOTES["quality"] (all documented in
 PCB_QUALITY.md): power_paths, decoupling, pinouts, net_volts, pin_volts, manual, waive,
-power_nets, not_power, unmatched_ok, copper_oz, inner_oz, temp_rise_c.
+power_nets, not_power, unmatched_ok, copper_oz, inner_oz, temp_rise_c, connectors,
+connector_labels.
 
 A16's own fail harness is pcbflow/test_quality_a16.py: it breaks a real board six ways
 and insists on six different answers. A gate nobody has seen fail is a gate nobody has
-tested.
+tested. A17's is pcbflow/test_quality_a17.py.
 
 Returns (and exits with) the number of FAILs; OPEN manual items are counted separately and
 printed. Writes <stem>.quality.json with every result. A board is quality-clean at
@@ -92,6 +93,11 @@ HINT = {
            "an UNRATED pin is a reading nobody has done: put the number and the document "
            "it came from in quality.pin_volts. A clamped transient over a rating is judged "
            "on the clamp's own pulse -- PCB_QUALITY.md A16, 'Steady and transient'",
+    "A17": "cadkit/kicad_silk.py prints all three (a word a way, else a pinout block and "
+           "a way-1 mark): give it room -- `silk_short` words, a wider board edge, a part "
+           "moved off the connector's own side. A pinout that can only go on the other "
+           "face is DECLARED in quality.connector_labels with the reason; the way-1 mark "
+           "is never waived",
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
           "page in quality.pinouts -- by ref, value or footprint",
@@ -113,6 +119,8 @@ HARD = {
     "A11": ("",),
     "A12": ("ring", "hole", "track width", "pad gap"),
     "A13": ("",),
+    "A17": ("nothing on its own side says which contact is way",
+            "but gives no reason", "stale declaration"),
     "A16": ("steady-state worst case", "can make NO CLAIM",
             "no worst-case voltage is declared", "NO voltage rating is declared",
             "states no `max`", "with no `src`", "gives no `why`"),
@@ -1856,6 +1864,234 @@ def pin_voltage_ratings(ctx):
 # the parts that make that circuit, so a passive board is not asked thirty questions about
 # regulators. Conservative on purpose: absence of the part, never a guess about its use.
 # A signature in the board's notes always wins.
+# ── A17: every connector is labelled on the side it is plugged from ──────────────────
+LABEL_REACH = 6.0       # mm from a connector's courtyard to the nearest edge of its ink
+DOT_MAX = 1.2           # mm: a silk circle this small or smaller is a mark, not an outline
+
+
+def _names_net(word, net, aliases):
+    """Is `word` a name for `net`? Its own name, a word the board gave it (`silk_labels`,
+    `silk_short`), or a CONTRACTION of either: the word's letters and digits, in order,
+    inside the name's ("G" for GND, "24" for +24V, "H" for CAN_A_H, "CK" for UI_SCLK).
+    Ink that merely lies beside a contact -- the board's name, a test pad's label --
+    is not one."""
+    w = re.sub(r"[^A-Z0-9]", "", word.upper())
+    if not w:
+        return False
+    for name in [net] + [a for a in aliases if a]:
+        it = iter(re.sub(r"[^A-Z0-9]", "", name.upper()))
+        if all(ch in it for ch in w):
+            return True
+    return False
+
+
+def _silk_ink(ctx):
+    """{back: {"texts": [(string, (x, y), (x0, y0, x1, y1))], "dots": [(x, y)]}} -- every
+    printed text and every small filled circle on each silk layer, in mm."""
+    ink = {False: {"texts": [], "dots": []}, True: {"texts": [], "dots": []}}
+    side = {pcbnew.F_SilkS: False, pcbnew.B_SilkS: True}
+
+    def add(item, string):
+        if item.GetLayer() not in side or not string.strip():
+            return
+        b = item.GetBoundingBox()
+        box = (MM(b.GetLeft()), MM(b.GetTop()), MM(b.GetRight()), MM(b.GetBottom()))
+        ink[side[item.GetLayer()]]["texts"].append(
+            (string, ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0), box))
+
+    for d in ctx.board.GetDrawings():
+        if d.GetClass() == "PCB_TEXT":
+            add(d, d.GetText())
+        elif (d.GetClass() == "PCB_SHAPE" and d.GetLayer() in side
+              and d.GetShape() == pcbnew.SHAPE_T_CIRCLE and MM(d.GetRadius()) * 2 <= DOT_MAX):
+            c = d.GetCenter()
+            ink[side[d.GetLayer()]]["dots"].append((MM(c.x), MM(c.y)))
+    for ref, fp in ctx.fps.items():
+        if fp.Reference().IsVisible():
+            add(fp.Reference(), ref)
+        for g in fp.GraphicalItems():
+            if g.GetClass() == "PCB_TEXT" and g.IsVisible():
+                add(g, g.GetText().replace("${REFERENCE}", ref))
+    return ink
+
+
+def _box_gap(a, b):
+    """Clear distance between two boxes (x0, y0, x1, y1); 0 where they touch or overlap."""
+    return math.hypot(max(a[0] - b[2], 0.0, b[0] - a[2]), max(a[1] - b[3], 0.0, b[1] - a[3]))
+
+
+@rule("A17")
+def connector_labels(ctx):
+    """Designator, a name for every way, and which contact is way 1 -- all three on the
+    connector's OWN side, where the person holding the plug is looking."""
+    out = []
+    decl = ctx.q.get("connector_labels", {}) or {}
+    extra = set(ctx.q.get("connectors", ()) or ())
+    ink = _silk_ink(ctx)
+    ctx.connector_ink = {}
+    alias = [ctx.notes.get("silk_labels") or {}, ctx.notes.get("silk_short") or {}]
+    conns, nets = {}, {}
+    for ref, fp in ctx.fps.items():
+        if not (re.match(r"^J\d+$", ref) or ref in extra):
+            continue
+        ways = {}
+        for pad in fp.Pads():
+            if pad.GetNumber().isdigit() and pad.GetNetname():
+                ways.setdefault(int(pad.GetNumber()), _xy(pad))
+                nets.setdefault((ref, int(pad.GetNumber())), pad.GetNetname())
+        cy = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd).BBox()
+        body = (MM(cy.GetLeft()), MM(cy.GetTop()), MM(cy.GetRight()), MM(cy.GetBottom()))
+        if body[2] - body[0] < 0.1 or body[3] - body[1] < 0.1:      # no courtyard drawn
+            xs = [_xy(q)[0] for q in fp.Pads()] or [0.0]
+            ys = [_xy(q)[1] for q in fp.Pads()] or [0.0]
+            body = (min(xs), min(ys), max(xs), max(ys))
+        conns[ref] = (fp, ways, body)
+
+    def owner(box, centre, back):
+        """(ref, way) the ink in `box` belongs to: the connector on that face whose body it
+        is nearest (and within LABEL_REACH of), and that connector's contact nearest the
+        ink's centre -- which is what "in line with the way" comes to on a row."""
+        best = None
+        for r, (f, ws, body) in conns.items():
+            if bool(f.IsFlipped()) != back or not ws:
+                continue
+            g = _box_gap(box, body)
+            if g <= LABEL_REACH and (best is None or g < best[0]):
+                best = (g, r, min(ws, key=lambda k: math.dist(centre, ws[k])))
+        return best[1:] if best else (None, None)
+
+    # a test pad's label is the test pad's: ink whose nearest pad on the whole board is a
+    # TP's names that pad, however close a connector's contact on the same net is
+    probes = [_xy(q) for r, f in ctx.fps.items() if _prefix(r) == "TP" for q in f.Pads()]
+
+    def probe_label(centre):
+        if not probes or not allpads:
+            return False
+        d = min(math.dist(centre, q) for q in probes)
+        return d <= min(math.dist(centre, q) for q in allpads)
+
+    allpads = [xy for _r, (_f, ws, _b) in conns.items() for xy in ws.values()]
+    tally = collections.Counter()
+    for ref in sorted(conns, key=_nat):
+        fp, ways, _body = conns[ref]
+        back = bool(fp.IsFlipped())
+        mine, other = ink[back], ink[not back]
+        face = "back" if back else "front"
+        token = re.compile(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(ref))
+        d = decl.get(ref, {}) or {}
+
+        # (a) the designator, in ink, on the connector's own side
+        if any(token.search(s) for s, _c, _b in mine["texts"]):
+            out.append((ref, True, "%s is named on its own side (%s)" % (ref, face)))
+        else:
+            elsewhere = any(token.search(s) for s, _c, _b in other["texts"])
+            out.append((ref, False, "%s: its designator is not printed on its own side (the "
+                                    "%s)%s" % (ref, face, " -- only on the other face"
+                                               if elsewhere else " -- or anywhere")))
+        if len(ways) < 2:
+            continue                    # one contact: nothing to tell apart
+        if d.get("standard"):
+            tally["standard"] += 1
+            out.append((ref + " ways", None,
+                        "%s: a moulded standard connector, its ways not labelled -- %s"
+                        % (ref, d["standard"])))
+            continue
+
+        # (b) every way has a name the person plugging it can read from that side
+        def block(texts):
+            for s, c, _b in texts:
+                lines = s.split("\n")
+                if len(lines) > 1 and token.search(lines[0]):
+                    body = " ".join(lines[1:])
+                    nums = {int(n) for n in re.findall(r"(?<![A-Za-z0-9+.])(\d+)(?= )", body)}
+                    if set(ways) <= nums:
+                        return (s, c)
+            return None
+
+        worded = {}
+        way1 = min(ways)
+        marked, marks = False, []
+        for s, c, box in mine["texts"]:
+            if "\n" in s:
+                continue
+            if _box_gap(box, _body) > LABEL_REACH or probe_label(c):
+                continue
+            k = min(ways, key=lambda n: math.dist(c, ways[n]))
+            word = token.sub("", s).strip()         # "J1 GND": the designator rides on a word
+            net = nets[(ref, k)]
+            numbered = re.match(r"^%d(\s+|$)" % k, word)
+            rest = word[numbered.end():] if numbered else word
+            if not rest:
+                # a bare number names nothing, so it is this connector's only if no other
+                # connector's body is nearer it
+                if k == way1 and owner(box, c, back) == (ref, k):
+                    marked = True
+                    marks.append(("text", s, c))
+            elif _names_net(rest, net, [a.get(net) for a in alias]):
+                # a word is this way's if it NAMES this way's net: two connectors side by
+                # side each keep their own words, whichever body a word lies nearer
+                worded[k] = (s, c)
+                marked = marked or bool(numbered and k == way1)
+        for c in mine["dots"]:
+            if owner((c[0], c[1], c[0], c[1]), c, back) == (ref, way1):
+                marked = True
+                marks.append(("dot", "", c))
+        unnamed = sorted(set(ways) - set(worded))
+        own_block, far_block = block(mine["texts"]), block(other["texts"])
+        # what was found, for the fail harness (test_quality_a17.py) to break
+        ctx.connector_ink[ref] = {"back": back, "words": dict(worded), "marks": marks,
+                                  "own_block": own_block, "far_block": far_block,
+                                  "way1": way1}
+        why = d.get("back_only")
+        if not unnamed:
+            tally["a word at every way"] += 1
+            out.append((ref + " ways", True, "%s: a word in line with each of its %d ways"
+                        % (ref, len(ways))))
+        elif own_block:
+            tally["a pinout block on its own side"] += 1
+            out.append((ref + " ways", True, "%s: a pinout block on its own side" % ref))
+        elif far_block and why:
+            tally["pinout on the OTHER face (declared)"] += 1
+            out.append((ref + " ways", None,
+                        "%s: its pinout is on the OTHER face only (the %s; the part is on "
+                        "the %s) -- %s" % (ref, "front" if back else "back", face, why)))
+        elif far_block:
+            out.append((ref + " ways", False,
+                        "%s: its pinout is printed on the other face only, and "
+                        "quality.connector_labels does not say why (%d of %d ways have a "
+                        "word on the %s)" % (ref, len(worded), len(ways), face)))
+        else:
+            out.append((ref + " ways", False,
+                        "%s: way(s) %s have no name on the %s and there is no pinout block "
+                        "for it on either face" % (ref, ", ".join(map(str, unnamed)), face)))
+        if why is not None and not str(why).strip():
+            out.append((ref + " ways", False, "%s is declared back_only but gives no reason"
+                        % ref))
+        if why and (not unnamed or own_block):
+            out.append((ref + " ways", False,
+                        "%s: stale declaration -- back_only is declared and its ways ARE "
+                        "named on its own side; delete the declaration" % ref))
+
+        # (c) which contact is way 1, on its own side, in every case
+        if way1 in worded or marked:
+            out.append((ref + " way-1", True, "%s: way %d is marked on its own side"
+                        % (ref, way1)))
+        else:
+            out.append((ref + " way-1", False,
+                        "%s: nothing on its own side says which contact is way %d -- no "
+                        "word at it, no bare %d, no dot (a pinout block says what way %d "
+                        "CARRIES, not which end it is)" % (ref, way1, way1, way1)))
+    stale = sorted(set(decl) - set(conns), key=_nat)
+    for ref in stale:
+        out.append((ref, False, "quality.connector_labels names %s, which is not a "
+                                "connector on this board: stale declaration" % ref))
+    if conns:
+        out.append(("-", None, "%d connector(s): %s" % (
+            len(conns), "; ".join("%d %s" % (n, k) for k, n in sorted(tally.items()))
+            or "none passes on its ways")))
+    return out
+
+
 def _census(ctx):
     kinds = collections.Counter(_prefix(r) for r in ctx.fps)
     names = [fp.GetFPIDAsString().split(":")[-1] for fp in ctx.fps.values()]
