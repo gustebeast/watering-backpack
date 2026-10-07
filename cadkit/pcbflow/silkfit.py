@@ -242,9 +242,9 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
             near_silk += _near(pcbnew, box,
                                [(bb, ps) for r, bb, ps in others if r != ref], reach)
 
-            def score(dx, dy):
+            def score(dx, dy, shape=None):
                 """(clipped, silk overlaps) for the text moved by (dx, dy)."""
-                t = pcbnew.SHAPE_POLY_SET(base)
+                t = pcbnew.SHAPE_POLY_SET(base if shape is None else shape)
                 t.Move(pcbnew.VECTOR2I(dx, dy))
                 for ps in near_mask:
                     if _hits(pcbnew, t, ps):
@@ -263,6 +263,20 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
             best = None
             if clipped == 0:
                 best = (overlaps * SILK_COST_MM, 0.0, 0, 0, overlaps)
+            # ⚠ SCORE THE SHAPE THE TEXT WILL HAVE, NOT THE ONE IT HAS. A text that is
+            # moved is also laid upright (below), and a designator that was turned is a
+            # different polygon once it is: scored as it stood and then re-angled, R3 and
+            # R4 on one board landed 0.03-0.04 mm2 INTO the openings they had just been
+            # moved off, and only a second whole run -- which found them already upright
+            # -- cleared them. So the candidates are scored upright.
+            _was = (f.GetTextAngle().AsDegrees(), f.IsKeepUpright())
+            f.SetTextAngleDegrees(0.0)
+            f.SetKeepUpright(True)
+            upright = _poly_of(pcbnew, f, silk_layer)
+            f.SetTextAngleDegrees(_was[0])
+            f.SetKeepUpright(_was[1])
+            if upright is None:
+                upright = base
             for i in range(1, RINGS + 1):
                 r = i * STEP_MM
                 if best is not None and r >= best[0]:
@@ -271,7 +285,7 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
                     a = 2.0 * math.pi * k / ANGLES
                     dx = pcbnew.FromMM(r * math.cos(a))
                     dy = pcbnew.FromMM(r * math.sin(a))
-                    c, n = score(dx, dy)
+                    c, n = score(dx, dy, upright)
                     if c is None:
                         continue
                     cost = r + n * SILK_COST_MM
