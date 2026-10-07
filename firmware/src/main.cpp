@@ -162,8 +162,32 @@ constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g
 // pack voltage and the live cap are both on the 's' status line.
 constexpr float PUMP_V_NOM  = 12.0f;         // pump nameplate
 constexpr float RDIV_TOP_K  = 100.0f;        // R20, from elec/main.py
-constexpr float RDIV_BOT_K  = 18.0f;         // R21
-constexpr float VBAT_SCALE  = (RDIV_TOP_K + RDIV_BOT_K) / RDIV_BOT_K;   // 6.5556
+// !! 10k, AND IT WAS 18k HERE LONG AFTER THE BOARD STOPPED BEING 18k. Punchlist
+// finding 33 took R21 to 10k (elec/main.py RDIV_TOP, RDIV_BOT) to keep the whole
+// 15-21 V range inside the ADC's linear band. The punchlist claimed "the quality
+// declaration, the assert and THE FIRMWARE'S SCALING all follow automatically"
+// from that one constant. The first two do. This one is hand-typed, and it did
+// not follow.
+//
+// What a stale 6.5556 did, measured across the pack range:
+//
+//   real pack   IO35     this file read   plausible?   duty cap   motor saw
+//   15.00 V     1.364    8.94 V           NO -> 20 V   153        9.00 V
+//   16.78 V     1.525    10.00 V          yes          255        16.78 V
+//   20.00 V     1.818    11.92 V          yes          255        20.00 V
+//
+// Above ~16.8 V the cap saturates at PWM_MAX and every engage puts the WHOLE PACK
+// across a 12 V pump -- 1.67x rated, which is verbatim the failure the comment
+// below says this cap exists to prevent. Below that it reads as a divider fault
+// and under-drives instead. A fresh pack would most likely have blown the 10 A
+// ATO blade before it cooked the pump, which is luck, not design.
+//
+// !! THIS CONSTANT IS A COPY OF A BOARD VALUE AND NOTHING COMPARES THEM.
+// tools/check_pin_map.py ties this firmware to the schematic, but only by PIN
+// NUMBER -- it never reads a component value, so no gate in the repo covers this
+// line. If the divider moves again, this is the second place to change.
+constexpr float RDIV_BOT_K  = 10.0f;         // R21
+constexpr float VBAT_SCALE  = (RDIV_TOP_K + RDIV_BOT_K) / RDIV_BOT_K;   // 11.000
 // Plausibility window. An open divider reads ~0 and a shorted one reads full
 // scale, and in either case the cap falls back to the value for the HIGHEST
 // expected pack -- the LOWEST duty. A sensor fault must never be able to raise

@@ -84,7 +84,38 @@ RDIV_TOP, RDIV_BOT = "100k", "10k"
 # practical series resistance buys comfortable margin here: halving the fault current
 # is worth about 24 mV. Designing to a TYPICAL curve instead of these maxima is what
 # made an earlier 100k/10k look acceptable when it was 37 mV over the pin's rating.
-LEVEL_RS, LEVEL_RP = 49.9, 300.0        # kohm: series into the pin, and the pull-up
+# ⚠ 100k, AND THE 49k9 IT REPLACES WAS CHOSEN TO SATISFY AN ASSERT THAT MODELLED
+# THE WRONG CIRCUIT. The assert below used to read
+#     _level_low = 0.2 + (3.3 - 0.2) * LEVEL_RS / (LEVEL_RS + LEVEL_RP)
+# which is the pulled-low level IF the pull-up sits on the PIN side of the series
+# resistor. On this board it does not: the netlist is
+#     +3V3 -> R23/R27/R28 (300k) -> LEVEL -> R26 -> LEVEL_IO -> IO14
+# so the pull-up is on the SENSOR side and R26 has a high-impedance input on its far
+# end. No DC current flows through R26 in either logic state, which means the pulled
+# low at the pin is the open collector's Vce(sat) DIRECTLY -- about 0.2 V, and under
+# 0.05 V through finding 17's inverter at 11 uA -- and R26'S VALUE DOES NOT AFFECT THE
+# LOGIC LOW AT ALL. The old assert passed, conservatively, for a reason that was not
+# true, and it was the only thing holding R26 down.
+#
+# Freed, R26 goes to the value that actually wants: bigger is better, because the only
+# thing it does is limit fault current into D7, and Vf falls with current.
+#
+#   R26     20 V fault      38.9 V double fault     boot drive into a short
+#   49k9    3.581 (19 mV)   3.608  OVER by 8 mV     66 uA
+#   100k    3.557 (43 mV)   3.584  under by 16 mV   33 uA
+#
+# So 100k more than doubles the margin on the single fault AND brings the double fault
+# -- the TVS clamping while the sensor wire is bridged to the pack, which the previous
+# revision named as deliberately NOT covered -- inside the pin's rating. It costs
+# nothing: 100k is already this board's most-shared line (R1, R6, R7, R20, R23, R27,
+# R28), so the BOM line count is unchanged, and the footprint and the placement are
+# identical, which makes this a BOM edit rather than a re-spin.
+#
+# It also buys the margin the Vf table does NOT carry: those maxima are specified at
+# Tamb 25 C, and a Schottky's Vf rises about 1.5 mV/K as it gets COLDER. A 5 C garden
+# morning adds some 30 mV, which is more than 49k9's entire 19 mV of headroom and less
+# than half of 100k's.
+LEVEL_RS, LEVEL_RP = 100.0, 300.0       # kohm: series into the pin, and the pull-up
 LEVEL_VF_TBL = ((0.1, 0.24), (1.0, 0.32), (10.0, 0.40), (30.0, 0.50), (100.0, 0.80))
 
 
@@ -107,11 +138,24 @@ LEVEL_IO_PEAK = round(3.3 + LEVEL_VF_MAX, 4)
 assert LEVEL_IO_PEAK <= 3.6, (
     "the clamp sits at %.3f V, over IO14's 3.6 V absolute maximum: %.1fk of series "
     "resistance is not enough" % (LEVEL_IO_PEAK, LEVEL_RS))
-_level_low = 0.2 + (3.3 - 0.2) * LEVEL_RS / (LEVEL_RS + LEVEL_RP)
-assert _level_low < 0.25 * 3.3, (
-    "a pulled open collector reads %.3f V through %.1fk/%.0fk, over the %.3f V VIL "
-    "of a 3.3 V input -- the pin would never see a low"
-    % (_level_low, LEVEL_RS, LEVEL_RP, 0.25 * 3.3))
+# ⚠ THE LOGIC LOW IS Vce(sat) AND NOTHING ELSE, which is the correction that freed
+# R26. IO14 is a high-impedance input and C22 passes no DC, so no current flows through
+# R26 in either state: whatever the open collector pulls LEVEL down to appears at the
+# pin unchanged. The margin therefore depends on the SENSOR, not on these resistors.
+LEVEL_VCE_SAT = 0.4        # the worst Vce(sat) this input is required to tolerate
+assert LEVEL_VCE_SAT < 0.25 * 3.3, (
+    "a pulled open collector reads %.3f V at the pin -- no current flows in R26, so "
+    "this IS Vce(sat) -- against the %.3f V VIL of a 3.3 V input"
+    % (LEVEL_VCE_SAT, 0.25 * 3.3))
+# The pull-up is graded on what it IS for: holding a released collector high against a
+# wet outdoor terminal. 300k against a 1 M leak path still clears VIH; it is the one
+# number that argues for a SMALLER pull-up, and 100k would clear 470k too. Left at 300k
+# because changing it moves copper and this revision is a BOM edit.
+_level_wet = 3.3 * 1000.0 / (LEVEL_RP + 1000.0)
+assert _level_wet > 0.75 * 3.3, (
+    "a 1 M leak from OUT to GND pulls a released collector to %.2f V, under the "
+    "%.2f V VIH: the %.0fk pull-up is too weak for a terminal that gets wet"
+    % (_level_wet, 0.75 * 3.3, LEVEL_RP))
 
 # ⚠ AND THE SIGN-OFF PROSE IS SPELLED FROM THESE TOO. M40 ("the design record says
 # what must not change") and M42 ("every part can be bought") both quote this divider
@@ -449,6 +493,13 @@ PUMP_FET_VGS_MAX   = 20.0        # V, the +-20 V every DPAK N-FET in this class 
 # IPP = 15.5 A, 600 W. That is the worst case the board sees, and the three
 # asserts below are the three parts it has to survive.
 TVS_CLAMP          = 38.9        # V, SMBJ24A VC max at 15.5 A Ipp
+
+# ...and the DOUBLE fault too, which 49k9 could not hold and 100k can. Asserted rather
+# than described, so that shrinking R26 again cannot quietly re-open it.
+LEVEL_IO_PEAK_2F = round(3.3 + _level_vf_max((TVS_CLAMP - 3.6) / LEVEL_RS), 4)
+assert LEVEL_IO_PEAK_2F <= 3.6, (
+    "with the TVS clamping AND the sensor wire bridged to the pack, the pin reaches "
+    "%.3f V, over its 3.6 V absolute maximum" % LEVEL_IO_PEAK_2F)
 BUCK_VIN_ABSMAX    = 44.0        # V, SNVSAA5B 5.1, VIN/EN to GND
 BUCK_VIN_RECMAX    = 40.0        # V, SNVSAA5B 5.3, recommended operating
 assert TVS_CLAMP < PUMP_FET_VDS_MIN, (
@@ -1076,11 +1127,12 @@ def circuit():
                      "level pull-up, 2 of 3 in series = 300k (see R23)")
     r_lv3 = gen.part("R28", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
                      "level pull-up, 3 of 3 in series = 300k (see R23)")
-    r_ls = gen.part("R26", "49k9", "Resistor_SMD:R_0603_1608Metric", 2,
+    r_ls = gen.part("R26", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
                     "level series -- holds a pack-on-the-sensor-wire fault to "
-                    "0.33 mA, where D7's Vf max is 0.281 V and the pin stays "
-                    "under its absolute maximum; also the boot-time drive into "
-                    "a shorted sensor")
+                    "0.16 mA, where D7's Vf max is 0.257 V and the pin stays "
+                    "43 mV under its absolute maximum, and holds the TVS double "
+                    "fault under it too; also the boot-time drive into a "
+                    "shorted sensor")
     c_ls = gen.part("C22", "100n/50V", "Capacitor_SMD:C_0603_1608Metric", 2,
                     "level filter at the pin, 4.3 ms against the 42.8k node")
     # ⚠ PIN 3 IS THE MIDDLE OF THE SERIES PAIR AND THE PIN MAP IS WHAT MAKES THIS
