@@ -284,6 +284,14 @@ def _anchor_on_pads(fp, target):
 # 'escape' is a placement problem, 'run' an obstacle problem, 'edge' a board-outline one.
 _DBG = {}
 
+# THE GRAVEYARD. board.Remove() hands the removed item's ownership to its Python proxy,
+# and when that proxy is collected the C++ delete leaves pcbnew's bindings corrupt: the
+# next board.GetTracks() returns a bare SwigPyObject and the run dies AFTER the route
+# (fret_led_key, 681 s lost, 2026-10-06). Releasing every other proxy first does not
+# help (bisected); keeping the removed item alive does. So every item removed here is
+# leaked on purpose, for the life of the process.
+_REMOVED = []
+
 
 def _offset_poly(pts, ds, math):
     """`pts` offset by the signed per-vertex distances `ds`, corners mitred.
@@ -1201,21 +1209,8 @@ def drop_redundant_pth_vias(board):
             break
     for t, _why in doomed:
         board.Remove(t)
-    # ⚠ THE REMOVED VIAS HAVE TO OUTLIVE THIS FUNCTION. board.Remove() hands
-    # ownership to Python, so `doomed` going out of scope FREES them -- and the
-    # board still refers to them from its connectivity, so the next thing to
-    # walk the board dies on a dangling pointer. It surfaced as
-    # `'SwigPyObject' object has no attribute 'Pads'` from board.GetFootprints()
-    # in link_close_gaps, fifteen lines later in route.py and nowhere near here,
-    # which is what a use-after-free looks like from the outside.
-    #
-    # It only bit once a board removed enough of them: this ran for months
-    # removing four vias from connector pads, and broke the day the ESP32
-    # module's twelve thermal vias got a net and the count went to ten.
-    # Parking them on the board keeps them alive exactly as long as it is.
+        _REMOVED.append(t)
     if doomed:
-        board._pcbflow_removed = (getattr(board, "_pcbflow_removed", ())
-                                  + tuple(t for t, _w in doomed))
         board.BuildConnectivity()
         print("  removed %d redundant via(s) drilled into a through-hole pad: %s"
               % (len(doomed), ", ".join(w for _t, w in doomed[:8])))
@@ -1271,20 +1266,19 @@ def drop_redundant_pad_vias(board, notes):
                 break
     if not cand:
         return 0
-    # ⚠ NEVER HOLD A CONNECTIVITY POINTER ACROSS BuildConnectivity(), which REPLACES the
-    # object it points at (watering-backpack main, 2026-10-05). This read a count out of
-    # a shared_ptr<CONNECTIVITY_DATA> it had taken one line BEFORE the rebuild that freed
-    # it. The number it got back was plausible, so the pass did its job and printed
-    # "removed 3 redundant via(s)" -- and the heap it had just read through was no longer
-    # the heap pcbnew thought it was. The damage surfaced in the NEXT pass and nowhere
-    # near here:
+    # ⚠ NEVER HOLD A CONNECTIVITY POINTER ACROSS BuildConnectivity(), which REPLACES
+    # the object it points at. This used to read a count out of a
+    # shared_ptr<CONNECTIVITY_DATA> taken one line BEFORE the rebuild that freed it. The
+    # number came back plausible, so the pass did its job and printed "removed 3
+    # redundant via(s)" -- and the heap it had just read through was no longer the heap
+    # pcbnew thought it was. The damage surfaced in the NEXT pass and nowhere near here:
     #   tidy_router_vias -> board.Tracks()  ->  TypeError: 'SwigPyObject' object is not
     #                                           iterable
-    # and, after a Save/LoadBoard inserted to get a clean board, in LoadBoard ITSELF --
-    # pcbnew.LoadBoard() returned a bare SwigPyObject with no BOARD methods at all. That
-    # is the tell: a use-after-free had taken out SWIG's own type registry, process-wide,
-    # so no amount of reloading could help and the pass that raised was not the pass that
-    # was wrong. Two complete routing runs were thrown away reading the symptom.
+    # and, after a Save/LoadBoard was inserted to get a clean board, in LoadBoard ITSELF
+    # -- pcbnew.LoadBoard() returned a bare SwigPyObject with no BOARD methods at all.
+    # That is the tell: a use-after-free had taken out SWIG's own type registry,
+    # process-wide, so no amount of reloading could help and the pass that raised was not
+    # the pass that was wrong. Two complete routing runs were thrown away on the symptom.
     #
     # Ask the board for its connectivity EVERY time, immediately before use.
     board.BuildConnectivity()
@@ -1298,32 +1292,13 @@ def drop_redundant_pad_vias(board, notes):
         else:
             doomed[t.m_Uuid.AsString()] = why  # stays off the net for the tests that follow
     del cand, lands
-    # One full walk to find them, then the removals, then the references go: the rule
-    # from tidy_router_vias' own docstring -- do not hold the thing you are about to
-    # delete, and do not re-walk a board you are deleting from.
-    victims = [t for t in board.GetTracks()
-               if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() in doomed]
-    for t in victims:
+    # One full walk to find them, then the removals: the rule from tidy_router_vias'
+    # own docstring -- do not hold the thing you are about to delete, and do not re-walk
+    # a board you are deleting from.
+    for t in [t for t in board.GetTracks()
+              if isinstance(t, pcbnew.PCB_VIA) and t.m_Uuid.AsString() in doomed]:
         board.Remove(t)
-    # ⚠ AND THEY ARE PARKED ON THE BOARD, FOR THE REASON THE PASS ABOVE GIVES AT LENGTH.
-    # This pass did not do it, and that is what actually broke the 95 x 108 board: three
-    # vias removed here, freed when the list went out of scope, and the board's own
-    # connectivity still pointing at them. The next pass died in
-    # tidy_router_vias -> board.Tracks() with "'SwigPyObject' object is not iterable",
-    # and once a Save/LoadBoard was tried as a cure, pcbnew.LoadBoard() ITSELF came back
-    # as a bare SwigPyObject -- a freed object had taken out SWIG's type registry
-    # process-wide, so the pass that raised was never the pass that was wrong.
-    #
-    # Three routing runs were spent on the symptom. Two plausible-looking causes were
-    # fixed on the way and neither was it: a connectivity pointer held across
-    # BuildConnectivity() (real, worth fixing, not this), and re-walking the board
-    # between removals (likewise). The cure is the line below, and the rule it belongs
-    # to is already written out above: a via this file removes lives as long as the
-    # board does.
-    if victims:
-        board._pcbflow_removed = (getattr(board, "_pcbflow_removed", ())
-                                  + tuple(victims))
-    del victims
+        _REMOVED.append(t)
     board.BuildConnectivity()
     if doomed:
         print("  removed %d redundant via(s) drilled into a small soldered land: %s"
@@ -1615,6 +1590,7 @@ def drop_degenerate(board, floor_mm=0.005, width_frac=0.1):
               and t.GetLength() < max(floor, t.GetWidth() * width_frac)]
     for t in doomed:
         board.Remove(t)
+        _REMOVED.append(t)
     return len(doomed)
 
 
@@ -4335,23 +4311,22 @@ def _add_zone(board, net, layer, inset, w, h, poly=None, priority=0):
     """A copper pour over the whole board less `inset`. Not decoration: it is
     how the THT pads reach GND at all, since no GND track is drawn.
 
-    `poly` REPLACES the board rectangle with an explicit outline, and that is
-    what a high-current net needs. A plane over the whole board is the only
-    shape a return needs, so that is the only shape this grew for; but a rail
-    carrying tens of amps cannot be a track at all. IPC-2221 wants 3.18 mm for
-    7.5 A at a 20 C rise, and the note that set this board's 1.2 mm said the
-    quiet part out loud: "a track that wide is not a track, it is a pour."
-    Without a polygon the only pour available was the whole board, which no
-    supply but ground can have, so the choice was a track the current does not
-    fit through or a via array nothing measures. A region fixes that, and it
-    fixes it better than hand-laid copper does: the FILLER keeps clearance to
-    every pad, track and other zone it finds, so the pour stays legal when the
-    router moves underneath it, where a typed polyline goes stale silently.
+    `poly` REPLACES the board rectangle with an explicit outline, and that is what a
+    high-current net needs. A plane over the whole board is the only shape a RETURN
+    needs, so that is the only shape this grew for; but a rail carrying tens of amps
+    cannot be a track at all. IPC-2221 wants 3.18 mm for 7.5 A at a 20 C rise, and the
+    note that set one board's 1.2 mm said the quiet part out loud: "a track that wide is
+    not a track, it is a pour." Without a polygon the only pour available was the whole
+    board, which no supply but ground can have, so the choice was a track the current
+    does not fit through or a via array nothing measures. A region fixes that, and it
+    fixes it better than hand-laid copper does: the FILLER keeps clearance to every pad,
+    track and other zone it finds, so the pour stays legal when the router moves
+    underneath it, where a typed polyline goes stale silently.
 
-    `priority` decides which of two OVERLAPPING pours wins the contested copper
-    (higher first); equal priorities keep clearance from each other instead. It
-    is here so a small rail region can sit inside a larger one without the
-    author having to cut the hole by hand."""
+    `priority` decides which of two OVERLAPPING pours wins the contested copper (higher
+    first); equal priorities keep clearance from each other instead. It is here so a
+    small rail region can sit inside a larger one without the author cutting the hole by
+    hand."""
     zone = pcbnew.ZONE(board)
     zone.SetLayer(_LAYERS[layer])
     zone.SetNet(net)
@@ -4380,8 +4355,8 @@ def _add_zone(board, net, layer, inset, w, h, poly=None, priority=0):
     if poly:
         # ⚠ AT LEAST THREE DISTINCT CORNERS, checked here rather than left to the
         # filler. A degenerate outline does not raise: it fills to zero area, and
-        # PCB_QUALITY A1 then reads the net as "no copper joins" -- a sentence
-        # that points at the routing, not at the typo three files away.
+        # PCB_QUALITY A1 then reads the net as "no copper joins" -- a sentence that
+        # points at the routing, not at the typo three files away.
         pts = [(float(x), float(y)) for x, y in poly]
         if len(set(pts)) < 3:
             raise SystemExit("zone on %s: %d distinct corner(s); a pour needs 3"
@@ -4772,9 +4747,9 @@ def build(stem):
         _edge_slot(board, [tuple(p) for p in sl["poly"]], sl["rects"])
 
     for z in notes.get("zones", []):
-        # Two spellings, because the three-tuple is every board's ground plane and
-        # should not have to grow a dict to stay itself. A dict is for the rest:
-        # `poly` for a region, `priority` for which of two overlapping pours wins.
+        # Two spellings, because the three-tuple is every board's ground plane and should
+        # not have to grow a dict to stay itself. A dict is for the rest: `poly` for a
+        # region, `priority` for which of two overlapping pours wins.
         if isinstance(z, dict):
             net_name, layer = z["net"], z["layer"]
             inset, poly = float(z.get("inset", 0.3)), z.get("poly")
@@ -4782,8 +4757,8 @@ def build(stem):
         else:
             (net_name, layer, inset), poly, prio = z, None, 0
         if net_name not in nets_by_name:
-            raise SystemExit("zone asks for a pour on %r, which is not a net on "
-                             "this board" % net_name)
+            raise SystemExit("zone asks for a pour on %r, which is not a net on this "
+                             "board" % net_name)
         _add_zone(board, nets_by_name[net_name], layer, inset,
                   *notes["outline_mm"], poly=poly, priority=prio)
     if notes.get("zones"):

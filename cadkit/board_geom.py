@@ -13,7 +13,7 @@ the lead leave).
     pcb   = BOARDS.solid("controller")           # laminate + every part body + THT tails
     env   = BOARDS.solid("controller", mated=True)   # ...with plugs seated: what to clear
     m     = BOARDS.mouth("controller", "J1")     # a panel connector's mouth, board frame
-    ink   = BOARDS.silk("controller")            # the lettering, as its own part
+    ink   = BOARDS.ink("controller")             # the lettering, both faces, its own part
 
 `cadkit/board_check.py` then closes the loop: it probes the solid your project actually
 places in the assembly against the same file, so a board the CAD draws wrongly -- a part
@@ -61,6 +61,7 @@ HEIGHT = {
     # chip passives, diodes, small-signal packages: package maximum heights
     "C_0402_1005Metric": 0.55, "R_0402_1005Metric": 0.50, "R_0603_1608Metric": 0.55,
     "C_0603_1608Metric": 0.90, "R_0805_2012Metric": 0.65,
+    "R_1206_3216Metric": 0.65,          # thick film, 0.55 +- 0.10 (UNI-ROYAL 1206 series)
     "C_0805_2012Metric": 1.45, "C_1206_3216Metric": 1.60, "C_1210_3225Metric": 1.80,
     "L_0603_1608Metric": 0.95, "Fuse_1206_3216Metric": 1.10,
     "Fuse_0805_2012Metric": 1.10,                # 0805 PTC: 1.0 max body + fillet
@@ -139,7 +140,7 @@ TAIL = {
     "C_0603_1608Metric": 0.0, "R_0805_2012Metric": 0.0,
     "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 3.4, "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 3.4, "JST_XH_B6B-XH-A_1x06_P2.50mm_Vertical": 3.4,   # cadkit.pcb XH_POST_TAIL
     "TestPoint_Pad_D1.5mm": 0.0, "TestPoint_Pad_D1.0mm": 0.0,
-    "C_1206_3216Metric": 0.0, "Fuse_1206_3216Metric": 0.0,
+    "C_1206_3216Metric": 0.0, "Fuse_1206_3216Metric": 0.0, "R_1206_3216Metric": 0.0,
     "Fuse_0805_2012Metric": 0.0, "TO-252-2": 0.0,
     "SolderJumper-3_P1.3mm_Bridged12_RoundedPad1.0x1.5mm": 0.0,
     "XINGLIGHT_XL-5050RGBW": 0.0,
@@ -349,6 +350,16 @@ class Boards:
         A top-entry part lets go straight up off its mated plug. A SIDE-ENTRY part does
         not: its plug leaves through the board edge, so the answer is the mouth end of
         the body pushed out by the mated plug's run, at the contact axis (mid-body in z).
+
+        ⚠ A SIDE-ENTRY PART WITH NO REGISTERED PLUG RUN RAISES. It used to fall back to
+        the top-entry formula, silently, and that is the worst thing this function can do:
+        the answer it returned was a point 15.67 mm off the FACE of the board pointing at
+        the lid, for five terminal blocks whose mouths all face the other way. A harness
+        built on it would have drawn five cables leaving perpendicular to the board,
+        missing the cable chase entirely, and every gate would have PASSED -- the wrong
+        direction is still a valid point, so nothing downstream can tell. A caller that
+        gets an exception writes down the direction it knows; a caller that gets a number
+        believes it.
         """
         f = self.footprint(board, ref)
         t = self.load(board)["thickness_mm"]
@@ -364,9 +375,26 @@ class Boards:
             elif name.startswith("JST_PH_"):
                 h = self.ph_mated_h
             return (cx, cy, t + h)
-        run = self.side_plug_run.get(name[:7])
+        # LONGEST registered prefix, not name[:7]. Both keys in SIDE_PLUG_RUN happen to
+        # be 7 characters long, so the slice worked by coincidence and silently stopped
+        # working for any key of another length -- and the failure was a wrong number
+        # rather than a miss, see the warning above.
+        run = None
+        for key in sorted(self.side_plug_run, key=len, reverse=True):
+            if name.startswith(key):
+                run = self.side_plug_run[key]
+                break
         if run is None:
-            return (cx, cy, t + h)
+            raise KeyError(
+                "%s %s: %s says Horizontal, so its plug leaves through the board EDGE, "
+                "but no side_plug_run is registered for it (tried every prefix of %r "
+                "against %s). Register the mated plug's run -- Boards(..., "
+                "side_plug_run={'<fpid prefix>': <mm>}) -- or, if the direction is a "
+                "CONVENTION rather than a measurement, declare it in the caller and say "
+                "why there. This used to return the TOP-ENTRY point instead, which for a "
+                "side-entry part is not merely imprecise, it points the wrong way."
+                % (board, ref, f["fpid"], name,
+                   ", ".join(sorted(self.side_plug_run)) or "an empty table"))
         ax, lo, hi, _o, towards_hi = self._side_mouth(board, f)
         out = (hi + run) if towards_hi else (lo - run)
         z = t + h / 2.0
@@ -449,6 +477,21 @@ class Boards:
         solids = []
         for s in out:
             solids += s.Solids()
+        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(solids)])
+
+    def ink(self, board: str, refs: bool = True):
+        """ALL the board's lettering, both faces, as one part in solid()'s frame; None
+        for a board that prints nothing. This is the one to place beside solid():
+        `silk()` is one face, and an assembly that calls it once draws the front and
+        silently leaves out the back -- where a connector's pinout usually is.
+        `cadkit.board_check.check(..., ink=)` holds the assembly to it."""
+        sides = [w for w in (self.silk(board, s, refs) for s in ("F", "B")) if w is not None]
+        if not sides:
+            return None
+        solids = []
+        for w in sides:
+            for v in w.vals():
+                solids += v.Solids()
         return cq.Workplane("XY").newObject([cq.Compound.makeCompound(solids)])
 
     def solid(self, board: str, mated: bool = False, omit: tuple = (),

@@ -84,13 +84,33 @@ def _cad(board):
     return {"main": housing.pcb_solid}[board]()
 
 
+def _ink(board):
+    """The LETTERING the assembly places for `board`, in the SAME frame as _cad().
+
+    Both faces, because the check asks for every label's ink and this board prints
+    on both: the designators and net words on F, the five terminal legends on B
+    where a person reads them while screwing a wire down.
+
+    ⚠ THIS HOOK IS WHY THE SILK IS DRAWN AT ALL. The owner's note was "there is
+    no silkscreen in cad", and the answer was housing.pcb_silk() -- but a part the
+    assembly merely adds is a picture. Passing it HERE is what makes it a claim:
+    every label the router printed has to have ink somewhere in this solid, in the
+    housing's frame, so silk that is missing, stale or posed wrong is a finding
+    rather than something nobody looks at. It found 104 of them the first time it
+    ran, which was the whole F-side set -- drawn, but never checked against.
+    """
+    from src import housing
+    return [p for p in (housing.pcb_silk("F"), housing.pcb_silk("B"))
+            if p is not None]
+
+
 def main(names):
     names = names or sorted(os.path.basename(p)[:-len(".geom.json")]
                             for p in glob.glob(os.path.join(HERE, "geom", "*.geom.json")))
     bad = 0
     for b in names:
         try:
-            bad += check(b, _cad(b), BOARDS.load(b))
+            bad += check(b, _cad(b), BOARDS.load(b), ink=_ink(b))
         except Exception as exc:              # a board the check cannot read is a finding
             print("%-13s COULD NOT CHECK: %s" % (b, exc))
             bad += 1
