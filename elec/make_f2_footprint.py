@@ -116,6 +116,32 @@ assert (PAD - FINISHED) / 2.0 >= RING_MIN, (
 PAD_GAP = ROW_PITCH - PAD
 
 
+# ⚠ THIS LAND WILL NOT FIT THE FAB'S FRAME, AND THE REASON IS THE PAD SIZE RATHER
+# THAN THE GEOMETRY. fab_frames measures the fab's library footprint against ours by
+# laying the pads over each other; the STOCK land fits C207061, and this one comes back
+# "up to 2.90 mm from ours at the best of the four rotations". Nothing moved: every pad
+# of this land is at the stock coordinate, byte for byte -- (0,0) (0,2.5) (3.5,0)
+# (3.5,2.5) for pin 1 and the same +9.3 for pin 2, with the 2.4 mm spigot at (6.4,1.25).
+# Only `size` and `drill` changed. So the fitter is pairing pads with the pad SIZE as
+# part of the match, and growing 2.20 to 2.30 breaks the pairing it would otherwise make.
+# That is a defect in the fitter rather than in this land, and it is recorded here
+# instead of worked around, because the frame table is generated and must not be
+# hand-edited.
+#
+# ⚠ AND IT DOES NOT MATTER FOR THIS PART, which is why it is not an order blocker.
+# F2 is a FUSE holder: two terminals, electrically interchangeable. Its pad grid is
+# 12.8 x 2.5 mm and SYMMETRIC under a half turn -- (0,0) maps to (12.8,2.5), a pin-2
+# pad -- so a 180 deg placement puts every pin in a hole and merely swaps pin 1 with
+# pin 2, which on a fuse between VBAT_RAW and VBAT is the same circuit. The spigot sits
+# at the grid's exact centre and keys nothing. A quarter turn does not fit the holes at
+# all, and the part is hand-soldered INTO those holes, so the board itself is what
+# orients it. The one rotation a fab could get wrong is the one that changes nothing.
+#
+# Contrast D7, added in the same session, where this mattered enormously: a BAT54S in
+# SOT-23 wired by its pin map, where 180 deg turns a clamp into a diode straight from
+# +3V3 to GND. Its frame WAS measured (rot 180), and the CPL carries the correction.
+
+
 def build():
     if not os.path.exists(STOCK):
         print("stock footprint not found: %s" % STOCK)
