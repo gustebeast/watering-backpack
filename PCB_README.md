@@ -110,6 +110,8 @@ Millimetres, **board-centred, +Y up** (the CAD's frame — `layout.py` flips to 
 | `silk_labels` | `{ref or net: text}`: what a button, LED or jumper is FOR (`{"SW1": "RESET"}`), or a shorter word for a net in a connector's pinout (`{"+24V_LED": "24V"}`) |
 | `silk_read` | the way the board's lettering READS: 0 (default), 90, 180 or 270 -- set it to how a person looks at the board installed. Everything `kicad_silk` lays, and each footprint's own designator, reads that way; a quarter turn off it is the last resort, only for a label tied to one pad, pin or part, and each one is logged with its reason. Nothing is ever a half turn off it |
 | `silk_short` | `{net: word}`: the short word for a net in the per-way labels on a connector's own side (`{"UI_SCLK": "CK"}`), over the built-in ones (G, 24, 5V, 3V3, and a bus line's last letter). Used only where the net's own name does not fit beside its way |
+| `silk_pinout` | refs whose pinout block is printed whatever their pin count (`["J2"]`): a connector over 8 ways gets none by default. Back face first; two columns for a two-row header |
+| `silk_ends` | refs whose LAST way is numbered as well as way 1 (`["J1"]`). Automatic for a single row of more than 8 ways. Way 1 itself is marked on every connector of more than one way, whatever its size |
 | `silk_name`, `silk_rev` | a short board name for a board too small for its file name; the revision printed after it (default `r1`, bump it when copper changes on a re-order) |
 | `quality` | the board's quality record: supply paths and currents, decoupling limits, pinout citations, manual sign-offs, waivers. **Every key is in `PCB_QUALITY.md`** |
 | `order_options` | `{key: text}` extra order-form settings for this board's `ORDER.txt` |
