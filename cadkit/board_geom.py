@@ -313,6 +313,40 @@ class Boards:
                 if lab["side"] == side and lab.get("kind") != "ref"]
 
     # ── where things are ─────────────────────────────────────────────────────────
+    def way(self, board: str, ref: str, n):
+        """Where the wire on WAY `n` of connector `ref` leaves it, in the board frame:
+        lead_exit()'s point, moved along the pin row onto that way's own pad.
+
+        The pad is READ from the routed board (the geom file's `pads`), not rebuilt from
+        a pitch and the footprint's rotation. That arithmetic is right until a footprint
+        numbers its ways from the other end, and then it is wrong by a mirror image --
+        every conductor exactly on a contact, the wrong one, which no clearance check
+        can see (five lever boards and a leg joint were drawn that way)."""
+        f = self.footprint(board, ref)
+        pads = f.get("pads") or {}
+        if str(n) not in pads:
+            raise KeyError("%s %s has no way %r in its geom file (ways: %s). Re-export the "
+                           "board with cadkit/kicad_geom.py if `pads` is missing altogether"
+                           % (board, ref, n, ", ".join(sorted(pads)) or "none exported"))
+        px, py = pads[str(n)]
+        ex, ey, ez = self.lead_exit(board, ref)
+        if "Horizontal" not in f["fpid"]:
+            return (px, py, ez)
+        ax = self._side_mouth(board, f)[0]
+        return (ex, py, ez) if ax == "x" else (px, ey, ez)
+
+    def way_dir(self, board: str, ref: str):
+        """The direction a wire travels LEAVING connector `ref`, in the board frame: up
+        off a top-entry part, out of the mouth in the board's plane off a side-entry one.
+        A lead drawn into a side-entry housing along the board normal goes through its
+        body."""
+        f = self.footprint(board, ref)
+        if "Horizontal" not in f["fpid"]:
+            return (0.0, 0.0, 1.0)
+        ax, _lo, _hi, _o, towards_hi = self._side_mouth(board, f)
+        s = 1.0 if towards_hi else -1.0
+        return (s, 0.0, 0.0) if ax == "x" else (0.0, s, 0.0)
+
     def mouth(self, board: str, ref: str) -> dict:
         """Where a panel connector's mouth is, in the board frame: direction, the body's
         FRONT along that direction, the axis's position across it, and its height above
