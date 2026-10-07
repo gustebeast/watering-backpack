@@ -708,6 +708,63 @@ designator deleted, a pinout block moved to the other face, one way's word delet
 way-1 mark deleted, a `back_only` declared with and without a reason — and checks that
 each produces its own answer, alongside the unbroken board.
 
+### A18 — The silkscreen that is drawn is the silkscreen that prints
+
+**Rule.** No object on `F.Silkscreen` or `B.Silkscreen` overlaps a solder-mask opening on
+its own side. Reference designators, footprint outlines, board text, marks: all of them.
+
+**Why.** A fab prints the silkscreen and then opens the solder mask, and anywhere the two
+overlap the ink is removed — KiCad calls it "Silkscreen clipped by solder mask". So a
+designator sitting half over a neighbour's pad is drawn **in full** in the editor, in every
+render, in every plot and in every review, and arrives on the real board with a letter
+gone. The design and the thing in your hand disagree, and the design is the one that looks
+right. This rule exists because an owner looked at a board and said the silkscreen should
+be accurate to how the board will look once assembled.
+
+**What hid it.** A12 had measured silk for height and stroke from the beginning and said
+nothing at all about position. The only position claim anyone made was "the fitter holds
+0.20 mm to any mask opening", and that was **true** — of the objects the fitter places. A
+footprint's reference designator is not one of them: it arrives with the land, positioned by
+whoever drew the land, and went onto the board untouched. One class of silk was fitted,
+another was not, and a sign-off read the first and asserted the board. That is the same
+shape as A1 reporting "through a pour the whole way" and measuring no cross-section, and
+A15 testing one track segment at a time: a gate that measures one kind of object, and a
+reader who hears it speak for all of them.
+
+**Mask, not copper.** Silk over a buried track prints perfectly — the mask covers the
+copper and the ink sits on the mask. Only an *opening* removes ink, so the obstacle set is
+the mask layer. This is also why `silkfit` can run straight after placement: tracks and
+pours open no mask, so routing cannot invalidate the result.
+
+**Silk over silk is a different and milder thing** and is not this rule. Two inked objects
+that touch both still print; the result is ugly, not absent, so the design remains
+accurate. `silkfit` costs it in its search so a free site beats a crowded one, but it will
+not exile a designator millimetres from its own part to avoid brushing a courtyard line.
+
+**How it is fixed.** `pcbflow/silkfit.py` runs after placement and owns every silk *field*.
+Its contract is binary: a designator is moved to the nearest position where it prints
+intact, or it is moved to the `.Fab` assembly drawing, where it is not silk at all. There
+is no third outcome in which something is drawn on silk and does not print. A part whose
+designator cannot fit anywhere is still named — `.Fab` is the assembly drawing and the fab
+places from the CPL, not from silk.
+
+A failure here is therefore something `silkfit` cannot move: a footprint **outline** or a
+board drawing over a pad. Put that footprint's prefix in the board's `strip_silk` note,
+which relocates its graphics to `.Fab`.
+
+**There is no declaration for this rule, and there should not be.** Every other hard rule
+here can be signed for with a measurement and a reason, because every other one is a
+judgement about whether something is good enough. This one is not. Ink over a mask opening
+is not printed, full stop, so a declaration would be signing that the plot may lie about
+what arrives — which is the one thing the rule exists to prevent. The escape hatch is
+`.Fab`, not a signature.
+
+**The measurement lives in `silkfit`,** not in `quality.py`, so the pass that moves the
+text and the rule that grades it read the same geometry. A rule that re-implements its
+fixer's model is a rule that will one day pass a board the fixer broke.
+
+*Break it* never. Move the object to `.Fab` instead.
+
 ## Manual checks
 
 Sign each in `quality["manual"]` with what you checked against. If a rule does not apply

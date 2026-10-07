@@ -4504,8 +4504,18 @@ def build(stem):
     # prints intact, or to .Fab, and quality A18 fails on anything left clipped.
     # Pads are final by here (_grow_thin_rings ran at load) and tracks open no mask,
     # so this is the right place and routing cannot invalidate it.
+    # ⚠ PLAIN IMPORT WITH THE MODULE'S OWN DIRECTORY ON THE PATH, NOT A RELATIVE
+    # ONE. layout.py runs as a SCRIPT in the KiCad interpreter, not as part of a
+    # package, so `from . import silkfit` raises "attempted relative import with no
+    # known parent package" -- which is exactly what it did on the first full run,
+    # reported by the except below rather than silently skipped, and the board came
+    # out of that run with all 15 clipped designators still on it. A pass that
+    # announces it was skipped is recoverable; one that passes quietly is not.
     try:
-        from . import silkfit
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        import silkfit
         silkfit.fit_refs(board, notes=notes, pcbnew=pcbnew)
     except Exception as _e:                                 # noqa: BLE001
         print("   silkfit: skipped (%s: %s)" % (type(_e).__name__, _e))
