@@ -1022,44 +1022,61 @@ that guesses the wrong direction in silence is worse than one that refuses. Defe
 because another agent was editing canonical cadkit at the time and two writers in one
 subtree is how the A13 drift happened.
 
-### 29 — OPEN: the pack pair cannot reach the wire slot past the Z-stop rib
+### 29 — CLOSED: the pack pair fits; the model was drawing it gathered through a slot that is one layer deep
 
-**The wiring model's first real catch, and it lands against finding 26's own fix.**
-With the harness in `components()`, `check_overlaps.py` reported **15.1 mm³ wire_pack
-↔ housing** at x −193.2..−190.0, z **4.70..11.30** — the back plate at the wire slot,
-which is **5.0 mm tall (z 5.5..10.5)**. A gathered 2 × 14 AWG bundle is **6.60 mm**. It
-does not fit, and `src/wiring.py` already says why in its own comment: the slot is one
-layer deep, so the conductors **lie side by side, not gathered**. The routing model and
-the fit model have to differ there; the side-by-side width (17.8 mm into 40) passes.
+**The wiring model's first real catch, and what it caught was the MODEL.** With the
+harness in `components()`, `check_overlaps.py` reported **15.1 mm³ wire_pack ↔
+housing** at x −193.2..−190.0, **z 4.70..11.30** — the back plate at the wire slot,
+which is **5.00 mm tall (z 5.50..10.50)**. A gathered 2 × 14 AWG bundle is **6.60 mm**
+and does not fit.
 
-**The harder half is the rib.** Finding 26 made the −Z stop continuous over the
-laminate's full length, y 101.57..194.57 at z 16.05..18.45. The wire slot is at
-y 127..167. **Those overlap**, so the rib now crosses the band the pack pair must cross
-to reach the plate — and the two short bands finding 26 replaced did **not**
-(y 101.6..103.9 and 194.6..197.6, both clear of the slot).
+**But the harness does fit, and `src/wiring.py`'s own comment had already said why
+before the gate was run:** the slot is **one layer deep**, so the conductors cross it
+**side by side**, not gathered. Two 3.30 mm conductors lying flat are **3.30 tall and
+6.60 wide** — which is exactly what the slot was sized for, and what finding 3's
+17.8 mm side-by-side arithmetic assumed all along. The gathered diameter is still the
+right model for the four runs that do **not** cross the plate, where a cable really is
+gathered.
 
-⚠ **FINDING 26 OVERCLAIMED ITS INVARIANT.** It states *"every connector body and every
-cable is outboard of BOARD_X1, every part of this rib is inboard of it, so the two
-cannot meet."* That holds for a cable **descending** into the chase. The pack pair is
-the one cable that must cross **inboard**, because its slot is in the plate. The
-invariant needs that exception stated.
+**Fixed by drawing the cable as it lies.** `LAID_FLAT` names the cables that cross the
+slot — only the pack pair does — and those are emitted as one solid per conductor,
+each bending on its own radius. Two new asserts hold it: a laid-flat conductor must be
+no taller than the slot, and its conductors laid side by side no wider. **That is the
+check whose absence let a 6.60 mm round bundle be drawn through a 5.00 mm slot.**
 
-Geometry: a 90° turn at a 3×-OD fixed-install radius needs ~9.9 mm of arc height, and
-the band between the slot's centreline (z 8.0) and the rib's underside (z 16.05, less
-the conductor's own 1.65) is **6.4 mm**. So it genuinely does not fit as drawn.
+**Result: the harness is now IN the overlap gate** — 23 components weighed,
+**0 unintended overlaps** — so from here a cable is checked against the housing, the
+lid, the board and every other cable by the same gate as everything else. The
+2.0 mm³ `wire_pack ↔ pcb` reading at the mouth resolved itself in the same change:
+with per-conductor lanes the wires straddle the clamp instead of sitting dead-centre
+in its body, so no `intended()` entry was needed after all.
 
-**The fix that looks right and is NOT yet applied:** interrupt the −Z rib over the
-slot's Y span, derived from the slot rather than typed. That leaves stops of **25.4 mm
-and 27.6 mm** — far longer than the 2.35 mm that started finding 26, and still derived.
-It wants its own fail-harness and a clean overlap run before it is believed.
+#### ⚠ AND THE RIB HALF OF THIS FINDING WAS MINE, AND IT WAS WRONG
 
-⚠ **A second, smaller reading is unresolved:** 2.0 mm³ `wire_pack ↔ pcb` at the mouth.
-A cable inside its own clamp **should** interpenetrate the connector body, so this is
-probably an `intended()` entry rather than a clash — but it has not been measured and
-bounded, and `intended()`'s own comment warns that an unmeasured entry only stands
-ready to hide the first real clash that appears.
+This finding was first written claiming that finding 26's now-continuous −Z stop
+crosses the wire slot's Y span and blocks the pack pair, and that **finding 26 had
+overclaimed its invariant**. **Both claims are withdrawn.** The geometry does not
+support them and the measurement never did:
 
----
+* The reported clash was at **x −193.2..−190.0 — the plate**. The rib lives at
+  **x −193.2..−198.8**. Different region; the gate never pointed at the rib.
+* The turn's arc centre is at **(x −197.53, z 17.9)**, so where the cable crosses the
+  rib's x band it is at **z ≈ 8.08**, not 17.9. It only reaches the rib's height at
+  **x −207.43**, which is 8.6 mm outboard of the rib's outer edge. The arc leans
+  *away* from the board, not across it.
+* So the 6.4 mm "band between the slot and the rib's underside" that this finding did
+  its arithmetic in **is not a band the cable ever occupies.**
+
+**Finding 26's invariant stands as written** — every connector body and every cable is
+outboard of `BOARD_X1` where the rib is inboard of it — and the pack pair does not
+violate it, because it drops to slot height *before* it travels inboard rather than
+after. The exception I inserted into finding 26 has been removed.
+
+**The error was reasoning about a bend instead of measuring one**, after the gate had
+already told me where the volume was. I put the arc's centre on the wrong side of the
+corner, which puts the whole arc 9.9 mm too high. Recorded because it is the same
+mistake as the render-read in finding 24, one level up: **the gate gave a coordinate
+and I argued past it.**
 
 ### 30 — OPEN, the most serious finding of the pre-order review: LEVEL reaches IO14 unprotected, from a terminal block that also carries the raw pack
 
@@ -1167,7 +1184,7 @@ like this one; the benefit is finding 30, which no amount of reading our own doc
 would have produced. **Both come from the same ignorance and it is not possible to
 keep one without the other.**
 
-### 32 — OPEN: four of U1's six thermal vias sit inside the stencil apertures
+### 32 — OPEN, CONFIRMED BY A SECOND PASS AND WORSE THAN STATED: U1's thermal vias are pasted over, and tented on the wrong side
 
 **Pass 1, reading the gerbers rather than the footprint source.** In
 `wbp:SOIC-8-1EP-FABDRILL`, pad 9 is a 2.29 × 3.0 mm land with six 0.3 mm plated vias
@@ -1184,10 +1201,31 @@ die. Must be connected to ground plane on PCB."
 **Consequence: a degraded, not absent, heat path** — fine at the few hundred mA the
 3V3 rail actually draws, a thermal-shutdown risk if it is ever loaded near 2 A.
 
-**The board's own ESP32 footprint does this correctly, which is the useful part of
-the finding:** there the vias sit *between* the paste pads, 0.7 mm off. So the fix is
-to copy what the other footprint already does — move the EP vias off the aperture
-centres, or tent them from the top.
+**The board's own ESP32 footprint does this correctly, which looked like the useful
+part of the finding:** there the vias sit *between* the paste pads, 0.7 mm off.
+
+#### ⚠ PASS 4 CONFIRMED IT INDEPENDENTLY AND FOUND IT WORSE IN TWO WAYS
+
+**It is six holes, not four.** The four at (±0.65, ±1.0) are *fully* enclosed by the
+apertures; the remaining two at (±0.65, 0) are **clipped by 0.025 mm at each aperture
+edge**. So **all six are touched by printed paste.** Confirmed in
+`main-F_Paste.gtp`: exactly 4 apertures at (63.43/64.57, 69.25/70.75) around U1's
+centre (64.0, 70.0).
+
+**And they are tented on the WRONG SIDE, which is the stronger mechanism.**
+`main-F_Mask.gts` has a single 2.29 × 3.00 opening at (64.0, 70.0) enclosing all six
+0.70 mm via pads — so the holes are mask-**open** on the component side.
+`main-B_Mask.gbs` has **zero** openings there — so they are **fully tented on the far
+side**. TI **SLMA002H p. 9** states component-side tenting is preferred and warns that
+tenting from the opposite side instead gives **increased voiding visible in x-ray, from
+flux outgassing and air entrapment**. Ours therefore loses solder down six open holes
+**and seals the gas in.**
+
+**The fix is no longer "copy the ESP32 footprint", because pass 4 found that one has
+its own version of the same defect** — see finding 39. Both footprints need the same
+two edits: shrink/relocate the via pads so they clear the paste, and tent the barrels
+**on the component side**. And see finding 38: U1's exposed pad is also 25 % undersized
+and starved of paste, so this is one of four deficits stacked in the same direction.
 
 ### 33 — OPEN: the VBAT_SENSE divider saturates above ~20.3 V, and TWO passes found it independently
 
@@ -1498,6 +1536,215 @@ waiver). A16 itself: **151 rows checked, 0 FAIL.**
 **M5 was narrowed to the judgement A16 cannot make**, rather than left overlapping it,
 and the learnings log carries a row. Pass 4 — the custom footprints against the
 makers' land patterns — is the one pass still outstanding.
+
+---
+
+### 37 — ⚠ ORDER BLOCKER, RE-SPIN: F2's 1.4 mm holes cannot accept the holder's own pins
+
+**Validation pass 4, and it is a hard assembly stop — the part physically will not go
+in.** Littelfuse 178.6165.0002 datasheet **p. 2 ("Dimensions", bottom view)**: terminal
+pin **width 1.4 ±0.1 mm**.
+
+| | ours | Littelfuse | deviation |
+|---|---|---|---|
+| drill | **1.400 mm** | not published | — |
+| finished hole after plating | ≈1.32–1.35 mm | — | — |
+| pin **width alone** | — | 1.4 ±0.1 (→ **1.5 max**) | **−0.15 to −0.65 mm short** |
+
+**A nominal 1.4 mm drill finishes at ≈1.33 mm plated — smaller than the pin's width
+before its thickness is considered at all.** Taking the front view's 1.2 mm as
+thickness, the pin diagonal is √(1.4²+1.2²) = **1.845 mm** nominal and **1.985 mm**
+worst case, so the hole wants ≈2.0 mm. **Even on the most generous reading** (a thin
+0.8 mm stamped terminal) the diagonal is 1.61–1.70 mm. **Under every interpretation the
+hole is undersized.**
+
+**Knock-on, which is why this is a re-spin and not a drill tweak:** at a 2.0 mm drill
+our 2.2 mm pads give a **0.10 mm annular ring**, below the ≈0.13 mm PTH minimum at
+JLCPCB class — so the pads must grow to **≥2.3–2.4 mm** too. At 2.4 mm pads on the
+2.5 mm row pitch the two rows within a terminal merge (0.1 mm gap, same net —
+acceptable, but effectively a slot).
+
+⚠ **Stated plainly: Littelfuse publishes NO recommended PCB layout.** p. 2's
+"Recommended Assembly" is two cross-sections carrying **no numbers at all** — no pad
+diameter, no hole diameter, no annular ring, no plating callout, no keepout, no
+courtyard. **This finding is derived from the published PIN dimension, not read off a
+land pattern.** So: **measure the physical holder before committing the new drill.**
+The owner has this part in hand, which makes that a five-minute job with calipers and
+the only responsible way to pick the number.
+
+**Why nothing caught it:** every gate this repo has checks our geometry against
+*itself* or against the fab's rules — annular ring, hole-to-hole, clearance. **Not one
+of them compares a hole to the pin that has to go through it**, because the pin's size
+lives in a datasheet and nothing had read it. That is exactly the gap pass 4 existed to
+close, and it is the single most expensive thing the four passes found.
+
+### 38 — ⚠ RE-SPIN: U1's exposed pad has four deficits stacked in the same direction
+
+**Pass 4, against TI SNVSAA5B package drawing 4214849/B (p. 31 outline, p. 32 example
+board layout, p. 33 example stencil) and app note SLMA002H §2.4 pp. 8–10.**
+
+| item | ours | TI | deviation |
+|---|---|---|---|
+| EP copper | 2.29 × 3.00 (6.87 mm²) | **2.95 × 4.90** (14.46 mm²) | **−52 % copper** |
+| EP mask opening | 2.29 × 3.00 | **2.71 × 3.40** (9.21 mm²) | **−25 % solderable** |
+| mask definition | mask = copper exactly | **solder-mask defined** (copper larger) | not SMD |
+| thermal paste | 4 windows = 4.80 mm² | **solid 2.71 × 3.40 = 9.21 mm²**, "100 % printed coverage" | **52 % of TI's volume** |
+| thermal vias | 6 × ⌀0.30 | **8 × ⌀0.20**, 1.30 pitch both axes | +0.10 dia (2.25× hole area), −2 vias |
+
+**And the land is smaller than the package's own maximum exposed pad.** Our 2.29 × 3.00
+opening sits between the package's min (2.11 × 2.80) and **max (2.71 × 3.40)**, so a
+max-size part's exposed pad **overhangs our mask opening by 0.21 mm per side in X and
+0.20 in Y, landing on solder mask.** SLMA002H p. 9 and the p. 32 drawing both say to
+define the SMD pad to the **maximum** exposed-pad size. Between min- and max-size parts
+the joint therefore varies lot to lot — rocking, tilt, poor wetting.
+
+**Net: a thermal pad 25 % undersized, getting 52 % of the prescribed paste, with six
+open holes draining it (finding 32), gas-trapped by far-side tenting — on a 2-LAYER
+board**, where SLMA002H §2.3 p. 4 notes the surface layers are all the heat removal
+there is. Findings 32's two items are mask/stencil gerber edits; these need the
+footprint re-cut to TI's 2.95 × 4.90 copper and 2.71 × 3.40 SMD opening.
+
+**Separately — U1's signal pads are 0.40 mm too long, all of it inboard (yield risk).**
+
+| | ours | TI | deviation |
+|---|---|---|---|
+| pad | **1.95 × 0.60** | **1.55 × 0.60** | **+0.40 length** |
+| pitch | 1.270 | 1.27 | exact ✓ |
+| outer-edge span (toe) | 6.90 | 6.95 | −0.05, negligible |
+| inner-edge span (heel) | 3.00 | 3.85 | **−0.85** |
+| **lead pad ↔ EP solder gap** | **0.355** | **0.570** | **−0.215, −38 %** |
+
+The toe is right; **all 0.40 mm goes inboard, under the body, toward the exposed pad.**
+TI's own p. 32 note says the EP is mask-defined specifically "to prevent shorting to
+leads", and we have eroded that gap by 38 %. Compounding: our signal paste is
+**+26 %** per lead at the same time the EP gets **−48 %** — so **the leads will float
+the package off a paste-starved thermal pad while carrying surplus solder 0.355 mm from
+it.**
+
+### 39 — ⚠ RE-SPIN: 2.124 mm of board remains under the ESP32's antenna, and the pad-39 vias drain its thermal joint
+
+**Pass 4 derived the antenna geometry independently from Edge.Cuts and the gerbers.
+It confirms the earlier overhang reading and CORRECTS it: the overhang is partial.**
+
+| | |
+|---|---|
+| board outline | x 52.5..147.5, y 44..156 |
+| antenna tip → board | x **151.566** |
+| board edge | x **147.5** |
+| **antenna overhang** | **4.066 mm** |
+| antenna-area boundary (the 6.19 line) | x **145.376** |
+| **FR4 left under the antenna** | **2.124 of 6.19 mm = 34.3 %** |
+
+**Copper is fully compliant with margin, and that part is a genuinely good result.**
+Zero F.Cu beyond x 145.376 in y 53.0..101.1; the **B.Cu plane is notched to exactly
+145.3756 — 0.000 mm margin**, cut to the footprint's own keepout polygon; no tracks,
+vias or silk in the band. Lateral extent ±24 mm against Espressif's **Min 15**, and
+15.0 mm past the tip against **Max 1** (ESP32 Hardware Design Guidelines **§1.4.8,
+Fig. 25**). We exceed both.
+
+**Board MATERIAL is not compliant.** §1.4.8 gives exactly two acceptable options:
+(a) preferred — antenna **outside the base board** (Fig. 23 marks only the two
+**corner** positions ✓); (b) fallback — **cut the base board away on both sides and
+below the antenna**, back flush to the 6.19 line. Fig. 25's keepout is labelled
+"Clearance Area" and the outline is **notched through it** — it is board-material-free,
+not merely copper-free. **We satisfy neither**: the antenna is 66 % off the board but
+2.124 mm of laminate remains — and that remainder is the antenna **root**, next to the
+body, **the most dielectric-sensitive part of the meander.** Secondary: U2 sits
+**mid-edge**, 24.03 mm from the nearest corner, and Fig. 23 marks only corner
+positions ✓.
+
+**Two fixes, both free before ordering, and they cost different things — so this is
+the owner's choice, not mine:**
+* **shift U2 outboard by 2.124 mm** (origin x 138.8156 → 140.9396), leaving pads 1/38
+  at 146.95, i.e. 0.55 mm inside the edge — tight but manufacturable. Costs a
+  **re-route** of a board that currently passes everything.
+* **notch Edge.Cuts back 2.124 mm** across the 18 mm module width. No re-route, but it
+  changes the **board outline**, which the housing bay is cut to — so it costs a
+  housing change and a re-run of the geometry gate.
+
+⚠ **And it is three-dimensional:** §1.4.8 asks for **≥15 mm clearance in all
+directions** around the antenna *inside the enclosure*. That is a constraint on the
+printed housing that nothing in `src/housing.py` has ever checked.
+
+**Also, the pad-39 thermal joint has U1's disease in a different form.** Our array
+geometry reproduces Fig. 13 **exactly** (see finding 40), but the **via pads** do not:
+ours are **0.700 mm** on a 0.300 drill where Espressif draws **⌀0.25 with no separate
+pad**, placed in the 0.5 mm gaps. 0.45 + 0.35 = 0.80 > the 0.700 centre distance, so
+**our via pads overlap the squares by 0.10 mm and fill the gaps Espressif deliberately
+leaves.** Confirmed in the gerbers: F.Mask has **21** openings there (9 squares + 12
+via circles) and B.Mask has **12** — so the nine discrete masked islands Espressif
+intends have become **one continuous perforated patch with 12 barrels open on BOTH
+sides.** Molten solder has an uninterrupted path to the far side. Fix: via pads
+≤0.55 mm and tent the barrels component-side.
+
+### 40 — CLOSED: pass 4's positives, and it INVERTS what finding 24 concluded about the frames
+
+**The ESP32 land is an exact 1:1 reproduction of Espressif Fig. 13 (v2.1 p. 43) on
+every published dimension** — 38 perimeter pads, 1.270 pitch, 17.500 side-row c-c,
+19.000 outer span, 16.510 pad 1→14, 11.430 bottom-row span, **7.490** module-edge to
+pad-1 centreline, **6.190** antenna depth, 3.700 × 3.700 pad-39 envelope, 0.9 × 0.9 on
+1.400 pitch, **7.500** and **10.290** pad-39 centre offsets, 12 vias on the gap
+mid-points. **No deviation anywhere except the via pads of finding 39.** For a
+hand-drawn footprint that is the strongest single result in the audit.
+
+**Q1/Q2 match Infineon's PG-TO252-3-901 drawing to within 0.05 mm on every dimension**
+— lead pad 2.20 × 1.20 *identical*, tab 6.40 × 5.80 *identical*, overall across 5.800
+*exact*, pitch 4.560 vs 4.580, tab-to-lead centre 6.300 vs 6.350, clear gap 2.000 vs
+2.050.
+
+#### ⚠ AND THAT INVERTS FINDING 24's CONCLUSION ABOUT THE HAND-ENTERED FRAMES
+
+`elec/fab_frames.json` records Q1/Q2's hand reasoning as a residual of **"0.31 mm on
+the leads and 0.62 on the tab"** against **the fab's library** footprint, and finding 24
+presents that as our deviation to be excused. **It is not ours.** Against **Infineon**
+we are within **0.05 mm**. So the 0.31–0.62 mm belongs to **the fab's library**, and
+**our land is the one that matches the manufacturer** — which means a disagreement in
+the fab's 3D previewer is **evidence against the fab's footprint, not against ours.**
+
+The same logic applies to the `TO-263-2` note ("the fab draws the tab 1.44 mm further
+from the leads than we do"): our two-lead-plus-tab topology matches **onsemi CASE
+418B-04 p. 2** ("2× 3.504 × 1.016, 5.080 PITCH"), with our pitch **5.080 exact**. The
+fab's library is the deviant one there too.
+
+**This is worth more than the measurement itself.** Finding 24 closed M2 by fitting our
+lands to the **fab's** library and recording the residuals as ours to justify. Pass 4
+asked the question finding 24's own prose flagged and could not answer — *"the reviewer
+should check the land against the datasheet, which is a different question from whether
+our land matches the fab's library — both can agree and both still be wrong"* — and
+the answer came back the other way round.
+
+**F2's grid is exactly right; only the diameters are wrong** (finding 37): column pitch
+3.500, inner gap 5.800, span 12.800, row pitch 2.500, post 2.900 from each inner column
+and 1.250 from each row — all dead on Littelfuse p. 2. **And `fab_frames.json`'s F2
+reasoning is correct on both counts:** the 2.4 mm NPTH does sit at the grid's own centre
+(x 6.400 of 0..12.8, y 1.250 of 2.5) so a half-turn maps it onto itself, and the
+terminals need no handedness.
+
+**Lower-severity, recorded not actioned:** F2's **2.4 mm NPTH against a 2.4 ±0.05 post**
+is nominal-on-nominal interference and wants ≈2.6–2.7 (yield). **Q1/Q2's middle-lead
+pad gets a 2.64 mm² paste aperture with no lead to wet it** — Infineon draws no such
+pad — so it reflows into a free solder bead 1.08 mm from the gate and source; clearance
+is fine (same net as the tab), the fix is **stencil-only: delete that F.Paste aperture,
+keep the copper**. **Mask-coincident rather than mask-defined** board-wide
+(`pad_to_mask_clearance 0`) — cosmetic, ≈±0.05 mm registration. **D2/D3 lead pads
++1.10 mm** vs onsemi (+42 % paste on a 10 A leg) — cosmetic. **Tab stencil coverage
+90.4 % (DPAK, vs Infineon's own 87.3 %) and 94.1 % (D2PAK)** — the D2PAK's is
+effectively solid, where 50–80 % is usual for a tab that size, so expect some voiding
+and skew; no published figure to fail against. **D2/D3 have ZERO thermal vias within
+6 mm of the tab on a 2-layer board** — layout rather than land pattern, flagged.
+**And the library has drifted from the board:** both `.kicad_mod` files declare EP via
+pads of 0.5/0.6 mm where **both board instances are 0.699998** — no fab consequence
+(0.20 mm ring), but findings 32/38/39 must be applied to **both** the library and the
+board.
+
+**Scope correction worth recording:** only **two** of the five are actually hand-drawn
+(`SOIC-8-1EP-FABDRILL`, `ESP32-WROOM-32E-FABDRILL`). `TO-252-3_TabPin2`, `TO-263-2` and
+the fuse holder are **KiCad 10.0 stock footprints used unmodified**, verified pad-for-pad
+against the installed library. And **three of the five parts have no manufacturer land
+pattern at all** — Infineon's is a separate drawing rather than the datasheet, and SMC
+and Littelfuse publish none — so for D2/D3 and F2 the comparison rests on package
+outlines plus onsemi's equivalent-case footprint, which pass 4 marked as the limit on
+those conclusions.
 
 ---
 

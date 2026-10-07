@@ -105,15 +105,15 @@ ENTRY_FACE = "board -Y"        # == world -Z; see above. Do not infer this.
 # THREE of the sensor's wires reach a terminal (the yellow OUT stops at the
 # inverter's base resistor), and J5's MODE way is deliberately empty.
 CABLES = {
-    "J1": dict(name="wire_pack",     n=2, awg=14, flex=False,
+    "J1": dict(name="wire_pack",     n=2, awg=14, crosses_plate=True, flex=False,
                note="the pack pair, 7.5 A, through the plate's wire slot"),
-    "J2": dict(name="wire_pump_a",   n=2, awg=16, flex=True,
+    "J2": dict(name="wire_pump_a",   n=2, awg=16, crosses_plate=False, flex=True,
                note="pump A, chopped low side"),
-    "J3": dict(name="wire_pump_b",   n=2, awg=16, flex=True,
+    "J3": dict(name="wire_pump_b",   n=2, awg=16, crosses_plate=False, flex=True,
                note="pump B, chopped low side"),
-    "J4": dict(name="wire_joystick", n=5, awg=SIGNAL_AWG, flex=True,
+    "J4": dict(name="wire_joystick", n=5, awg=SIGNAL_AWG, crosses_plate=False, flex=True,
                note="the wand's joystick: +3V3, GND, VRX, VRY, SW"),
-    "J5": dict(name="wire_level",    n=4, awg=SIGNAL_AWG, flex=True,
+    "J5": dict(name="wire_level",    n=4, awg=SIGNAL_AWG, crosses_plate=False, flex=True,
                note="the tank's level sensor -- the lead that climbs OUTSIDE"),
 }
 
@@ -182,6 +182,24 @@ SLOT_Y1 = H.WIRE_SLOT_Y_C + H.WIRE_SLOT_W / 2.0
 SLOT_Z_C = H.WIRE_SLOT_Z_C
 
 
+# Which cables cross the back plate's wire slot and therefore lie FLAT rather
+# than gathered. Only the pack pair does: the slot exists for it, and the pump
+# pairs leave down the chase without crossing the plate.
+#
+# ⚠ THIS LIST CANNOT BE THE ONLY THING THAT DECIDES, and the fail harness is what
+# proved it. The slot-fit asserts below were first written as `for ref in
+# LAID_FLAT:`, which means emptying this tuple did not trip them -- it SKIPPED
+# them, and a gathered 6.60 mm bundle went back through a 5.00 mm slot with the
+# gate silent. A check that only inspects the cases it is told about cannot
+# catch the case somebody forgot to tell it about. So the crossing is a property
+# of the CABLE, declared beside everything else about it, and the assert below
+# requires the two to agree.
+LAID_FLAT = tuple(sorted(r for r, sp in CABLES.items() if sp["crosses_plate"]))
+assert LAID_FLAT, (
+    "no cable crosses the back plate, but the housing cuts a wire slot for one: "
+    "either a cable lost its crosses_plate flag or the slot is now dead geometry")
+
+
 def bundle_od(n, awg):
     """OD of `n` conductors gathered into a round bundle.
 
@@ -215,33 +233,67 @@ def bend_radius(n, awg, flex):
 
 
 def routes():
-    """Every modelled cable, as (name, centreline points, od, bend radius)."""
+    """Every modelled cable, as (name, centreline points, od, bend radius).
+
+    ⚠ A CABLE THAT CROSSES THE WIRE SLOT IS DRAWN AS IT LIES, NOT AS IT GATHERS.
+    The slot is 5.0 mm tall and 40 wide -- one layer deep -- so the conductors go
+    through it SIDE BY SIDE. Drawn as a gathered 6.60 mm round bundle the pack
+    pair fouled the plate by 15.1 mm3 (z 4.70..11.30 against the slot's
+    5.50..10.50), and that was the MODEL being wrong, not the harness: two 3.30
+    mm conductors lying side by side are 3.30 tall and 6.60 wide, which is what
+    the slot was sized for. The gathered diameter is still the right model for
+    the runs that do not cross it, where a cable really is gathered.
+
+    Each lane is then its own conductor for bending too, which is the same point
+    `bend_radius` makes: a loose pair is two wires, not a cable.
+    """
     out = []
     for ref, spec in sorted(CABLES.items()):
         mx, my, mz = MOUTHS[ref]
+        if ref in LAID_FLAT:
+            d = AWG_OD[spec["awg"]]
+            r = d * (BEND_MULT_FLEX if spec["flex"] else BEND_MULT_FIXED)
+            # centred on the mouth, so the lanes straddle the clamp they leave
+            y0 = my - (spec["n"] - 1) * d / 2.0
+            for k in range(spec["n"]):
+                y = y0 + k * d
+                pts = [(mx, y, mz), (mx, y, SLOT_Z_C),
+                       (H.BACK_X + 6.0, y, SLOT_Z_C)]
+                out.append(("%s_%d" % (spec["name"], k + 1), pts, d, r))
+            continue
         od = bundle_od(spec["n"], spec["awg"])
         r = bend_radius(spec["n"], spec["awg"], spec["flex"])
-        if ref == "J1":
-            # straight down past the chase, then ONE turn into the wire slot.
-            # The turn is purely in X-Z: the mouth's y is inside the slot's span,
-            # which the assert below checks rather than assumes.
-            pts = [(mx, my, mz), (mx, my, SLOT_Z_C), (H.BACK_X + 6.0, my, SLOT_Z_C)]
-        else:
-            pts = [(mx, my, mz), (mx, my, EXIT_Z)]
+        pts = [(mx, my, mz), (mx, my, EXIT_Z)]
         out.append((spec["name"], pts, od, r))
     return out
 
+
+# A LAID-FLAT CABLE HAS TO FIT THE SLOT IN BOTH DIRECTIONS. Height is the
+# conductor; width is all of them side by side. This is the check whose absence
+# let a 6.60 mm round bundle be drawn through a 5.00 mm slot.
+for _ref in LAID_FLAT:
+    _sp = CABLES[_ref]
+    _d = AWG_OD[_sp["awg"]]
+    assert _d <= H.WIRE_SLOT_H, (
+        "%s lies flat through the wire slot but one %.2f mm conductor is taller "
+        "than the %.2f mm slot" % (_ref, _d, H.WIRE_SLOT_H))
+    assert _sp["n"] * _d <= H.WIRE_SLOT_W, (
+        "%s's %d conductors are %.2f mm laid side by side, into a %.2f mm slot"
+        % (_ref, _sp["n"], _sp["n"] * _d, H.WIRE_SLOT_W))
 
 # The pack pair's single turn has to have somewhere to happen. Its straight is
 # the drop from the mouth to the slot's centreline, and a 90 degree bend eats
 # `radius` of it (tan(45) = 1).
 _J1 = CABLES["J1"]
-_J1_OD = bundle_od(_J1["n"], _J1["awg"])
-_J1_R = bend_radius(_J1["n"], _J1["awg"], _J1["flex"])
+# ...measured on ONE conductor, because J1 is in LAID_FLAT and goes through the
+# slot as separate wires. Gathering it would both overstate the bend it has to
+# make and foul a slot it actually fits.
+_J1_OD = AWG_OD[_J1["awg"]]
+_J1_R = _J1_OD * BEND_MULT_FIXED
 _J1_DROP = MOUTHS["J1"][2] - SLOT_Z_C
 assert _J1_DROP >= _J1_R, (
     "the pack pair drops %.2f mm from its mouth to the wire slot and needs "
-    "%.2f mm to turn into it: a %.2f mm bundle of %.1fx-OD conductors cannot "
+    "%.2f mm to turn into it: a %.2f mm conductor on a %.1fx-OD radius cannot "
     "make that corner" % (_J1_DROP, _J1_R, _J1_OD, BEND_MULT_FIXED))
 assert SLOT_Y0 <= MOUTHS["J1"][1] <= SLOT_Y1, (
     "J1's mouth is at y %.2f and the wire slot spans %.2f..%.2f: the pack pair "
@@ -272,6 +324,8 @@ assert abs(_LAID_W - 17.8) < 0.05, (
     "the six conductors crossing the plate now measure %.2f mm, not the 17.8 "
     "that punchlist finding 3 sized the %.0f mm slot against -- re-justify the "
     "slot, do not widen this tolerance" % (_LAID_W, _SLOT_W))
+
+
 
 
 def solids():

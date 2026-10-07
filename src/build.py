@@ -38,7 +38,7 @@ from cadkit.step_export import export_step, print_pose
 from . import housing as H
 from . import lumber_frame as L
 from . import plumbing as P
-from . import wiring as W   # noqa: F401 -- see components()
+from . import wiring as W
 from . import pump_frame as F
 from .dual_clamp import dual_clamp_19
 from .helpers import bump_build_counter
@@ -140,14 +140,10 @@ def components():
         comps += sj.dummies("pcb_screw_%d" % i, "pcb_insert_%d" % i)
     for name, pts in P.routes():
         comps.append((name, P.run(pts)))
-    # the harness is MODELLED (src/wiring.py) but not yet weighed here.
-    # Adding `comps += W.solids()` is the intended end state and it is one line.
-    # It is not in yet because the moment it went in, this gate found two real
-    # clashes that are NOT yet resolved -- punchlist 29: the pack pair cannot
-    # reach the wire slot past the Z-stop rib, and a gathered bundle is the
-    # wrong model at a 5 mm slot. Wiring it in now would ship a FAILING gate.
-    # Left out deliberately, and recorded as an OPEN finding rather than a
-    # silence -- which is the whole lesson of finding 27 two doors down.
+    # The internal harness, weighed by the SAME gate as everything else -- a
+    # cable that no model draws is how J5 sat on the wrong edge of the board for
+    # five rounds of review (punchlist 21).
+    comps += W.solids()
     return comps
 
 
