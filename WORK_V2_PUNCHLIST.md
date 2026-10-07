@@ -1748,6 +1748,72 @@ those conclusions.
 
 ---
 
+### 41 — CLOSED: the internal wiring is modelled, and the gate it gives us catches finding 21
+
+**This was the owner's own request, and it is the request that found finding 21 in the
+first place** — you cannot route a cable without asking where it leaves from.
+`src/wiring.py` now models every field cable as a **solid**, with real conductor
+diameters and real bend radii, and `src/build.components()` appends them so
+`check_overlaps.py` weighs them against the housing, the lid, the board and each other.
+**23 components, 0 unintended overlaps.**
+
+**What is modelled:** all five cables from their terminal's **mouth** — derived from the
+routed board, never typed — down through the cable chase; and the pack pair the whole
+way, across the plate's wire slot and then ≈100 mm along the back of the plate to the
+Makita contact block.
+
+**What is NOT, said plainly rather than faked:** the external runs on to the pumps, the
+wand's joystick and the tank's level sensor. Those are in open air outside the housing
+with the whole back of the machine to bend in, and a drawn centreline there would be a
+guess dressed as a measurement. What *is* pinned is where each one leaves, which is what
+the chase gate needs.
+
+#### The gate finding 21 never had
+
+Every mouth is asserted to be **over the chase** and **within 20 mm of it**. The second
+assert is the one that matters, and its message says so: *"that is not a drop into the
+chase, it is a climb down the board — which is exactly finding 21."* Made to fail six
+ways, and the first two reproduce finding 21 directly — a mouth moved off the chase in
+Y, and a mouth raised 92 mm (J5's actual old position) — both caught.
+
+Measured, as built: **every one of the five mouths sits 6.65 mm above the bay floor**, a
+straight drop into the opening with no bend at all. That is *why* the −Y edge is the
+right edge, and it is now a number rather than a belief.
+
+#### Three things the model found that nothing else would have
+
+**1. `lead_exit()` was the wrong answer — see finding 28.** The one canonical helper for
+"where does a cable leave this connector" returns a top-entry point for all five
+terminals, silently. Built on it, five cables would have left perpendicular to the board
+and missed the chase entirely.
+
+**2. A gathered bundle through a one-layer-deep slot — see finding 29.** Caught by the
+overlap gate at 15.1 mm³, and the fix was to draw the cable **as it lies**.
+
+**3. Two conductors cannot both take the inside of the same corner.** Holding the pack
+pair's side-by-side Y offset through a run that then turns **onto** Y put both
+conductors on the same centreline — **1057 mm³ of cable through cable**, caught by the
+gate. Side by side in Y is forced by the slot being 5 mm tall; past the plate they stack
+in X instead. A real property of the harness, not a drawing artefact.
+
+#### And one thing it proved, which is the better kind of result
+
+**The pack pair's 100 mm run between the plate and the timber is clear, and nobody had
+ever checked.** It is the obvious place to pinch a 7.5 A pair: the plate bolts **flat**
+to the posts, so the nominal gap where they meet is **zero**. Probed with a 3.30 mm
+conductor at `BACK_X + 2` across the whole path (y 40..170, z 8..60): **no timber
+anywhere**; and sweeping +X from the plate's back face at the slot, mid-run and the dock
+finds **none within 200 mm**. The frame is slender members and the plate meets it only at
+the wood screws, so the leads run in open air between them. Now asserted rather than
+assumed, and the run is drawn so the overlap gate keeps watching it.
+
+**Residual, honest:** the pair stops **1.0 mm short** of the contact block rather than
+inside it. A lead really does enter its terminal, but the bought block models no solder
+tabs, so stopping at the envelope claims "the pair reaches the dock with a path" without
+asserting anything about geometry that is not drawn.
+
+---
+
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 
 **Found by uploading `main.zip` to JLCPCB and reading the quote** (2026-10-06, full

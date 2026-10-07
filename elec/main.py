@@ -1077,6 +1077,35 @@ BOARD_NOTES = {
     #            the cheapest and quickest. A dark mask would spend legibility
     #            on a board that lives inside a sealed box where nobody sees it.
     "order_options": {
+        # ⚠ SORTS FIRST ON PURPOSE. fab_package writes order_options into each
+        # zip's ORDER.txt sorted by key, and uppercase sorts before lowercase, so
+        # this lands at the top of the one document a person actually reads at
+        # order time -- and it travels INSIDE the zip rather than living in a
+        # punchlist nobody opens with a cart on screen.
+        #
+        # This exists because of M10's lesson in a new place: a figure that no
+        # gate reads stops being true. Findings 37, 38 and 39 are RE-SPINS found
+        # by the pre-order validation passes, and writing "do not order" in
+        # WORK_V2_PUNCHLIST.md is not a mechanism. Delete this key when the three
+        # are closed -- and the BOM/CPL re-upload with them.
+        "BLOCKERS": (
+            "⚠⚠ DO NOT ORDER YET -- 3 RE-SPIN findings are open. "
+            "(37) F2's 1.400 mm holes finish ~1.33 mm plated against a holder "
+            "pin whose published WIDTH alone is 1.4 +/-0.1 mm, diagonal ~1.85-1.99: "
+            "THE PART CANNOT GO IN. Needs ~2.0 mm drill and 2.3-2.4 mm pads; "
+            "MEASURE THE PHYSICAL HOLDER FIRST, because Littelfuse publishes no "
+            "land pattern and this is derived from the pin dimension. "
+            "(38) U1's exposed pad is 25 % under TI's 2.71 x 3.40 mask opening "
+            "and smaller than the package's own MAXIMUM exposed pad, gets 52 % "
+            "of the prescribed paste, and all six thermal holes are pasted over "
+            "and tented on the WRONG SIDE (SLMA002H p.9: voiding). "
+            "(39) 2.124 mm of FR4 remains under the ESP32's antenna ROOT; "
+            "Espressif HDG 1.4.8's two acceptable options are both "
+            "board-material-free. Shift U2 outboard 2.124 mm (costs a re-route) "
+            "or notch Edge.Cuts (costs a housing change). "
+            "ALSO STILL OPEN: the CPL uploaded 2026-10-06 is the UNCORRECTED "
+            "one (finding 24) and must be re-uploaded. "
+            "See WORK_V2_PUNCHLIST.md 37-40 for the measurements and citations."),
         "copper":  "1 oz outer (35 um). ⚠ DESIGN DEPENDENCY -- every width and "
                    "pour on this board is sized against IPC-2221 at 1 oz.",
         "thick":   "1.6 mm. ⚠ DESIGN DEPENDENCY -- A14's via-in-land volume "
