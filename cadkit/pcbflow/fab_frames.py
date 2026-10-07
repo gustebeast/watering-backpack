@@ -169,6 +169,41 @@ def key(code, fp_name):
     return "%s|%s" % (code, fp_name)
 
 
+def fingerprint(pads):
+    """A stable signature of a land's NUMBERED PAD CENTRES, to 0.01 mm.
+
+    ⚠ THIS EXISTS BECAUSE A FRAME SURVIVES A RENAME AND THE KEY DID NOT. The table
+    is keyed `<lcsc>|<footprint name>`, so renaming a land -- which a generator does
+    the moment it modifies a stock footprint -- orphaned its measured frame. The
+    placement then fell back to the raw KiCad footprint origin. On the board that found
+    this the origin was hole 1 of 8 rather than the part centre, so the CPL shipped a
+    fuse holder 6.4 mm off, with every pad of the renamed land at the stock coordinate
+    BYTE FOR BYTE: only `size` and `drill` had changed.
+
+    What a frame actually describes is where the fab's pads sit against ours. Pad SIZE
+    is not part of that, and neither is the name. So the fallback below matches on the
+    one thing that is.
+    """
+    g = by_number(pads)
+    return ";".join("%s:%.2f,%.2f" % (n, g[n][0], g[n][1]) for n in sorted(g))
+
+
+def lookup(table, code, fp_name, pads=None):
+    """The frame for this part: the exact key, else one measured for the SAME part
+    number whose pad centres are identical. Returns (entry, note) or (None, None)."""
+    e = table["frames"].get(key(code, fp_name)) if code else None
+    if e is not None or not code or pads is None:
+        return e, None
+    want = fingerprint(pads)
+    for k, cand in sorted(table["frames"].items()):
+        if not k.startswith(code + "|") or not cand.get("fit"):
+            continue
+        if cand.get("pads_fp") and cand["pads_fp"] == want:
+            return cand, ("measured as %s, whose pad centres are identical to this "
+                          "land's" % k.split("|", 1)[1])
+    return None, None
+
+
 def load(path):
     if not os.path.isfile(path):
         return {"_source": SOURCE, "frames": {}}
@@ -231,6 +266,7 @@ def derive(pcb, code_of, table, refresh=False, log=print, pads_from=fetch_pads):
             err, rot, dx, dy, used = got
             table["frames"][k] = {"fit": err <= FIT_MM, "rot": rot, "dx": round(dx, 4),
                                   "dy": round(dy, 4), "err": round(err, 3), "pads": used,
+                                  "pads_fp": fingerprint(local_pads(fp)),
                                   "read": time.strftime("%Y-%m-%d")}
             if err > FIT_MM:
                 table["frames"][k]["why"] = ("its pads are up to %.2f mm from ours at the "
@@ -262,7 +298,7 @@ def apply(pcb, rows, code_of, table, turn=None):
         name = str(fp.GetFPID().GetLibItemName())
         val = fp.GetValue()
         code = code_of(val, fp.GetFPIDAsString())
-        e = table["frames"].get(key(code, name)) if code else None
+        e, why_reused = lookup(table, code, name, local_pads(fp))
         if not e:
             unchecked.append((ref, val, name, "no part number" if not code else
                               "not measured: run fab_package.frames([board])"))
