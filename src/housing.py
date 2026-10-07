@@ -842,8 +842,8 @@ assert RET_OVER < BOARD_SLIDE_Y, (
     "the lip reaches %.1f over the board but it can only slide %.1f toward -Y: "
     "the board would go in and never come out" % (RET_OVER, BOARD_SLIDE_Y))
 
-# Z stops go where the floor is free: clear of the cable chase, and clear of
-# the lip. Two bands, one each side of the chase.
+# Z stops bound the laminate's Z edges: one continuous rib under the bottom
+# edge and one over the top.
 #
 # DERIVED FROM THE CHASE, NOT TYPED BESIDE IT. These used to be a flat 10 mm in
 # from each end of the board, which was true of the board the chase was then --
@@ -853,24 +853,72 @@ assert RET_OVER < BOARD_SLIDE_Y, (
 # assert that fires every time the board is re-laid is a constant that should
 # have been a derivation. A stop now takes what is left between the chase and
 # the board's edge, up to the 10 mm it wants.
-RET_STOP_MAX  = 10.0    # as long as a stop gets to be, where the floor allows
 RET_STOP_MIN  =  4.0    # shorter than this is not a stop, it is a bump
-RET_STOP_CHASE_GAP = 1.0                       # floor left either side of the chase
-RET_STOP_YS = ((BOARD_Y0 + 1.0,
-                min(BOARD_Y0 + 1.0 + RET_STOP_MAX, CHASE_Y0 - RET_STOP_CHASE_GAP)),
-               (max(BOARD_Y1 - 1.0 - RET_STOP_MAX, CHASE_Y1 + RET_STOP_CHASE_GAP),
-                BOARD_Y1 - 1.0))
+
+# ⚠ THE CHASE EXCLUSION IS GONE, AND IT WAS NEVER THE CHASE THAT FORCED IT.
+# Putting J5 on this edge grew the chase to 104.9..196.6 -- 91.7 mm of the
+# laminate's 95.0, and 1.0 mm PAST its +Y edge, because J5's own fab outline
+# ends 0.99 mm short of the board edge and the chase takes CHASE_MARGIN either
+# side. The two bands this used to derive came out 2.35 mm and INVERTED
+# (197.58, 194.57 -- a negative length), and the min assert fired. That is the
+# system working, and the honest answer was not to lower the minimum.
+#
+# What the exclusion actually protected, measured: NOT interference with the
+# chase cut. The chase removes the bottom wall over Z 13.35..15.75 only; the -Z
+# rib lives at Z 16.05..18.45 and clears it by RET_STOP_CLR. The ribs were never
+# in the cut. What WAS in the cable's way is the rib's OVERHANG: it reached to
+# BOARD_X1 - RET_STOP_OVER = -201.2, which is 2.4 mm outboard of the laminate's
+# own face at -198.8 -- out in the space the terminal bodies and their cables
+# occupy. A rib crossing the chase with that overhang would stand in the descent
+# path of the very wires the chase exists for.
+#
+# So the -Z pair now stops AT the laminate's outboard face. That is a provable
+# invariant rather than a clearance guess: every connector body and every cable
+# is outboard of BOARD_X1, every part of this rib is inboard of it, so the two
+# cannot meet -- and the laminate's full 1.6 mm thickness is still spanned,
+# which is all a stop has to do. The 2.4 mm of margin it gives up bought nothing
+# that the laminate's own thickness did not already provide.
+#
+# The +Z pair keeps its overhang: it sits 115 mm up in Z from the chase, where
+# there is no cable to obstruct and nothing the overhang can reach.
+#
+# Both therefore run the laminate's full length, 1.0 mm in from each edge -- one
+# continuous rib per Z edge instead of two short bands. The result is a longer
+# stop than the scheme it replaces ever achieved, on a board whose bottom edge
+# is now entirely connectors.
+RET_STOP_X_OVER  = BOARD_X1 - RET_STOP_OVER   # +Z: free to overhang
+RET_STOP_X_UNDER = BOARD_X1                   # -Z: stops at the laminate face
+RET_STOP_YS = ((BOARD_Y0 + 1.0, BOARD_Y1 - 1.0),)
+
+# The -Z rib may not reach out into the cable space, and must still span the
+# laminate. Together these pin it to the laminate's outboard face exactly.
+assert RET_STOP_X_UNDER >= BOARD_X1, (
+    "the -Z stop reaches to x %.2f, outboard of the laminate face at %.2f: that "
+    "is the space the terminal bodies and their cables occupy, and this rib now "
+    "crosses the chase" % (RET_STOP_X_UNDER, BOARD_X1))
+assert RET_STOP_X_UNDER <= BOARD_X1, (
+    "the -Z stop stops at x %.2f, short of the laminate's outboard face at "
+    "%.2f: it would not span the 1.6 mm it is meant to bound"
+    % (RET_STOP_X_UNDER, BOARD_X1))
+
+# AND THE RIBS MUST SIT CLEAR OF THE CHASE'S Z BAND. This is the assumption that
+# lets them cross the chase at all; it was implicit before and is now checked.
+for _z_in, _side in ((BOARD_Z0, -1), (BOARD_Z1, +1)):
+    _a = _z_in + _side * RET_STOP_CLR
+    _b = _a + _side * RET_STOP_T
+    assert min(_a, _b) >= BAY_Z0 + WALL, (
+        "a Z stop spans z %.2f..%.2f and the cable chase removes the bottom wall "
+        "over %.2f..%.2f: the rib is inside the cut"
+        % (min(_a, _b), max(_a, _b), BAY_Z0, BAY_Z0 + WALL))
+
 for _y0, _y1 in RET_STOP_YS:
-    assert _y1 <= CHASE_Y0 or _y0 >= CHASE_Y1, (
-        "a Z stop at y %.1f..%.1f sits over the cable chase" % (_y0, _y1))
-    # ⚠ AND IT HAS TO BE LONG ENOUGH TO BE ONE. Deriving the band from the chase
-    # means a wide enough chase silently shrinks it to nothing, and a 0.5 mm rib
-    # holding a 1.6 mm laminate down is not retention, it is a witness mark.
+    # ⚠ STILL HAS TO BE LONG ENOUGH TO BE ONE. A 0.5 mm rib holding a 1.6 mm
+    # laminate down is not retention, it is a witness mark.
     assert _y1 - _y0 >= RET_STOP_MIN, (
-        "a Z stop is only %.1f mm long (min %.1f): the cable chase at %.1f..%.1f "
-        "has eaten the floor it needs. Narrow the connector group on the board's "
-        "bottom edge, or move a stop to the board's Y edges"
-        % (_y1 - _y0, RET_STOP_MIN, CHASE_Y0, CHASE_Y1))
+        "a Z stop is only %.1f mm long (min %.1f)" % (_y1 - _y0, RET_STOP_MIN))
+    assert BOARD_Y0 <= _y0 and _y1 <= BOARD_Y1, (
+        "a Z stop at y %.1f..%.1f runs off the laminate (%.1f..%.1f) it bounds"
+        % (_y0, _y1, BOARD_Y0, BOARD_Y1))
 
 
 def _pcb_lip() -> cq.Workplane:
@@ -891,14 +939,17 @@ def _pcb_lip() -> cq.Workplane:
 
 
 def _pcb_z_stops() -> cq.Workplane:
-    """Four ribs on the bay floor, bounding the laminate's Z edges."""
+    """Two ribs on the bay floor, bounding the laminate's Z edges.
+
+    The -Z one crosses the cable chase and so stops at the laminate's outboard
+    face; the +Z one is 115 mm clear of the chase and keeps its overhang."""
     out = None
     for y0, y1 in RET_STOP_YS:
-        for z_in, side in ((BOARD_Z0, -1), (BOARD_Z1, +1)):
+        for z_in, side, x_out in ((BOARD_Z0, -1, RET_STOP_X_UNDER),
+                                  (BOARD_Z1, +1, RET_STOP_X_OVER)):
             z_a = z_in + side * RET_STOP_CLR
             z_b = z_a + side * RET_STOP_T
-            s = _slab(FLOOR_X, BOARD_X1 - RET_STOP_OVER,
-                      y0, y1, min(z_a, z_b), max(z_a, z_b))
+            s = _slab(FLOOR_X, x_out, y0, y1, min(z_a, z_b), max(z_a, z_b))
             out = s if out is None else out.union(s)
     return out
 
