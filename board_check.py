@@ -15,6 +15,13 @@ real one. So:
   * for every footprint it takes the centre of the part's F.Fab BODY, just above the
     board face, and asks whether the solid has material there -- a part that is missing,
     moved, or turned so its body lands elsewhere, fails;
+  * it then probes just inside each END of that body, along its longer side, and
+    reports a part whose body does not reach where the routed one does: SHIFTED or
+    drawn SHORT. The centre probe alone passes a part that is anywhere within half its
+    own length of the right place (the case: two connectors drawn butted end to end,
+    0.5 and 0.8 mm off their pads, where the board has 1.2 mm between them -- "4 / 4
+    present"). Reported, and counted only with `strict_ends=True`, because a body drawn
+    to its real shape may honestly stop short of its F.Fab rectangle at the board face;
   * it reports a board drawn MIRRORED;
   * it compares the plate's CUTOUTS with the routed board's by count and area -- the
     probe above cannot see a wrong cutout, because a cutout is exactly where no part is.
@@ -136,10 +143,37 @@ def _hole_check(wires, geom, verbose):
     return 0
 
 
-def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX):
+END_INSET = 0.30           # mm inside each end of a body's longer side: the end probes
+END_MIN_LEN = 2.0          # ...on bodies at least this long; a 0603 has no ends to speak of
+
+
+def _end_misses(shape, parts, c, u, v, up, t):
+    """[(ref, name, which end, x, y)]: bodies that have material at their centre but not
+    just inside an end of their longer side, in the pose (c, u, v, up) already chosen."""
+    out = []
+    for f in parts:
+        x0, x1, y0, y1 = f["fab"]
+        bx, by = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        lift = t + 0.15 if f["side"] == "F" else -0.15
+        if not shape.isInside(c + u * bx + v * by + up * lift, 0.01):
+            continue                       # already reported as MISSING
+        along_x = (x1 - x0) >= (y1 - y0)
+        if max(x1 - x0, y1 - y0) < END_MIN_LEN:
+            continue
+        ends = (((x0 + END_INSET, by), "-x"), ((x1 - END_INSET, by), "+x")) if along_x else (
+            ((bx, y0 + END_INSET), "-y"), ((bx, y1 - END_INSET), "+y"))
+        for (px, py), which in ends:
+            if not shape.isInside(c + u * px + v * py + up * lift, 0.01):
+                out.append((f["ref"], fp_name(f["fpid"]), which, px, py))
+    return out
+
+
+def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX,
+          strict_ends=False):
     """Number of disagreements between `solid` (the CAD's board, any pose) and `geom`
-    (the routed board): missing parts + 1 if mirrored + cutout mismatches. Raises
-    RuntimeError if no face of the solid is the routed outline's size."""
+    (the routed board): missing parts + 1 if mirrored + cutout mismatches (+ bodies that
+    stop short of a routed end, with `strict_ends`). Raises RuntimeError if no face of
+    the solid is the routed outline's size."""
     w, l = geom["outline_mm"]
     t = geom["thickness_mm"]
     shape = solid.val() if hasattr(solid, "val") else solid
@@ -166,8 +200,9 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX):
                 # renders perfectly could be reported mirrored because that pose came first
                 key = (len(misses), mirrored)
                 if best is None or key < (len(best[0]), best[1]):
-                    best = (misses, mirrored, plate)
-    misses, mirrored, plate = best
+                    best = (misses, mirrored, plate, (c, u, v, up))
+    misses, mirrored, plate, pose = best
+    short = _end_misses(shape, parts, *pose, t)
     faces = [pl for _c, _d, pl in plates]
     holes = _hole_check(_through_wires(plate, faces, plate.normalAt()), geom, verbose)
     if verbose:
@@ -177,4 +212,9 @@ def check(board, solid, geom, verbose=True, no_body_prefix=NO_BODY_PREFIX):
         for ref, name, bx, by in misses:
             print("      MISSING %-6s %-44s routed at (%.2f, %.2f)"
                   % (ref, name[:44], bx, by))
-    return len(misses) + (1 if mirrored else 0) + holes
+        for ref, name, which, px, py in short:
+            print("      SHORT OR SHIFTED %-6s %-36s no body %.2f mm inside its %s end "
+                  "(%.2f, %.2f)" % (ref, name[:36], END_INSET, which, px, py))
+        if short and not strict_ends:
+            print("      (%d end probe(s) found no body: reported, not counted)" % len(short))
+    return len(misses) + (1 if mirrored else 0) + holes + (len(short) if strict_ends else 0)
