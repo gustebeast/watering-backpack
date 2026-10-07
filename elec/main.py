@@ -2485,6 +2485,35 @@ BOARD_NOTES = {
                     "whenever the victim matters.",
             },
         },
+        # ⚠ J6's PINOUT BLOCK IS ON B.Silk AND THAT IS DECLARED RATHER THAN
+        # ARGUED AWAY. A17 asks for a connector to be labelled on the side it is
+        # plugged from, and J6 is plugged from the front. Measured on the routed
+        # board, F.Silk carries a word in line with FIVE of its six ways -- 1 +3V3,
+        # 2 GND, 4 PROG_RX_IN, 5 EN, 6 IO0 -- and way 3 is the one that misses.
+        #
+        # The reason is length, not oversight: ESP_TX_TO_PROG is the longest name on
+        # the header, and the silk fitter pushed it to y 67.0 while its neighbours sit
+        # at y 58-62, which puts it out of line with its own pad. The full block --
+        # designator, way numbers and all six names -- is printed on B.Silk beside the
+        # part, which is the convention every other connector on this board follows
+        # (M26: the five screw terminals carry their signal names on the back, where a
+        # person wiring them is looking).
+        #
+        # So the claim A17 makes is literally true -- the PINOUT is on the other face
+        # only -- and it is signed here instead of being silenced, because the honest
+        # fix is a shorter net name or a fitter that drops to short words for a block
+        # on the front, and neither is worth a re-spin for a programming header that
+        # is used with a USB-serial adapter in hand and the board on a bench.
+        "connector_labels": {
+            "J6": {"back_only":
+                   "the full pinout block is on B.Silk beside the part, the same face "
+                   "every other connector on this board is labelled on (M26). F.Silk "
+                   "carries a word at five of six ways; way 3 ESP_TX_TO_PROG is the "
+                   "longest name on the header and the fitter placed it at y 67.0, "
+                   "out of line with its pad at y 58-62. J6 is a programming header "
+                   "used with the board on a bench and the adapter in hand, not a "
+                   "field connector wired blind"},
+        },
         "manual": QUALITY_MANUAL,
         "waive": {
             # ⚠ EIGHT, NOT SIX, AND THIS WAIVER SAID SIX LONG AFTER THE LAND
