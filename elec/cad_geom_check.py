@@ -63,7 +63,9 @@ HEIGHT = {
     # Nobody has to own a caliper for the housing to be right. A measurement of
     # the fitted stack would recover about 3 mm of bay depth and is the first
     # thing to do if that depth is ever wanted.
-    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165":                21.6,
+    # renamed with the footprint when finding 37 opened its holes; the body is
+    # unchanged, only the plated pads and drills moved
+    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165-PINFIT":         21.6,
 }
 
 BOARDS = Boards(os.path.join(HERE, "geom"), height=HEIGHT)

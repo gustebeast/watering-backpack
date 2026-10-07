@@ -34,9 +34,96 @@ VBAT_MAX = 20.0          # fresh Makita pack
 VBAT_MIN = 15.0          # flat
 PUMP_A   = 7.5           # per pump, peak
 
-# Battery sense divider: VBAT_MAX must land under 3.3 V at the ADC with margin.
-# 100k/18k -> 20 V * 18/118 = 3.05 V. 100k top leg keeps idle draw ~170 uA.
-RDIV_TOP, RDIV_BOT = "100k", "18k"
+# Battery sense divider: VBAT_MAX must land under 3.3 V at the ADC with margin --
+# and "under 3.3 V" turned out to be the wrong test. Punchlist finding 33, reached
+# independently by two validation passes: 100k/18k is 0.15254, which puts a fresh
+# pack at 3.203 V against ADC1's 11 dB full scale of about 3.100 V. Nothing is
+# damaged, Table 15 allows VDD + 0.3 -- but everything above ~20.3 V reads as the
+# SAME saturated value, which is exactly the end of the range a "battery full"
+# reading needs, and 3.05-3.20 V sits far above the 150-2450 mV characterised
+# LINEAR band, so the reading is compressed before it is clipped.
+#
+# ⚠ AND THE ERROR IS IN THE DANGEROUS DIRECTION: compression reads the pack LOW,
+# which RAISES the duty cap -- the same failure direction main.cpp's own clipping
+# comment warns about. So this was never cosmetic.
+#
+# ⚠ THE BOTTOM LEG, NOT THE TOP, AND THAT IS THE WHOLE TRICK. Both passes proposed
+# raising the top leg to 150k or 180k, which is the finding-22 trap: `100k` is ONE
+# BOM line shared by R1, R20, R6 and R7, so moving R20 off it creates a SECOND line
+# while 100k is still needed for the other three -- +1 line and ~$1.28 of feeder to
+# fix a reading error. `18k` is R21 alone, so changing the bottom leg is
+# value-for-value and the line count is identical.
+#
+# ⚠ 10k, NOT THE 12k FINDING 33 RECOMMENDED, AND IT IS BETTER ON EVERY AXIS. That
+# finding tabulated 18k, 15k, 13k and 12k and stopped; it never looked below 12k.
+#
+#   divider      ratio    15 V    18 V    21 V    clamp 38.9 V
+#   100k/18k   0.15254   2.288   2.746   3.203 X      5.934 X
+#   100k/12k   0.10714   1.607   1.929   2.250        4.168 X
+#   100k/10k   0.09091   1.364   1.636   1.909        3.536
+#
+# Three things fall out of that last row:
+#   * the whole 15-21 V range sits inside the ADC's characterised LINEAR band
+#     (0.150-2.450 V), which was finding 33's actual requirement;
+#   * FINDING 36'S TRANSIENT STOPS BEING A TRANSIENT TO ARGUE ABOUT. The TVS's
+#     clamped 38.9 V arrives at IO35 as 3.536 V, UNDER the pin's 3.601 V absolute
+#     maximum -- where 12k leaves it at 4.168 V, still over, still needing the
+#     "it is only microseconds" argument. This one needs no argument at all.
+#   * 10k is a BOM line this board already has (R3), so the sense divider costs
+#     nothing, and `18k` -- which was R21 alone -- disappears entirely.
+#
+# The price is ADC resolution and it is not a real price: 15-21 V spans 0.545 V,
+# which at 12 bits over a 3.100 V full scale is about 120 counts per volt of pack,
+# or 8 mV of pack per count. The pack's own sag under a pump is two orders of
+# magnitude bigger than that.
+RDIV_TOP, RDIV_BOT = "100k", "10k"
+
+# ── LEVEL's clamp, derived here so A16's declaration cannot drift from the parts.
+# ⚠ THE Vf TABLE IS THE DATASHEET'S MAXIMA AND INTERPOLATION IS LOGARITHMIC.
+# A Schottky's forward drop goes as the log of current, which is exactly why no
+# practical series resistance buys comfortable margin here: halving the fault current
+# is worth about 24 mV. Designing to a TYPICAL curve instead of these maxima is what
+# made an earlier 100k/10k look acceptable when it was 37 mV over the pin's rating.
+LEVEL_RS, LEVEL_RP = 49.9, 300.0        # kohm: series into the pin, and the pull-up
+LEVEL_VF_TBL = ((0.1, 0.24), (1.0, 0.32), (10.0, 0.40), (30.0, 0.50), (100.0, 0.80))
+
+
+def _level_vf_max(i_ma):
+    import math
+    for (a, va), (b, vb) in zip(LEVEL_VF_TBL, LEVEL_VF_TBL[1:]):
+        if i_ma <= b:
+            return va + (vb - va) * math.log10(max(i_ma, a) / a) / math.log10(b / a)
+    return LEVEL_VF_TBL[-1][1]
+
+
+LEVEL_FAULT_MA = (VBAT_MAX - 3.6) / LEVEL_RS
+LEVEL_VF_MAX = _level_vf_max(LEVEL_FAULT_MA)
+LEVEL_IO_PEAK = round(3.3 + LEVEL_VF_MAX, 4)
+# The two gates this circuit has to pass, asserted where the values are set rather
+# than left for A16 to discover after a route: the pin must stay under its absolute
+# maximum in the fault, and the input must still SEE a low when the open collector
+# pulls -- including the sensor's own saturation voltage, whose omission is what made
+# 29k4 look usable in an earlier pass.
+assert LEVEL_IO_PEAK <= 3.6, (
+    "the clamp sits at %.3f V, over IO14's 3.6 V absolute maximum: %.1fk of series "
+    "resistance is not enough" % (LEVEL_IO_PEAK, LEVEL_RS))
+_level_low = 0.2 + (3.3 - 0.2) * LEVEL_RS / (LEVEL_RS + LEVEL_RP)
+assert _level_low < 0.25 * 3.3, (
+    "a pulled open collector reads %.3f V through %.1fk/%.0fk, over the %.3f V VIL "
+    "of a 3.3 V input -- the pin would never see a low"
+    % (_level_low, LEVEL_RS, LEVEL_RP, 0.25 * 3.3))
+
+# ⚠ AND THE SIGN-OFF PROSE IS SPELLED FROM THESE TOO. M40 ("the design record says
+# what must not change") and M42 ("every part can be bought") both quote this divider
+# by value, and both said "18k" for as long as it was 18k and would have gone on
+# saying it afterwards -- a signed figure that no gate reads, inside the two items
+# whose whole job is to be the record. quality_signoff.py carries @RDIV_TOP@ and
+# @RDIV_BOT@ tokens and they are substituted here, where the values live.
+for _k, _v in list(QUALITY_MANUAL.items()):
+    QUALITY_MANUAL[_k] = (_v.replace("@RDIV_TOP@", RDIV_TOP)
+                            .replace("@RDIV_BOT@", RDIV_BOT))
+assert not [k for k, v in QUALITY_MANUAL.items()
+            if "@RDIV" in v], "a divider token survived substitution"
 # Spelled from those same two strings rather than retyped, because A16 grades the
 # ADC pin against what this divider DELIVERS -- at a fresh pack and at the clamp.
 assert RDIV_TOP.endswith("k") and RDIV_BOT.endswith("k")
@@ -578,6 +665,11 @@ def circuit():
     n_joyr = Net("JOY_RAW")
     n_joyf = Net("JOY_FILT")
     n_lvl  = Net("LEVEL")
+    # The protected side of R26: everything from the series resistor to the pin.
+    # A net of its own because it carries a DIFFERENT voltage from LEVEL in the one
+    # case that matters -- LEVEL can see the pack on a fault, LEVEL_IO is clamped --
+    # and A16 grades pins against the net that reaches them.
+    n_lvl_io = Net("LEVEL_IO")
     n_bz   = Net("BUZZ")
     n_bzd  = Net("BUZZ_DRV")
     n_rt   = Net("RT")
@@ -660,7 +752,17 @@ def circuit():
     # going to cover that. The trade was made deliberately: a fuse you have to
     # remember to put in a lead is a fuse that is not there on the day.
     f_bat = gen.part("F2", "178.6165.0002",
-                     "Fuse:FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165", ["1", "2"],
+                     # ⚠ wbp:, NOT Fuse:. The stock land drills 1.400 mm, which
+                     # finishes ~1.330 plated -- smaller than this holder's pin
+                     # WIDTH (1.4 +-0.1) before its 1.2 mm thickness is counted, so
+                     # the part could not be inserted at all. punchlist 37, and the
+                     # only finding in the pre-order review that was a hard
+                     # ASSEMBLY stop rather than a margin. elec/make_f2_footprint.py
+                     # derives 2.10 mm holes and 2.30 mm pads from the pin, and
+                     # tools/check_hole_fit.py is the gate that was missing: nothing
+                     # here had ever compared a hole to the thing going through it.
+                     "wbp:FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165-PINFIT",
+                     ["1", "2"],
                      "ATO blade fuse holder -- the 10 A in the pack's + lead")
     gnd  += j_bat["GND"], d_tvs["A"], c_in1[2], c_in2[2]
     n_vraw += j_bat["VBAT"], f_bat["1"]
@@ -884,12 +986,129 @@ def circuit():
     n_joyf += r_rc[2], c_rc[1], u_mcu["IO34"]
     gnd += c_rc[2], j_joy["GND"]
 
-    # Level sensor: runs at VBAT and its output is OPEN-COLLECTOR, so this pull-up
-    # to 3V3 is what keeps 18 V out of the GPIO. Push-pull mode would destroy it.
-    r_lv = gen.part("R23", "10k", "Resistor_SMD:R_0603_1608Metric", 2,
-                    "level pull-up — open-collector is what keeps 18 V off the pin")
-    v3v3 += r_lv[1]
-    n_lvl += r_lv[2], j_lvl["OUT"], u_mcu["IO14"]
+    # ── Level sensor, and the one finding in the pre-order review that could
+    # destroy the module (punchlist 30) ────────────────────────────────────
+    #
+    # The sensor runs at VBAT and its output is an open collector, and for a long
+    # time the comment here said the pull-up "is what keeps 18 V out of the GPIO".
+    # That is true of the sensor WORKING. It says nothing about the sensor, the
+    # cable or the terminal FAILING -- and J5.1, on the same 5.08 mm block, three
+    # screws away, carries the unregulated pack. A slip between adjacent screws, a
+    # wet connector bridging J5.1 to J5.3, or a sensor whose output turns out to be
+    # a voltage rather than a dry contact all put 18-21 V on IO14, whose limit is
+    # VDD + 0.3 = 3.6 V. Every other external input on this board was already
+    # protected -- JOY_FILT has an RC, VBAT_SENSE has a divider -- and this one,
+    # the input whose cable leaves the sealed bay and climbs the OUTSIDE of the
+    # case (M36), had nothing at all.
+    #
+    # ⚠ A DIVIDER CANNOT FIX THIS, which is why the answer is a clamp. The fault
+    # arrives at J5.3 and BYPASSES the pull-up, so the ratio that would divide
+    # 21 V down to 3.3 is not the ratio that reads an open collector as a logic
+    # low -- the two demands pull opposite ways and no pair of resistors satisfies
+    # both. Worked through and discarded before the clamp was accepted.
+    #
+    # ⚠ THE SIZING RULE IS "KEEP Vf UNDER 0.3 V", AND THAT IS NOT A VALUE-PICKING
+    # PREFERENCE, IT IS THE WHOLE BUDGET. The pin's limit is VDD + 0.3 and the clamp
+    # holds the pin at VDD + Vf, so the two sides of the comparison BOTH move with
+    # VDD and it cancels: whether the regulator sits at 3.25 or 3.35 V changes
+    # nothing. What is left is a single question -- is the Schottky's forward drop
+    # under 0.3 V at the current the fault pushes through it -- and because Vf is
+    # logarithmic in current there is no amount of series resistance that buys
+    # comfortable margin. Halving the current is worth 24 mV. So this is designed to
+    # the datasheet's Vf MAXIMA and not to a typical curve or to an interpolation:
+    #
+    #   BAT54S Vf max   0.24 V @ 0.1 mA   0.32 V @ 1 mA   0.40 V @ 10 mA
+    #
+    # 0.3 V therefore means "stay under about 0.5 mA", which sets the series resistor
+    # at 33k or more, and the pull-up has to be roughly 6x that to still read a pulled
+    # open collector as a low. Hence 300k / 49k9 -- and an earlier 100k / 10k, which
+    # looked fine on a typical curve, was 37 mV OVER on the maxima. A16 would not let
+    # that be signed off as an accepted overshoot either, which is correct of it: an
+    # acceptance can cover a pin run over its steady rating, never a transient over
+    # its peak, because a peak rating is where the part stops being a part.
+    #
+    # THE NUMBERS. D7 is still the only new BOM line: 300k is THREE 100k in series
+    # (R23, R27, R28), because 100k is already a Basic part on this board and a 300k
+    # line would be $1.28 of feeder for one resistor (punchlist 22). 49k9 is likewise
+    # already a Basic code in fab.py (C23184), left over from the sense divider.
+    #
+    #   open collector released    3.300 V at the pin, against VIH 2.475
+    #   open collector pulled      0.2 + 3.1 x 49.9/349.9 = 0.642 V, against
+    #                              VIL 0.825, with the sensor's own Vce(sat)
+    #                              INCLUDED -- and the margin is wide enough that
+    #                              Vce(sat) may be as bad as 0.44 V before the input
+    #                              stops seeing a low at all. Leaving Vce(sat) out is
+    #                              what made 29k4 look usable in an earlier pass.
+    #   fault, pack on the wire    (20 - 3.6)/49k9 = 0.329 mA, Vf max 0.281, so the
+    #                              pin sits at 3.581 V -- 19 mV UNDER the 3.6 V
+    #                              absolute maximum rather than 37 mV over it.
+    #   node impedance             49k9 || 300k = 42.8k, and 4.3 ms with C22. A wet
+    #                              terminal leaking OUT to GND through 1 M still
+    #                              reads 2.54 V, over VIH; through 470k it does not,
+    #                              which is the cost of the big pull-up and is why it
+    #                              is not bigger. 470k / 100k would cover the double
+    #                              fault below -- and fails at Vce(sat) = 0.3 V.
+    #
+    # ⚠ WHAT THIS DELIBERATELY DOES NOT COVER, named rather than left to be found:
+    # the TVS clamping a surge WHILE the sensor wire is bridged to the pack. That puts
+    # 38.9 V on LEVEL, 0.707 mA through the clamp, Vf max 0.308 -- so 3.608 V, or 8 mV
+    # over. It is a CONJUNCTION of two independent faults, and buying it back costs
+    # either a 100k series resistor (whose low fails at Vce(sat) = 0.3 V) or a 1 M
+    # pull-up (whose node a damp terminal pulls under VIH). Both trade an 8 mV
+    # double-fault overshoot for misreadings in ordinary rain. The ESP32's own input
+    # protection also conducts in parallel with D7 at that point, which can only help
+    # and is not counted. A16's `peak` for LEVEL is therefore declared at the single
+    # fault, and this paragraph is what that declaration means.
+    #
+    # And it fixes the second half of finding 30 for free: IO14 is MTMS/HS2_CLK and
+    # the chip drives it during boot, so a sensor that is a hard short to ground
+    # used to be a pad driving into a short. Now it drives into 49k9.
+    #
+    # ⚠ THREE RESISTORS IN SERIES IS A BOM DECISION AND NOT A MISTAKE. Anyone
+    # reading the schematic should see 300k; it is spelled 100k + 100k + 100k so the
+    # board adds no resistor line. R27 and R28 carry nothing worth naming -- 8.9 uA
+    # with the collector released, zero when it is pulled -- so the string is
+    # electrically one resistor and is placed as one.
+    r_lv = gen.part("R23", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
+                    "level pull-up to 3V3, 1 of 3 in series = 300k -- big enough "
+                    "that R26 can be 49k9 and hold the clamp under 0.3 V of Vf")
+    r_lv2 = gen.part("R27", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
+                     "level pull-up, 2 of 3 in series = 300k (see R23)")
+    r_lv3 = gen.part("R28", "100k", "Resistor_SMD:R_0603_1608Metric", 2,
+                     "level pull-up, 3 of 3 in series = 300k (see R23)")
+    r_ls = gen.part("R26", "49k9", "Resistor_SMD:R_0603_1608Metric", 2,
+                    "level series -- holds a pack-on-the-sensor-wire fault to "
+                    "0.33 mA, where D7's Vf max is 0.281 V and the pin stays "
+                    "under its absolute maximum; also the boot-time drive into "
+                    "a shorted sensor")
+    c_ls = gen.part("C22", "100n/50V", "Capacitor_SMD:C_0603_1608Metric", 2,
+                    "level filter at the pin, 4.3 ms against the 42.8k node")
+    # ⚠ PIN 3 IS THE MIDDLE OF THE SERIES PAIR AND THE PIN MAP IS WHAT MAKES THIS
+    # A CLAMP RATHER THAN A SHORT. BAT54S is two diodes in SERIES: pin 1 is D1's
+    # anode, pin 3 is D1's cathode tied to D2's anode, pin 2 is D2's cathode. So
+    # GND -> 1, the signal -> 3, +3V3 -> 2 gives exactly the two diodes wanted:
+    # one conducting from the node up to the rail when the node goes high, one
+    # conducting from ground up to the node when it goes below -Vf. Wire 1 and 2
+    # the other way round and this part is a diode from +3V3 to GND, which is a
+    # dead short through two Schottkys the moment the rail comes up.
+    # Package_TO_SOT_SMD:SOT-23, the same land Q3 uses -- KiCad has no
+    # Diode_SMD:D_SOT-23, and a dual diode in SOT-23 is a three-terminal part
+    # on the generic land rather than on a two-pin diode land.
+    d_ls = gen.part("D7", "BAT54S", "Package_TO_SOT_SMD:SOT-23",
+                    {1: "A1", 3: "MID", 2: "K2"},
+                    "LEVEL clamp to the rails -- series pair, middle pin on the "
+                    "signal (see punchlist 30)")
+    # The 300k string, +3V3 -> R23 -> R27 -> R28 -> LEVEL. The two joints are nets of
+    # their own so the router has something to connect; nothing else touches them, and
+    # they are declared to A16 at 3.3 V because that is all they can ever sit at.
+    n_lvl_p1 = Net("LEVEL_PU1")
+    n_lvl_p2 = Net("LEVEL_PU2")
+    v3v3 += r_lv[1], d_ls["K2"]
+    n_lvl_p1 += r_lv[2], r_lv2[1]
+    n_lvl_p2 += r_lv2[2], r_lv3[1]
+    n_lvl += r_lv3[2], j_lvl["OUT"], r_ls[1]
+    n_lvl_io += r_ls[2], c_ls[1], d_ls["MID"], u_mcu["IO14"]
+    gnd += c_ls[2], d_ls["A1"]
     # Power LEAVING the board down a cable, which is the worst inductance in the
     # system (PCB_QUALITY A2, rule 4). Both of these feed a sensor or a stick on
     # the end of a lead and had no charge nearer than the far side of the board:
@@ -1084,28 +1303,42 @@ BOARD_NOTES = {
         # punchlist nobody opens with a cart on screen.
         #
         # This exists because of M10's lesson in a new place: a figure that no
-        # gate reads stops being true. Findings 37, 38 and 39 are RE-SPINS found
-        # by the pre-order validation passes, and writing "do not order" in
-        # WORK_V2_PUNCHLIST.md is not a mechanism. Delete this key when the three
-        # are closed -- and the BOM/CPL re-upload with them.
+        # gate reads stops being true. It used to carry three RE-SPIN findings
+        # (37, 38, 39); all three are closed in copper and the key is kept rather
+        # than deleted, because ONE item survives that no gate on this board can
+        # ever check -- a file already uploaded to the fab's web form.
+        #
+        # ⚠ THE SURVIVING ITEM IS NOT A BOARD DEFECT AND THAT IS EXACTLY WHY IT
+        # IS STILL HERE. Everything else this key used to say was a measurement, and
+        # a measurement can be re-measured: finish.py and quality.py now return 0
+        # unconnected, 0 violations, 0 FAIL, 0 OPEN with the fixes in. The CPL
+        # re-upload is a STATE HELD BY SOMEBODY ELSE'S SERVER, so no amount of
+        # re-running this toolchain can discover whether it was done. That is the
+        # only class of item that belongs in a string a human has to read.
         "BLOCKERS": (
-            "⚠⚠ DO NOT ORDER YET -- 3 RE-SPIN findings are open. "
-            "(37) F2's 1.400 mm holes finish ~1.33 mm plated against a holder "
-            "pin whose published WIDTH alone is 1.4 +/-0.1 mm, diagonal ~1.85-1.99: "
-            "THE PART CANNOT GO IN. Needs ~2.0 mm drill and 2.3-2.4 mm pads; "
-            "MEASURE THE PHYSICAL HOLDER FIRST, because Littelfuse publishes no "
-            "land pattern and this is derived from the pin dimension. "
-            "(38) U1's exposed pad is 25 % under TI's 2.71 x 3.40 mask opening "
-            "and smaller than the package's own MAXIMUM exposed pad, gets 52 % "
-            "of the prescribed paste, and all six thermal holes are pasted over "
-            "and tented on the WRONG SIDE (SLMA002H p.9: voiding). "
-            "(39) 2.124 mm of FR4 remains under the ESP32's antenna ROOT; "
-            "Espressif HDG 1.4.8's two acceptable options are both "
-            "board-material-free. Shift U2 outboard 2.124 mm (costs a re-route) "
-            "or notch Edge.Cuts (costs a housing change). "
-            "ALSO STILL OPEN: the CPL uploaded 2026-10-06 is the UNCORRECTED "
-            "one (finding 24) and must be re-uploaded. "
-            "See WORK_V2_PUNCHLIST.md 37-40 for the measurements and citations."),
+            "⚠ ONE ORDER-TIME ACTION, and it is not a board change: the CPL "
+            "uploaded 2026-10-06 is the UNCORRECTED one (finding 24). The "
+            "corrected placements ship in main.zip -- RE-UPLOAD BOTH BOM AND CPL "
+            "and check the placement preview before paying. Nothing in this "
+            "repository can verify what is on the fab's server. "
+            "The three re-spins this key used to carry are CLOSED in copper: "
+            "(37) F2's holes are drilled 2.05 mm, finishing 1.980 plated against "
+            "the holder pin's 1.921 mm worst-case diagonal -- capped at 2.05 "
+            "rather than the 2.10 the pin wanted, because the part's own 2.50 mm "
+            "pad pitch leaves only 0.45 mm of laminate, which is the fab's floor "
+            "(finding 46). (38) U1's exposed pad is TI's full 2.71 x 3.40 mask "
+            "opening with 100 % paste and the lead-to-EP gap at TI's own 0.570 mm. "
+            "(39) U2 moved outboard to 36.524, leaving 0.0000 mm of FR4 under the "
+            "antenna. "
+            "TWO KNOWNS THAT ARE DELIBERATE AND MEASURED, not oversights. "
+            "LEVEL's clamp (finding 30) is sized for a SINGLE fault -- the pack on "
+            "the sensor wire, which it holds to 3.581 V against a 3.6 V pin. The "
+            "TVS clamping a surge WHILE that wire is bridged is a conjunction of "
+            "two faults and reaches 3.608 V; buying it back costs misreadings in "
+            "ordinary rain, and the reasoning is at the parts in this file. "
+            "Finding 42, the Makita terminal's missing X retention, is MECHANICAL "
+            "and open by the owner's decision -- it changes no copper. "
+            "See WORK_V2_PUNCHLIST.md 24, 30, 37-39, 42 and 46."),
         "copper":  "1 oz outer (35 um). ⚠ DESIGN DEPENDENCY -- every width and "
                    "pour on this board is sized against IPC-2221 at 1 oz.",
         "thick":   "1.6 mm. ⚠ DESIGN DEPENDENCY -- A14's via-in-land volume "
@@ -1433,7 +1666,23 @@ BOARD_NOTES = {
         # the board. At 270 it leaves the laminate at x=47.5 and the only thing
         # it still covers is a corner mounting hole -- a cutout, which the
         # keepout does not forbid.
-        "U2": (34.4, 23.5, 270.0),
+        # ⚠ SHIFTED OUTBOARD 2.124 mm, from 34.4. Punchlist finding 39: the
+        # copper keepout under the antenna was fully compliant with margin, and
+        # the BOARD MATERIAL was not. Espressif HDG 1.4.8 gives exactly two
+        # acceptable options and both are board-material-free -- the antenna off
+        # the base board, or the base board cut away back to the 6.19 line. This
+        # board satisfied neither: the antenna was 66 % off the laminate and
+        # 2.124 mm remained, and that remainder was the antenna ROOT next to the
+        # body, which is the most dielectric-sensitive part of the meander.
+        #
+        # 2.124 is what finding 39 measured off Edge.Cuts and the footprint's own
+        # keepout polygon, not a round number. The alternative was notching
+        # Edge.Cuts, which needs no re-route but changes the board OUTLINE that
+        # the housing bay is cut to -- so it would cost a housing change and a
+        # geometry re-run. This re-spin is already paying for a re-route, so the
+        # shift is the cheaper of the two here; the notch stays available if the
+        # 0.55 mm of laminate left outboard of pads 1/38 ever proves too tight.
+        "U2": (36.524, 23.5, 270.0),
         # C6 moved up 1.5 mm to free the band the ADC filters needed; it is the
         # MCU's BULK, and A2's 5 mm belongs to C7, which bypasses U2.2 at
         # 3.86 mm. Bulk at 8.97 mm behind an unbroken plane is what bulk is for.
@@ -1472,6 +1721,34 @@ BOARD_NOTES = {
         # Placing these at 29.3 cost three courtyards_overlap against U2, which
         # is how the real outline got measured instead of assumed.
         "R20": (22.0, 10, 0.0),
+        # ── LEVEL's protection (punchlist 30). Placed in the band WEST of U2,
+        # which is measured empty: the only thing in x 12..28, y 24..40 was R23
+        # itself, at x 21.15..22.85 y 27.54..28.46, and U2's fab starts at x 28.14
+        # after finding 39 moved it outboard. So these three go between them, in
+        # the order the signal travels, which is also the order that keeps the
+        # clamp and the filter nearest the pin they protect.
+        #
+        # R26 is the one whose position is a real choice. It sits at the MCU end
+        # rather than at J5, so the 20 V of a fault travels the LEVEL track across
+        # the board before it is limited. That is deliberate: the track is already
+        # a VBAT-domain net in that fault, the clamp is what has to be near the
+        # pin, and R23 is here for the reason finding 21 recorded -- the pull-up
+        # belongs at the receiver. Moving R26 to J5 would shorten the energetic
+        # track and lengthen the clamped one, which is the wrong way round.
+        # The 300k string reads +3V3 -> R23 -> R27 -> R28 -> LEVEL left to right, on
+        # the 3.4 mm pitch R23 and R26 already sat on. R23's west edge lands at
+        # x 14.15, inside the measured-empty band's x 12 wall.
+        "R27": (18.4, 28.0, 0.0),     # pull-up 2 of 3
+        "R28": (21.8, 28.0, 0.0),     # pull-up 3 of 3, the LEVEL end
+        "R26": (25.4, 28.0, 0.0),     # series into IO14, in line with the string
+        "C22": (21.0, 31.2, 0.0),     # filter at the node
+        # ⚠ 24.8 AND NOT 25.6, AND THE SOT-23 COURTYARD IS NOT CENTRED ON ITS
+        # ORIGIN. Placed at 25.6 this overlapped U2 by 0.533 mm, which reads like a
+        # 0.5 mm slip and is not one: the courtyard spans x 23.938..27.888 about an
+        # origin at 25.6, so it reaches 2.288 mm east and only 1.662 mm west. U2's
+        # measured courtyard wall is x 27.355. Anything placed here by its own half
+        # width is wrong by 0.313 mm in the direction that matters.
+        "D7":  (24.8, 31.6, 0.0),     # the rail clamp, SOT-23
         "R21": (31.2, 33.9, 180.0),     # divider bottom, at the tap it sets
         "C11": (34.8, 33.9, 180.0),     # VBAT_SENSE filter, 2.35 mm from IO35
         "C12": (38.4, 33.9, 0.0),       # JOY_FILT filter, 2.19 mm from IO34
@@ -1495,7 +1772,7 @@ BOARD_NOTES = {
         # A pull-up on an open-collector line belongs at the RECEIVER anyway:
         # that is the end that has to see a defined high, and it terminates
         # the run rather than launching it.
-        "R23": (22.0, 28.0, 0.0),
+        "R23": (15.0, 28.0, 0.0),
         "BZ1": (33.0, -20, 0.0), "Q3": (26.0, -10, 0.0),
         "R24": (28.0, -4, 0.0),  "D4": (28.0, 1, 0.0),
         "C16": (26.4, -34.5, 0.0),    # +6.4 with J4;  +3V3 at J4: pad to pad 11.6 mm
@@ -1630,6 +1907,18 @@ BOARD_NOTES = {
                                "declares GND as number \"[1,15,38,39]\"",
             "MMBT3904": "SOT-23 NPN standard pinout: 1 base, 2 emitter, "
                         "3 collector",
+            # ⚠ THE SERIES VARIANT, AND THE MIDDLE PIN IS THE WHOLE POINT. Two
+            # Schottkys in series: 1 is D1's anode, 3 is D1's cathode tied to D2's
+            # anode, 2 is D2's cathode. So GND -> 1, the signal -> 3, +3V3 -> 2
+            # gives one diode conducting from the node up to the rail and one from
+            # ground up to the node. BAT54A (common anode) and BAT54C (common
+            # cathode) share this package, this price and this land -- and wired
+            # the same way either of them is a diode straight from +3V3 to GND,
+            # which is a short through two Schottkys the moment the rail comes up.
+            # That is why this citation exists rather than "SOT-23 dual diode".
+            "BAT54S": "SOT-23 series dual Schottky: 1 A1, 3 K1/A2 (the series "
+                      "junction), 2 K2 -- Diotec/SMC BAT54S datasheets, "
+                      "connection diagram",
             "NFET-60V-10mR": "TO-252-3_TabPin2: KiCad's own land numbers the "
                              "37.1 mm2 tab pad 2, and a DPAK N-FET's tab is the "
                              "DRAIN, so 1 G / 2 D / 3 S",
@@ -1722,12 +2011,62 @@ BOARD_NOTES = {
             "PWM_?": 3.3, "BUZZ": 3.3, "N$4": 3.3, "BUZZ_DRV": 3.3,
             "EN": 3.3, "IO0": 3.3, "ESP_*": 3.3, "PROG_RX_IN": 3.3,
             "JOY_*": 3.3,
-            "LEVEL": {"v": 3.3,
+            # ⚠ TWO NETS NOW, AND THE SPLIT IS THE POINT OF FINDING 30. LEVEL is
+            # the wire that goes out to the sensor and comes back; LEVEL_IO is what
+            # reaches the pin, behind R26 and clamped by D7.
+            #
+            # LEVEL's own entry used to end "a sensor fault putting its own 20 V
+            # supply on this wire is M10/M18, not a voltage this net is designed to
+            # carry". That sentence was true and it was also the whole problem: the
+            # net was not DESIGNED to carry the pack, and nothing stopped it, and
+            # the pin was on the far end of it. The declaration is now what the
+            # wire can actually see.
+            "LEVEL": {"v": 3.3, "peak": VBAT_MAX,
                       "why": "the XKC-Y25's output is an open collector that only "
-                             "pulls DOWN; R23 to +3V3 is the only thing that "
-                             "raises it. A sensor fault putting its own %.0f V "
-                             "supply on this wire is M10/M18, not a voltage this "
-                             "net is designed to carry" % VBAT_MAX},
+                             "pulls DOWN and R23 raises it, so 3.3 V is the "
+                             "designed level -- but this wire shares a 5.08 mm "
+                             "block with J5.1 at %.0f V and leaves the sealed bay, "
+                             "so the pack IS a voltage it can see. Declared rather "
+                             "than argued away; R26 and D7 are what keep it off "
+                             "the pin (punchlist 30)" % VBAT_MAX},
+            # ⚠ 3.581 AND NOT 3.66, AND A16 IS WHY THE CIRCUIT CHANGED RATHER
+            # THAN THE NUMBER. This used to declare 3.66 V with a paragraph arguing
+            # that 60 mV over a 3.6 V pin is tolerable in a fault -- and A16 refused
+            # it, correctly: its `accepted` mechanism signs for a pin run over its
+            # STEADY rating and explicitly will not absorb a transient over a PEAK
+            # one, because a peak rating is not a derating curve, it is where the
+            # part stops being a part. The only way through the gate was to make the
+            # clamp hold, which took 49k9 in place of 10k and 300k in place of 100k.
+            # The sizing argument is at the parts themselves; the short version is
+            # that Vf IS the entire budget, because the pin's limit and the clamp's
+            # output both move with VDD.
+            "LEVEL_IO": {"v": 3.3,
+                         "peak": LEVEL_IO_PEAK,
+                         "why": "behind R26's 49k9 and clamped by D7 to +3V3 and "
+                                "GND. A %.0f V fault on LEVEL pushes only %.3f mA "
+                                "into the clamp, where the BAT54S datasheet's Vf "
+                                "MAXIMUM is %.3f V, so the pin sits %.0f mV under "
+                                "its 3.6 V absolute maximum instead of over it. "
+                                "Designed to the maxima, not to a typical curve. "
+                                "The TVS's %.1f V needs a SECOND independent fault "
+                                "to reach this wire and is costed where the parts "
+                                "are declared"
+                                % (VBAT_MAX, LEVEL_FAULT_MA, LEVEL_VF_MAX,
+                                   (3.6 - LEVEL_IO_PEAK) * 1000.0, TVS_CLAMP)},
+            # ⚠ THE PULL-UP STRING'S JOINTS ARE NOT AT 3.3 V IN A FAULT, which is
+            # the one thing splitting 300k into three parts actually changed
+            # electrically. With 20 V on LEVEL, current runs BACKWARD up the string
+            # into +3V3, so R28/R27's joint sits at 3.3 + 16.7 x 200/300 = 14.4 V and
+            # R27/R23's at 8.9 V. Nothing but resistor terminations touches either --
+            # an 0603 is a 75 V part -- but declaring them at 3.3 V would have been a
+            # reading nobody did, so they are declared at the rail they can be pulled
+            # to and the real figures are written down here.
+            "LEVEL_PU?": {"v": 3.3, "peak": VBAT_MAX,
+                          "why": "a joint inside the 300k pull-up string (R23, R27, "
+                                 "R28). 3.3 V in operation; on a pack-on-the-wire "
+                                 "fault the string conducts backward into +3V3 and "
+                                 "these reach 8.9 and 14.4 V, bounded by %.0f V"
+                                 % VBAT_MAX},
             # The ADC tap. Both numbers are the divider acting on the two above.
             "VBAT_SENSE": {"v": VBAT_MAX * SENSE_RATIO,
                            "peak": TVS_CLAMP * SENSE_RATIO,
@@ -1864,6 +2203,15 @@ BOARD_NOTES = {
                 "src": "onsemi MMBT3904 Maximum Ratings: VCEO 40 V, VCBO 60 V, "
                        "VEBO 6.0 V",
                 "pins": {"1": 6.0, "2": 6.0, "3": 40.0},
+            },
+            "BAT54S": {
+                "max": 30.0,
+                "src": "BAT54S Maximum Ratings: VR 30 V per diode. Every pin of "
+                       "this part sits within a Schottky drop of a 3.3 V rail or "
+                       "of ground, so 30 V is not a number this clamp is anywhere "
+                       "near -- it is declared because A16 grades a pin it has no "
+                       "rating for as a FAILURE, and an unrated pin is a reading "
+                       "nobody did rather than a pin that passes",
             },
             # ── the protection parts ──────────────────────────────────────
             LVL_FUSE_VALUE: {

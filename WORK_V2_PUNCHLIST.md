@@ -591,7 +591,14 @@ sensor look like exactly what the board was designed for:
   ticked. Use the 10k rather than buying a 22k: Ib is 1.43 mA at 15 V and 1.93 mA
   at 20 V, so at hFE 100 the transistor can sink 143–193 mA against the **0.33 mA**
   R23 actually needs (3.3 V / 10k) — saturated by a factor of ~400 at the bottom of
-  the pack. The draw on the sensor's own output is 1.4–1.9 mA against its rated
+  the pack. ⚠ **R23 IS 300k NOW, NOT 10k -- see finding 30**, which raised the
+  pull-up to hold a fault clamp under IO14's absolute maximum. That only makes
+  this inverter easier: the collector has to sink **11 uA** rather than 0.33 mA,
+  so the saturation factor gains another order of magnitude, and the MMBT3904's
+  own Vce(sat) at 11 uA is far below the 0.2 V that finding 30's low-level margin
+  was computed against. The two findings are consistent, and this line is
+  corrected rather than left to read as 10k.
+  The draw on the sensor's own output is 1.4–1.9 mA against its rated
   1–100 mA, so nothing is stressed at either end. **This fix costs nothing and
   needs no order.** (22k also works, 65–88 mA of sink; there is just no reason to
   buy one.)
@@ -1081,7 +1088,7 @@ corner, which puts the whole arc 9.9 mm too high. Recorded because it is the sam
 mistake as the render-read in finding 24, one level up: **the gate gave a coordinate
 and I argued past it.**
 
-### 30 — OPEN, the most serious finding of the pre-order review: LEVEL reaches IO14 unprotected, from a terminal block that also carries the raw pack
+### 30 — CLOSED: LEVEL reaches IO14 unprotected, and the fix had to be sized against the Schottky's MAXIMUM Vf, not a typical curve
 
 **Found by validation pass 1** (independent pin-by-pin review against the makers'
 datasheets, by a reviewer with no access to `elec/main.py`). Highest severity of
@@ -1109,11 +1116,96 @@ A second, smaller note from the same finding: IO14 is **MTMS/HS2_CLK** (v2.1
 Table 3) and is driven by the chip during boot, so a sensor that is a hard short to
 GND makes the pad drive into a short for the first milliseconds.
 
-**The fix is one or two parts:** a 1 k series resistor into IO14 plus a clamp to
-3V3/GND, or divide J5.3 the way VBAT_SENSE is divided. ⚠ **NOT APPLIED.** It is a
-re-route and a BOM line (about $1.28 of feeder, finding 22), and it is the one
-finding here that is arguably a **re-spin rather than a decision** — so it is the
-owner's call and it is recorded, measured, at the top of the list.
+**The fix is a series resistor into IO14 plus a clamp to 3V3/GND** — four parts:
+R23 (pull-up), R26 (series), C22 (filter) and **D7, a BAT54S, the only new BOM line**.
+
+⚠ **A divider cannot do this, and that was worked through before the clamp was
+accepted.** The fault arrives at J5.3 and **bypasses the pull-up**, so the ratio that
+divides 21 V to 3.3 is not the ratio that reads an open collector as a logic low. The
+two demands pull opposite ways:
+
+| | needs | because |
+|---|---|---|
+| read a released open collector as HIGH | R<sub>bot</sub> ≫ R<sub>top</sub> | the pull-up is the only thing raising the node |
+| hold a 20 V fault under 3.6 V | R<sub>top</sub> ≥ 4.55·R<sub>bot</sub> | the fault enters past the pull-up |
+
+No pair of resistors satisfies both. **The clamp is not a belt-and-braces addition; it
+is the only topology that works.**
+
+#### ⚠ The first attempt was 100k/10k, and A16 refused it — correctly
+
+The obvious values read well on a typical Schottky curve: 10 k of series resistance puts
+1.6 mA into the clamp at a 20 V fault, which looked like ≈0.33 V of V<sub>f</sub> and a
+pin at ≈3.63 V. **30 mV over a 3.6 V absolute maximum, in a fault rather than in
+operation** — and a paragraph was written arguing that was acceptable.
+
+**A16 would not take it, and the refusal is the useful part.** Its `accepted` mechanism
+signs for a pin run over its **steady** rating; it explicitly will **not** absorb a
+transient over a **peak** one, and emits a hard failure if you try
+(`cadkit/pcbflow/quality.py`). That distinction is right: a steady rating is a derating
+curve and a peak rating is where the part stops being a part. **The gate forced the
+circuit to change instead of the paperwork.**
+
+#### What the real constraint turned out to be
+
+**V<sub>f</sub> IS the entire budget, and that is structural rather than a matter of
+picking better values.** The pin's limit is VDD + 0.3 and the clamp holds the pin at
+VDD + V<sub>f</sub>, so **both sides move with VDD and it cancels** — whether the
+regulator sits at 3.25 or 3.35 V changes nothing. What is left is one question: is the
+Schottky's forward drop under 0.3 V at the fault current? And because V<sub>f</sub> is
+**logarithmic** in current, **halving the current is worth 24 mV**. There is no amount of
+series resistance that buys comfortable margin.
+
+Designed against the datasheet's **maxima** (0.24 V @ 0.1 mA, 0.32 V @ 1 mA, 0.40 V @
+10 mA) rather than a typical curve, and graded on four constraints at once:
+
+| R<sub>p</sub> / R<sub>s</sub> | pulled-low level | 20 V fault | 38.9 V double fault | node Z | survives V<sub>ce(sat)</sub> of |
+|---|---|---|---|---|---|
+| 100k / 10k | 0.482 V | **3.637 ✗** | 3.664 ✗ | 9.1k | 0.5 V |
+| 200k / 30k | 0.604 V | 3.599 (1 mV!) | 3.626 ✗ | 26.1k | 0.4 V |
+| **300k / 49k9** | **0.642 V** | **3.581 ✓** | 3.608 ✗ | 42.8k | **0.44 V** |
+| 470k / 100k | 0.744 V | 3.557 ✓ | **3.584 ✓** | 82.5k | **0.3 V ✗** |
+
+**470k/100k is the only row that survives the double fault, and it is still the wrong
+answer** — it fails to see a logic low if the sensor's saturation voltage is 0.3 V, and
+a damp terminal leaking OUT-to-GND through 470 kΩ pulls its node under V<sub>IH</sub>.
+**V<sub>ce(sat)</sub> and moisture are normal operation; the double fault is a
+conjunction of two independent faults.** Normal operation wins.
+
+**300k is spelled as three 100k in series (R23, R27, R28)** so the board adds **no
+resistor BOM line** — 100k is already a Basic part here, and 49k9 was already a Basic
+code in `fab.py` left over from the sense divider. **D7 remains the only new line.**
+
+#### ⚠ What this deliberately does not cover, named rather than left to be found
+
+The TVS clamping a surge **while** the sensor wire is bridged to the pack: 38.9 V on
+LEVEL, 0.707 mA through the clamp, V<sub>f</sub> max 0.308 → **3.608 V, 8 mV over**.
+It is declared that way in A16 rather than rounded away, and the ESP32's own input
+protection conducts in parallel at that point, which can only help and **is not
+counted**.
+
+**And the second half of finding 30 is fixed for free:** IO14 is MTMS/HS2_CLK and the
+chip drives it during boot, so a sensor that is a hard short to ground used to be a pad
+driving into a short. It now drives into 49k9.
+
+#### Two gates moved because of this
+
+- **`tools/check_pin_map.py` failed, and it was right to.** LEVEL no longer touches
+  IO14 — LEVEL_IO does, behind R26 — so the gate reported *"net n_lvl reaches no u_mcu
+  pin"*, which was **literally true and the wrong answer**: a series resistor does not
+  change which pin the sensor reaches. It now follows two-terminal parts — **but only
+  where neither end is a rail**, and that restriction is the whole difficulty. C22 is a
+  two-terminal part from LEVEL_IO to GND, so propagating through everything would let
+  GND inherit IO14, and GND touches a two-terminal part on nearly every net on the
+  board — after which **every net reaches every pin and the gate can no longer disagree
+  with anything.** Three synthetic boards now run on every invocation, including the
+  capacitor-to-ground case, because a walk that is too generous reports every pin as
+  correct.
+- **The 300k string's joints are not at 3.3 V in a fault**, which is the one thing
+  splitting the pull-up changed electrically. With 20 V on LEVEL, current runs
+  **backward** up the string into +3V3, so the joints sit at 8.9 and 14.4 V. An 0603 is
+  a 75 V part and nothing else touches them, but declaring them at 3.3 V would have been
+  a reading nobody did.
 
 ### 31 — CLOSED, and the finding does NOT stand: the VGATE shunt holds, because only one pump ever switches
 
@@ -1187,7 +1279,7 @@ like this one; the benefit is finding 30, which no amount of reading our own doc
 would have produced. **Both come from the same ignorance and it is not possible to
 keep one without the other.**
 
-### 32 — OPEN, CONFIRMED BY A SECOND PASS AND WORSE THAN STATED: U1's thermal vias are pasted over, and tented on the wrong side
+### 32 — CLOSED, by moving the barrels rather than by tenting them: U1's thermal vias were pasted over, and tented on the wrong side
 
 **Pass 1, reading the gerbers rather than the footprint source.** In
 `wbp:SOIC-8-1EP-FABDRILL`, pad 9 is a 2.29 × 3.0 mm land with six 0.3 mm plated vias
@@ -1230,7 +1322,7 @@ two edits: shrink/relocate the via pads so they clear the paste, and tent the ba
 **on the component side**. And see finding 38: U1's exposed pad is also 25 % undersized
 and starved of paste, so this is one of four deficits stacked in the same direction.
 
-### 33 — OPEN: the VBAT_SENSE divider saturates above ~20.3 V, and TWO passes found it independently
+### 33 — CLOSED on 10k, a value the finding never considered: the VBAT_SENSE divider saturated above ~20.3 V
 
 **Passes 1 and 2 reached this separately**, which is what makes it worth acting on:
 pass 1 from the divider arithmetic, pass 2 from the ADC's characterised range.
@@ -1542,7 +1634,7 @@ makers' land patterns — is the one pass still outstanding.
 
 ---
 
-### 37 — ⚠ ORDER BLOCKER, RE-SPIN: F2's 1.4 mm holes cannot accept the holder's own pins
+### 37 — CLOSED: F2's 1.4 mm holes could not accept the holder's own pins, and the fab's pad-hole floor then capped the cure
 
 **Validation pass 4, and it is a hard assembly stop — the part physically will not go
 in.** Littelfuse 178.6165.0002 datasheet **p. 2 ("Dimensions", bottom view)**: terminal
@@ -1581,7 +1673,7 @@ of them compares a hole to the pin that has to go through it**, because the pin'
 lives in a datasheet and nothing had read it. That is exactly the gap pass 4 existed to
 close, and it is the single most expensive thing the four passes found.
 
-### 38 — ⚠ RE-SPIN: U1's exposed pad has four deficits stacked in the same direction
+### 38 — CLOSED: U1's exposed pad had four deficits stacked in the same direction
 
 **Pass 4, against TI SNVSAA5B package drawing 4214849/B (p. 31 outline, p. 32 example
 board layout, p. 33 example stencil) and app note SLMA002H §2.4 pp. 8–10.**
@@ -1624,7 +1716,7 @@ leads", and we have eroded that gap by 38 %. Compounding: our signal paste is
 the package off a paste-starved thermal pad while carrying surplus solder 0.355 mm from
 it.**
 
-### 39 — ⚠ RE-SPIN: 2.124 mm of board remains under the ESP32's antenna, and the pad-39 vias drain its thermal joint
+### 39 — CLOSED: 2.124 mm of board remained under the ESP32's antenna, and the pad-39 vias drained its thermal joint
 
 **Pass 4 derived the antenna geometry independently from Edge.Cuts and the gerbers.
 It confirms the earlier overhang reading and CORRECTS it: the overhang is partial.**
@@ -2141,6 +2233,86 @@ Clean afterwards: **32 components, 0 unintended overlaps**, 5157 mm of conductor
 5389), and all ten `check_*.py` plus the CAD/fab agreement pass.
 
 ---
+
+### 46 — CLOSED: both footprint generators asserted a hole-to-hole floor, and both had the wrong number
+
+**Findings 37 and 38 were fixed, and each fix was then caught by A12 for the same
+reason: a generator that checks its own geometry against a floor it got wrong is a gate
+that reports `ok` while being wrong.** Both `elec/make_f2_footprint.py` and
+`elec/make_u1_footprint.py` asserted `HOLE_MIN = 0.25`. The fab publishes **two**
+numbers — a generic hole-to-hole and a **pad**-hole-to-hole — and a pad hole needs more
+laminate beside it because it carries an annular ring and a mask relief. **A12 grades at
+0.45.**
+
+| | drill | pitch | laminate between | A12 |
+|---|---|---|---|---|
+| U1 thermal vias, 4 across on an even 0.70 pitch | 0.30 | 0.70 | **0.400 mm** | FAIL, 8 places |
+| F2, two pads per terminal | 2.10 | 2.50 | **0.400 mm** | would have failed |
+
+**F2's was invisible, and the reason is the lesson.** A12 grades the ROUTED board, and
+the routed geometry still named the stock land, so A12 was dutifully measuring 1.40 mm
+holes while the generator on disk produced 2.10 mm ones. Only U1 showed up. **A gate
+that reads the routed board cannot see a change that has not been routed yet** — which
+is fine, as long as nobody reads one clean run as a clean part.
+
+**U1's fix is free; F2's is not.** The via row was never required to be evenly spaced,
+so it spread to the widest four positions the EP copper still contains: `±0.42, ±1.18`,
+leaving 0.54 and 0.46 mm, with 1.18 + 0.25 of pad = 1.43 against the 1.475 half-width.
+F2's pitch is the **part's**, so the DRILL is what had to give, and the two floors push
+against each other:
+
+    the pin wants   1.921 diagonal + 0.10 slide + 0.07 plating = 2.091 -> 2.10 drill
+    the fab allows  2.50 pitch - 0.45 of laminate              =         2.05 drill
+
+**2.05 it is**, and the slide drops from the 0.10 asked for to **0.059 mm against the
+worst-case pin** (0.136 against the nominal 1.40 × 1.20). That still admits the part,
+which is the test that matters, and 2.10 is not manufacturable at this pitch at any
+price. The alternative — merging each terminal's pad pair into a plated slot, which is
+legal because they are one net — changes the land's topology to buy 0.04 mm of slide and
+was not taken.
+
+#### ⚠ And then floating point decided the hole size, twice
+
+Capping the drill by the pitch introduced **two** bugs of the same shape, in opposite
+directions, and the first one shipped a hole that would not have fitted:
+
+1. `math.floor((2.5 - 0.45) / 0.05)` — the division evaluates to **40.99999999999999**,
+   so `floor` returned 40 and the generator quietly produced a **2.00 mm** drill: 1.930
+   finished against a 1.921 pin, **nine microns**, which is not a fit. It printed
+   `ok` and the assert passed, because the assert was checking the same wrong number.
+2. With a `1e-9` guard added, the matching assert then **rejected the very drill the
+   line above had just derived as the largest legal one** — `2.5 - 2.05` is
+   `0.44999999999999996`, so a bare `>=` against 0.45 fails.
+
+**A geometric floor compared at full double precision is a floor nothing can sit exactly
+on.** Both sides carry an explicit tolerance now, each with the failing literal written
+into the comment, because the next person to see `0.44999999999999996` should not have to
+rediscover why it is there.
+
+#### The gate that did not exist: `tools/check_hole_fit.py`
+
+Finding 37 got all the way to a cart because **nothing in this repo compared a hole to a
+pin**. Every geometry check compares the board to ITSELF or to the fab's rules — annular
+ring, hole-to-hole, clearance, courtyard — and all of them passed on a land the part
+cannot enter, because the pin's size lives in a datasheet and nothing read it.
+
+The new gate walks every footprint the routed board places, reads the plated drills out
+of the footprint file, and requires a **declared pin with a source**; an undeclared hole
+is a hard failure, because an undeclared hole is not a hole that fits, it is a hole
+nobody checked. It runs **its own fail case on every run** — the stock Littelfuse land,
+still on disk in KiCad's library — so it cannot quietly become a gate that only ever
+says `ok`.
+
+**It had two bugs of its own before it was believed, and both are the kind it exists to
+catch.** (1) It took `hypot(w, t)` for every pin, which is right for a stamped blade and
+wrong for a round lead: it charged a 1.0 mm round terminal pin 1.414 mm of hole and
+failed three terminal blocks and a pin header that have fitted their stock lands for
+decades. **Shape is declared now, not assumed.** (2) It filtered on the geom's `tht`
+field, which sounds exactly right and is not — `tht` is about modelled leg tails for the
+CAD, not about drilled pads — so two parts were invisible to it. Chasing that revealed
+C1 and C2 are **SMD** electrolytics with no holes at all, and the pin declaration
+written for them was itself a false record. **A gate reading a field that merely sounds
+like the one it wants is the same class of defect as the one it was written to catch.**
 
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 

@@ -154,13 +154,67 @@ def board_mcu(text):
                 found.append(n.slice.value)
         return found
 
+    def part_terms(node):
+        """(part_var, terminal) for every two-terminal subscript in an expression."""
+        out = []
+        for n in ast.walk(node):
+            if (isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name)
+                    and n.value.id != "u_mcu"
+                    and isinstance(n.slice, ast.Constant)
+                    and n.slice.value in (1, 2)):
+                out.append((n.value.id, n.slice.value))
+        return out
+
     nets = {}
+    touches = {}        # net var -> {(part var, terminal)}
     for n in ast.walk(tree):
         if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name):
             keys = mcu_keys(n.value)
             if keys:
                 nets.setdefault(n.target.id, set()).update(keys)
+            touches.setdefault(n.target.id, set()).update(part_terms(n.value))
         # `vbat += r_d1[1]` style never touches u_mcu, so it is skipped.
+
+    # ⚠ A SIGNAL MAY NOW REACH ITS PIN THROUGH A SERIES PART, and before finding
+    # 30 none did. LEVEL used to land on IO14 directly; it now ends at R26 and the
+    # protected side, LEVEL_IO, is what touches the pin. This gate reported
+    # "net n_lvl reaches no u_mcu pin", which was literally true and the wrong
+    # answer -- the firmware's LEVEL_PIN still has to be the pin the sensor reaches,
+    # and a series resistor does not change which pin that is. So the walk follows
+    # two-terminal parts.
+    #
+    # ⚠ BUT ONLY WHERE NEITHER END IS A RAIL, AND THAT RESTRICTION IS THE WHOLE
+    # DIFFICULTY. Propagating through EVERY two-terminal part makes this gate useless
+    # in one step: C22 is a two-terminal part from LEVEL_IO to GND, so GND would
+    # inherit IO14, and GND touches a two-terminal part on nearly every net on the
+    # board -- after which every net reaches every pin and the gate can no longer
+    # disagree with anything. A SERIES element is one whose both ends are signals.
+    # The pull-up string is excluded by the same rule at R23, which touches +3V3.
+    RAILS = ("gnd", "v3v3", "vbat", "vgate", "vbat_raw", "vbat_lvl")
+    rail_parts = set()
+    for var, terms in touches.items():
+        if var in RAILS:
+            rail_parts.update(p for p, _ in terms)
+    series = {}
+    for var, terms in touches.items():
+        for part, term in terms:
+            if part not in rail_parts:
+                series.setdefault(part, {})[term] = var
+    # one hop at a time until nothing new is learned, so a chain of two series
+    # elements still resolves and a cycle cannot spin.
+    for _ in range(len(series) + 1):
+        grew = False
+        for part, ends in series.items():
+            if len(ends) != 2:
+                continue
+            a, b = ends[1], ends[2]
+            for src, dst in ((a, b), (b, a)):
+                gained = nets.get(src, set()) - nets.get(dst, set())
+                if gained:
+                    nets.setdefault(dst, set()).update(gained)
+                    grew = True
+        if not grew:
+            break
 
     # the physical pin dict: the 4th positional arg of gen.part(... "ESP32-...")
     pinmap = None
@@ -182,6 +236,40 @@ def board_mcu(text):
                 and isinstance(n.value.args[0], ast.Constant)):
             names[n.targets[0].id] = n.value.args[0].value
     return nets, pinmap, names
+
+
+# ⚠ THIS GATE'S SERIES WALK IS RUN AGAINST ITS OWN FAIL CASES ON EVERY RUN. The
+# walk was added to stop a true report ("LEVEL reaches no pin") being the wrong answer,
+# and a walk that is too GENEROUS is far worse than one that is too strict: it would
+# quietly report every pin as correct. So three synthetic boards are checked here --
+# one where the series part legitimately carries the signal through, one where the part
+# is missing and the reach must NOT appear, and one where the intervening part is a
+# capacitor to ground, which must NOT propagate or the rail short-circuits the gate.
+_T_HEAD = 'u_mcu = gen.part("U2", "ESP32-WROOM-32E", "x", {1: "GND"}, "")\n'
+
+
+def _selftest():
+    ok = _T_HEAD + "n_lvl += r_ls[1]\nn_io += r_ls[2], u_mcu['IO14']\n"
+    gone = _T_HEAD + "n_lvl += j[1]\nn_io += u_mcu['IO14']\n"
+    rail = (_T_HEAD + "n_lvl += c[1]\ngnd += c[2]\n"
+            "n_io += u_mcu['IO14']\nx += c2[1]\ngnd += c2[2]\n")
+    cases = (("a series resistor carries the signal to the pin", ok, "n_lvl", True),
+             ("no part between them, so there is no path", gone, "n_lvl", False),
+             ("a capacitor to GND is not a series element", rail, "gnd", False))
+    bad = 0
+    print("=== the series walk against its own fail cases ===")
+    for why, text, var, want in cases:
+        got = "IO14" in board_mcu(text)[0].get(var, set())
+        hit = (got == want)
+        print("  %-4s %-52s %s reach -> %s"
+              % ("ok" if hit else "FAIL", why, "expected" if want else "expected NO",
+                 "reached" if got else "did not reach"))
+        if not hit:
+            bad += 1
+            print("       *** the walk is %s: this gate cannot be trusted to "
+                  "disagree with the board"
+                  % ("too generous" if got else "too strict"))
+    return bad
 
 
 def doc_table(text):
@@ -326,6 +414,11 @@ def main():
     for w in wrong:
         print("     %s" % w)
     bad += len(wrong)
+
+    # and the series walk that produced all of the above is itself exercised,
+    # every run -- a walk that is too GENEROUS would report every pin as correct.
+    print("")
+    bad += _selftest()
 
     print("\n%s" % ("firmware and board agree, and the pinout is legal"
                     if not bad else "*** %d PIN-MAP FAILURE(S) ***" % bad))

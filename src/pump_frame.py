@@ -213,7 +213,14 @@ _PCB_HEIGHT = {
     # Nobody has to own a caliper for the housing to be right. A measurement of
     # the fitted stack would recover about 3 mm of bay depth and is the first
     # thing to do if that depth is ever wanted.
-    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165":                21.6,
+    # renamed with the footprint when punchlist 37 opened its holes -- the BODY
+    # is untouched, only the plated pads and drills moved, so 21.6 still stands.
+    # ⚠ THIS IS THE SECOND COPY OF THIS TABLE. elec/cad_geom_check.py has its
+    # own, and renaming the footprint failed the geometry gate from HERE after
+    # the other one was already fixed -- "no HEIGHT for ...-PINFIT". Two tables
+    # keyed by footprint name is one table too many; whichever is touched next
+    # should take the other with it.
+    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165-PINFIT":         21.6,
 }
 
 # The board's own placement lives in src/housing.py, which is what the
