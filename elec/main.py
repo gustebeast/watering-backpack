@@ -1397,7 +1397,7 @@ BOARD_NOTES = {
                    "check assumes it.",
         "finish":  "Lead-free HASL. Nothing finer on this board than a "
                    "1.27 mm SOIC, so the cheaper finish costs nothing in "
-                   "yield. NOT because anything is hand-soldered: all 59 "
+                   "yield. NOT because anything is hand-soldered: all 64 "
                    "placements are in the CPL, the six through-hole ones "
                    "included, and the fab bills them as hand-soldering and "
                    "manual assembly.",
@@ -1411,7 +1411,7 @@ BOARD_NOTES = {
                    "rails, so TICK 'Depanel boards & edge rail before "
                    "delivery' or the boards arrive too wide for the bay. "
                    "Was: whichever of Economic / Standard lists all 12 sourced SMT "
-                   "parts -- the DESIGN constrains neither. 59 placements, all "
+                   "parts -- the DESIGN constrains neither. 64 placements, all "
                    "on top (single-sided, no second-side setup); 95 x 112 mm, "
                    "which is OUT of the <=100 x 100 tier deliberately and for "
                    "F2 (see the outline note), and still far above any "
@@ -1419,7 +1419,7 @@ BOARD_NOTES = {
                    "J1-J6, F2) ARE ORDERED ASSEMBLED, which this line used "
                    "to deny -- it said they were hand-soldered afterwards "
                    "and that no THT assembly was ordered. The CPL never "
-                   "agreed: all 59 placements are in it, and the quote "
+                   "agreed: all 64 placements are in it, and the quote "
                    "bills them as Hand-soldering labor $3.61 plus Manual "
                    "Assembly $2.56. The terminals and the buzzer were "
                    "sourced on purpose -- they were the last entries to "
