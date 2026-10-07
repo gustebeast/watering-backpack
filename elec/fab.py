@@ -320,6 +320,17 @@ LCSC = {
                                     # buck's INPUT cap and carries the switching
                                     # ripple, so X7R over X5R matters here more
                                     # than anywhere else on the board.
+    ("BAT54S",   "SOT-23"):            "C171786",   # SMC/Sangdest BAT54S, 30 V,
+                                    # 200 mA, TWO SCHOTTKYS IN SERIES in SOT-23 --
+                                    # the series variant and not BAT54A/BAT54C,
+                                    # because a rail clamp needs the signal on the
+                                    # MIDDLE pin: one diode up to +3V3, one up from
+                                    # GND. A common-anode or common-cathode part in
+                                    # the same package and the same price would be a
+                                    # short across the rail here. D7, punchlist 30.
+                                    # Vf is what sets how far over VDD the pin goes,
+                                    # so a substitute has to be a SCHOTTKY: a
+                                    # silicon dual at 0.7 V puts IO14 at 4.0 V.
     ("1N4148W",  "D_SOD-123"):        "C81598",    # Basic. 1N4148W, 75 V, 150 mA,
                                     # 4 ns, 5.1M, $0.0123. D4 is the buzzer's
                                     # flyback clamp. The value is already a part

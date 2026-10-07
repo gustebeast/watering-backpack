@@ -58,6 +58,17 @@ from __future__ import annotations
 OPEN = {
 }
 
+# ⚠ @NAME@ TOKENS ARE SUBSTITUTED BY elec/main.py, AND THAT IS NOT DECORATION.
+# These texts are SIGNED claims, and two of them quoted the VBAT sense divider's
+# bottom leg as "18k" in prose while main.py derived every number that depends on it
+# from RDIV_BOT. Punchlist finding 33 changed that leg to 12k and the prose went on
+# saying 18k -- in the two items whose whole job is "the design record says what must
+# not change" and "every value can be bought". A signed figure that no gate reads
+# stops being true, which is M10's lesson arriving inside M40 and M42 themselves.
+#
+# main.py cannot be imported from here (it imports this module), so the value travels
+# the other way: a token here, substituted there, and an assert there that no token
+# survives. Tokens and not str.format, because this prose is full of braces.
 MANUAL = {
     # ══ must hold ═══════════════════════════════════════════════════════════
     "M15": (
@@ -645,7 +656,10 @@ MANUAL = {
         "ODD VALUES, each questioned and each answered by a derivation in "
         "elec/main.py rather than by a catalogue: 29k4 is the feedback bottom "
         "leg, 100k x 0.75 / (3.3 - 0.75) = 29.41k taken to E96; 49k9 is RT and "
-        "sets 500 kHz; 18k is the VBAT sense divider against 100k; 1k5 is the "
+        "sets 500 kHz; the VBAT sense divider is @RDIV_TOP@/@RDIV_BOT@, which puts the "
+        "whole 15-21 V pack range inside the ADC's characterised linear band "
+        "AND brings the TVS's clamped 38.9 V to 3.54 V, under the pin's own "
+        "absolute maximum (punchlist 33); 1k5 is the "
         "VGATE dropper; 10R are the gate resistors; 10n is soft-start; 1u is "
         "the EN RC. Not one is a value somebody typed. "
         "ALTERNATES -- and the strongest answer here is structural. FOUR values "
@@ -1308,7 +1322,7 @@ MANUAL = {
     ),
     "M40": (
         "every value on the board is one that can be bought: 29k4 and 49k9 "
-        "are E96, and the rest are E24 or better -- 100k, 18k, 10k, 1k5, 1k, "
+        "are E96, and the rest are E24 or better -- 100k, 10k, 1k5, 1k, "
         "10R. The parts chosen FOR a parameter say so where they are defined, "
         "which is this rule's real ask, and on this board several of them say "
         "it in the value string itself so that the requirement cannot be "

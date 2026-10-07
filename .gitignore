@@ -27,3 +27,8 @@ elec/out/
 # record absolute local paths
 skidl_REPL.erc
 skidl_REPL.log
+
+# Footprint generators keep a one-deep backup beside their output so a bad run can
+# be diffed against the last good one. It is a working file, not a source: the
+# generator IS the source and re-running it reproduces the .kicad_mod exactly.
+*.kicad_mod.prev
