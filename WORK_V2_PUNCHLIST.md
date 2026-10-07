@@ -986,41 +986,44 @@ arrive down the chase from the tank side (the level sensor, the joystick)"*. J5'
 four-conductor lead is now on that same edge, so **three** unrelieved cables land
 straight on a screw clamp, not two.
 
-### 28 — lead_exit() answers "where does a cable leave this connector" WRONGLY, and silently, for all five terminals
+### 28 — CLOSED: lead_exit() refuses the question it was answering wrongly
 
-Found by building the wiring model on it. `cadkit.board_geom.Boards.lead_exit()` is
-documented as *"the point a cable should be drawn from"*. For J1–J5 it returns a point
-**15.67 mm off the board's FACE, pointing at the lid** — the top-entry answer — when
-every one of those mouths faces **world −Z**, 6.65 mm above the chase.
+`cadkit.board_geom.Boards.lead_exit()` is documented as *"the point a cable should be
+drawn from"*. For J1–J5 it returned a point **15.67 mm off the board's FACE, pointing at
+the lid** — the top-entry answer — when every one of those mouths faces **world −Z**, 6.65
+mm above the chase.
 
-**The cause is a 7-character prefix lookup.** `lead_exit` sees `Horizontal` in the fpid
+**The cause was a 7-character prefix lookup.** `lead_exit` sees `Horizontal` in the fpid
 and enters its side-entry branch, then keys `side_plug_run` on `name[:7]`, which for
 `TerminalBlock_Phoenix_MKDS-3-...` is the string **"Termina"**. Nothing registers that
-key, the lookup returns `None`, and the function **falls back to the top-entry formula
-without a word**. Had the wiring model been built on it, five cables would have been
-drawn leaving perpendicular to the board, missing the chase entirely, and the model
-would have **passed**.
+key, the lookup returned `None`, and the function **fell back to the top-entry formula
+without a word**. Built on it, five cables would have been drawn leaving perpendicular to
+the board, missing the chase entirely, and the model would have **passed** — a wrong
+direction is still a valid point, so nothing downstream can tell it from a right one.
 
-**It cannot simply be measured back either.** CIRCUIT.md §7 measured material behind
-each long face at **140 vs 149 mm³** and recorded the verdict as **indeterminate**.
-The body spans 5.35 mm one side of the pad row and 5.95 the other, so `_side_mouth`'s
-rule — *"the mouth is the end farther from the origin"* — is deciding a direction on
-**0.6 mm of a simplified block, and would decide it the wrong way round.**
+**Fixed in canonical cadkit** (`e8ebc68`), two changes:
 
-What is actually known is a **convention**, which CIRCUIT.md already flags as one:
-BOARD_NOTES is +Y-up and `layout.py` flips to KiCad's +Y-down, so local +Y points at
-the board's −Y and rot 0 aims every entry at −Z. `src/wiring.py` therefore
-**declares** the direction with that reasoning rather than inferring it, and asserts
-the one thing a convention can be held to: that every mouth is over the chase and
-within 20 mm of it. **That assert is the gate finding 21 never had** — it fires on a
-terminal whose mouth is not over the opening, which is what J5 was.
+1. **A side-entry part with no registered plug run RAISES.** The message names the fpid,
+   says every prefix it tried, and tells the caller either to register the mated plug's
+   run or — if the direction is a convention rather than a measurement — to declare it in
+   the caller and say why there. *A helper that guesses the wrong direction in silence is
+   worse than one that refuses.*
+2. **The lookup is the longest registered PREFIX, not `name[:7]`.** Both keys in
+   `SIDE_PLUG_RUN` happen to be exactly seven characters, so the slice worked by
+   coincidence and would silently miss a key of any other length.
 
-⚠ **The cadkit fix is NOT applied.** It belongs in canonical `../cadkit`, never the
-vendored copy, and the right fix is not merely registering a "Termina" run: it is
-making the fallback **raise** for a part whose fpid says `Horizontal`, because a helper
-that guesses the wrong direction in silence is worse than one that refuses. Deferred
-because another agent was editing canonical cadkit at the time and two writers in one
-subtree is how the A13 drift happened.
+**Made to fail, and made to stay out of the way** — all five terminals refuse; `JST_PH_`
+and `JST_XH_` are still registered; the one top-entry `J*` on the board is untouched; and
+a run registered under a **25-character** prefix now *resolves*, which `name[:7]` could
+never do. That last case then raises `_side_mouth`'s own refusal — *"the footprint origin
+sits mid-body, so which end is the mouth cannot be read from the geometry"* — which is
+exactly what finding 28 predicted from CIRCUIT.md §7's indeterminate 5.35 vs 5.95 mm. **The
+two refusals agree**, and neither of them guesses.
+
+`src/wiring.py` still **declares** the entry face (`ENTRY_FACE = "board -Y"`) with the
++Y-up/+Y-down reasoning, which is the right answer for a convention, and asserts the one
+thing a convention can be held to: every mouth over the chase and within 20 mm of it.
+
 
 ### 29 — CLOSED: the pack pair fits; the model was drawing it gathered through a slot that is one layer deep
 
@@ -1890,45 +1893,71 @@ make on purpose rather than at the end of a wiring session. What is now true is 
 gap is **named and measured** instead of remembered.
 
 
-### 43 — OPEN: the vendored cadkit was hand-edited, and a stale subtree merge was sitting unresolved
+### 43 — CLOSED, and it was five times the finding it was raised as: the vendored cadkit had been forked, not copied
 
-Found while committing the wiring work, not looked for. Two separate things, both in
-`cadkit/pcbflow/layout.py`:
+Raised as a stale merge plus one hand edit. `diff -r` against canonical said otherwise:
+**eight files diverged beyond line endings and one file existed only downstream.** A
+vendored copy is supposed to be a copy, so every one of those was either a fix the other
+ten consumers were missing, or a fix that had been lost — and the first propagation
+attempt **crashed**, which is how the largest of them was found at all.
 
-**1. An unresolved subtree merge was parked in the working tree.** `.git/MERGE_HEAD` held
-`221036d` (*squashed cadkit 652cc8b..149edbd*) with `UU cadkit/pcbflow/layout.py` — so the
-file carried literal `<<<<<<<` markers and **would not parse**. Any `elec/` run would have
-died on the import. It survived because every gate run in that session was `src/`-side.
-This is the exact hazard the saved note *"check `.git/MERGE_HEAD` before `git add -A`"*
-exists for, and here it would have committed conflict markers into a public repo.
+#### Lifted UPSTREAM, because they were cadkit's work sitting in the wrong tree
 
-**2. The vendored copy had been hand-edited, which the project forbids.** The conflict was
-between a vendored-only fix for the removed-via use-after-free —
-`board._pcbflow_removed = ... + tuple(victims)`, parking the proxies on the board object —
-and the older buggy code coming in from 149edbd. `git log -S"_pcbflow_removed"` in
-canonical `../cadkit` returns **nothing**: that line has never existed upstream. It was
-written straight into the vendored tree.
+| file | what it was | why it had to go up |
+|---|---|---|
+| `pcbflow/route.py` | three defects in post-route bring-up-pad siting | the worst put a test pad on a VBAT track: **a 27.8 mm short from the battery to a GPIO** |
+| `pcbflow/layout.py` | zone `poly` + `priority`; a connectivity pointer held across a rebuild | the pour mechanism **this board's VBAT and pump rails are built on** |
+| `pcbflow/close_last.py` | two vias 0.067 mm apart are one via | DRC grades it `hole_to_hole` "actual 0.0000 mm" and calls it a **WARNING** |
+| `pcbflow/fab_package.py` | a requirement-shaped value is not an orderable part | a part nobody had sourced read as **sourced** |
+| `pcbflow/unwick.py` | a via in a solder land drains the joint | **299 lines, entirely generic**, downstream-only |
+| `board_geom.py` | `D_SMC` has a height | DO-214AB, dim D max |
 
-**Canonical already fixes the same bug, and fixes it better.** `0330023` (*"items removed
-from a board are kept alive for the life of the process; the del in 149edbd did not cure it
-and is withdrawn"*) keeps them on a **module-level `_REMOVED` list**, so the lifetime is the
-process rather than one board object — which is what the failure actually demanded, since
-the corruption took out SWIG's type registry process-wide.
+Two commits upstream (`2356e19`, `a9e0f12`), each carrying the measurements with it.
 
-**Resolved to a known-good state, not papered over:** the stale merge is **aborted**, so the
-vendored tree is back to the exact commit every green gate run in this session was measured
-against. Nothing is broken and nothing is a lie.
+**The crash is the part worth keeping.** Propagating canonical over the vendored
+`layout.py` made the board build die with `ValueError: too many values to unpack (expected
+3)` on `notes["zones"]`. That is a four-element zone entry meeting a three-tuple unpack —
+i.e. **the project's own pour regions, which nothing upstream knew about**. Had the
+conflict resolved the other way, or had nobody run the board after propagating, the loss
+would have been silent until the next spin. *A fork announces itself only when you try to
+merge it; the longer you wait the more it announces.*
 
-**Still open, deliberately.** Canonical is at `3b43c0e`, five commits past the `149edbd`
-that merge was dragging in, and those commits change things the CAD reads: a 1206 chip
-resistor gains a height, lettering grows a per-board reading direction and a both-faces ink
-check, and A14/A15 are new quality rules. Propagating that is a real change with its own
-measurements — it can open findings — and doing it silently while closing a wiring task
-would be the kind of lumping this list exists to prevent. **It wants its own pass**, and
-that pass is also where finding 28's `lead_exit()` fix belongs, since both are one writer
-in one subtree.
+**And canonical was wrong where downstream was right.** `conn = board.GetConnectivity()`
+held across `BuildConnectivity()` — the exact use-after-free `layout.py` documents at
+length in two *other* places — was still live in a third, upstream, after being fixed
+downstream. Two complete routing runs had already been thrown away on its symptom
+(`'SwigPyObject' object is not iterable`, and once `LoadBoard()` itself returning a bare
+SwigPyObject, because a freed object takes out SWIG's type registry process-wide).
 
----
+#### Superseded by canonical, deliberately not lifted
+
+`board._pcbflow_removed` parked removed vias on the board object; canonical's module-level
+`_REMOVED` is the same fix with the **right lifetime** — the process, not one board. A14
+(paste-only apertures), A15 (nearest ground layer in the stack-up) and A16's signed
+bounded `accepted` are all newer upstream than the vendored copies.
+
+**The vendored tree is now byte-identical to canonical** (`diff -r --strip-trailing-cr`,
+exit 0) for the first time in this project's history.
+
+#### What the nine upstream commits cost to absorb: one new gate, and it was not free
+
+The lettering work (`3b43c0e`) gave `check_board()` an `ink=` argument: **every label the
+routed board prints must have ink in the solid the assembly places.** The first run
+reported **104 disagreements**, every F-side label on the board — because `pcb_silk()`
+was being *added to the viewer* and never *checked against anything*. The owner's note had
+been "there is no silkscreen in cad"; drawing it answered the note, and only this hook
+makes it a claim. `elec/cad_geom_check.py` now has an `_ink()` hook returning both faces in
+the **housing's** frame, and the board reads **104 / 104**.
+
+**Made to fail four ways, all four caught:** no ink at all (0/104 — the state the gate was
+in this morning); only the front face drawn (98/104, naming the six back legends); the ink
+posed in the board's frame instead of the housing's (0/104); and the ink shifted **2 mm**
+(60/104). That last number is the useful one — it says the gate has real positional
+resolution and is not merely counting parts.
+
+**Residual:** nothing. Board **0 unconnected, 0 violations, 0 FAIL, 0 OPEN**; CAD 59/59
+parts and 104/104 labels; all ten `check_*.py` pass; 32 components, 0 unintended overlaps.
+
 
 ## 22. One part puts the whole board on the dearer assembly tier — $69 of a $194 quote
 

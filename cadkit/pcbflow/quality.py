@@ -1471,6 +1471,9 @@ def return_path_slots(ctx):
     def covered(lid, pt):
         return any(poly.Contains(pt) for poly in planes[lid])
 
+    # copper layers in stack-up order, front to back
+    order = {l: k for k, l in enumerate(b.GetEnabledLayers().CuStack())}
+
     gaps, checked = [], 0
     for t in b.GetTracks():
         if t.GetClass() == "PCB_VIA":
@@ -1478,22 +1481,32 @@ def return_path_slots(ctx):
         lid, net = t.GetLayer(), (t.GetNetname() or "")
         if not net or GROUND.match(net):
             continue
-        # the plane this signal references: ground copper on any OTHER copper layer
-        others = [l for l in planes if l != lid]
-        if not others:
+        # The plane this signal references is the NEAREST ground copper in the stack-up,
+        # not every ground polygon on the board: a track on In2 with a whole plane on In1
+        # beside it returns in that plane, and a gap in the component-side pour two
+        # layers away -- which every part on that side cuts -- is nothing to it. (Read
+        # against every other layer, a four-layer board with an unbroken plane failed on
+        # its own front pour.) Two ground layers at the same distance both count: the
+        # return is in whichever is there.
+        if lid not in order:
             continue
+        dist = {l: abs(order[l] - order[lid]) for l in planes if l != lid and l in order}
+        if not dist:
+            continue
+        near = min(dist.values())
+        others = [l for l in dist if dist[l] == near]
         ln = MM(t.GetLength())
         if ln < 1.0:
             continue
         checked += 1
         a, e = t.GetStart(), t.GetEnd()
         n = max(2, int(ln / step))
-        for lid2 in others:
+        if True:
             cov = []
             for i in range(n + 1):
                 f = i / float(n)
-                cov.append(covered(lid2, pcbnew.VECTOR2I(
-                    int(a.x + (e.x - a.x) * f), int(a.y + (e.y - a.y) * f))))
+                pt = pcbnew.VECTOR2I(int(a.x + (e.x - a.x) * f), int(a.y + (e.y - a.y) * f))
+                cov.append(any(covered(lid2, pt) for lid2 in others))
             i = 0
             while i <= n:
                 if cov[i]:
@@ -1547,14 +1560,33 @@ def via_in_land(ctx):
     thick = float(ctx.q.get("board_thickness", BOARD_THICK))
     allowed = set(ctx.q.get("via_in_land_ok", {}) or {})
 
+    # A land is COPPER. A footprint that windows the paste of a big pad (a QFN's exposed
+    # pad: one copper pad with no paste of its own, and nine paste-only apertures over
+    # it) prints ONE joint, so the apertures' paste is counted to the copper pad under
+    # them and an aperture is never a land by itself -- read as lands, a single thermal
+    # via under the centre window was "109 % of the joint" of a pad it is 12 % of.
+    def _cu(p):
+        return p.IsOnLayer(pcbnew.F_Cu) or p.IsOnLayer(pcbnew.B_Cu)
+
+    def _pasted(p):
+        return p.IsOnLayer(pcbnew.F_Paste) or p.IsOnLayer(pcbnew.B_Paste)
+
+    def _area(p):
+        return MM(p.GetSize().x) * MM(p.GetSize().y)
+
     lands = []
     for ref, fp in ctx.fps.items():
-        for p in fp.Pads():
-            if p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
+        smd = [p for p in fp.Pads() if p.GetAttribute() == pcbnew.PAD_ATTRIB_SMD]
+        windows = [p for p in smd if _pasted(p) and not _cu(p)]
+        for p in smd:
+            if not _cu(p):
                 continue
-            if not (p.IsOnLayer(pcbnew.F_Paste) or p.IsOnLayer(pcbnew.B_Paste)):
+            box = p.GetBoundingBox()
+            area = (_area(p) if _pasted(p) else 0.0) + sum(
+                _area(w) for w in windows if box.Contains(w.GetPosition()))
+            if area <= 0.0:
                 continue          # no paste, no joint to starve: a bare test pad
-            lands.append((p, "%s.%s" % (ref, p.GetNumber())))
+            lands.append((p, "%s.%s" % (ref, p.GetNumber()), area))
     if not lands:
         return [("via in land", None, "no pasted SMD land on this board")]
 
@@ -1562,11 +1594,10 @@ def via_in_land(ctx):
     for t in b.GetTracks():
         if t.GetClass() != "PCB_VIA":
             continue
-        for p, name in lands:
+        for p, name, area in lands:
             if name in allowed or not p.GetBoundingBox().Contains(t.GetPosition()):
                 continue
-            sz = p.GetSize()
-            paste = MM(sz.x) * MM(sz.y) * foil
+            paste = area * foil
             barrel = math.pi * (MM(t.GetDrillValue()) / 2.0) ** 2 * thick
             found.append((barrel / paste, name, barrel, paste))
 
@@ -1637,7 +1668,7 @@ def _pin_rating(ctx, pv, ref, num):
         if not m:
             return None
         v = float(m.group(1))
-        return (v, v, "the part's own BOM value %r" % value, "", "the value text")
+        return (v, v, "the part's own BOM value %r" % value, "", "the value text", None)
     spec = dict(ent) if isinstance(ent, dict) else {"max": ent}
     pins = spec.pop("pins", None) or {}
     pk = _match_key(list(pins), str(num))
@@ -1646,7 +1677,30 @@ def _pin_rating(ctx, pv, ref, num):
         spec.update(sub if isinstance(sub, dict) else {"max": sub})
         where += "[pins][%r]" % pk
     return (_vnum(spec.get("max")), _vnum(spec.get("peak", spec.get("max"))),
-            spec.get("src", ""), spec.get("why", ""), where)
+            spec.get("src", ""), spec.get("why", ""), where, spec.get("accepted"))
+
+
+ACCEPT_FIELDS = ("v", "by", "date", "why")
+
+
+def _accepted(acc, v):
+    """(ok, text) for an `accepted` entry on a pin over its steady rating. An acceptance
+    is a PERSON's decision to run a part over its maker's number, bounded to a stated
+    voltage: who, when, why, and up to how many volts. It is not a waiver -- the rule
+    stays hard, an entry missing a field or exceeded by the net fails exactly as before,
+    and every run prints it and counts it."""
+    if not isinstance(acc, dict):
+        return False, "its `accepted` is not a dict of %s" % ", ".join(ACCEPT_FIELDS)
+    miss = [k for k in ACCEPT_FIELDS if not str(acc.get(k, "")).strip()]
+    if miss:
+        return False, "its `accepted` entry lacks %s" % ", ".join(miss)
+    lim = _vnum(acc["v"])
+    if not isinstance(lim, float):
+        return False, "its `accepted` entry's `v` is not a number"
+    if v > lim:
+        return False, "it is accepted only up to %.4g V" % lim
+    return True, ("ACCEPTED up to %.4g V by %s on %s: %s"
+                  % (lim, acc["by"], acc["date"], acc["why"]))
 
 
 @rule("A16")
@@ -1666,7 +1720,7 @@ def pin_voltage_ratings(ctx):
                     "voltage and A16 can make NO CLAIM about the %d pin(s) on its %d "
                     "net(s). That is an unmade check, not a clean board"
                     % (ctx.name, npins, len(nets))))
-    priced = graded = rated = unratable = 0
+    priced = graded = rated = unratable = accepted = 0
     margins = []
     for net in nets:
         pads = sorted({(r, n) for r, n, _p in ctx.by_net[net]},
@@ -1708,7 +1762,7 @@ def pin_voltage_ratings(ctx):
                             % (sub, part, net, max(v, peak))))
                 continue
             graded += 1
-            mx, pkv, src, why, where = r
+            mx, pkv, src, why, where, acc = r
             if mx is None:
                 out.append((sub, False, "%s (%s): %s states no `max` for this pin"
                             % (sub, part, where)))
@@ -1732,11 +1786,30 @@ def pin_voltage_ratings(ctx):
                 continue
             rated += 1
             if v > mx:
+                # The acceptance answers the STEADY case and nothing else: the transient
+                # is still graded below against the pin's own `peak`, like any other pin's.
+                a_ok, a_txt = _accepted(acc, v) if acc is not None else (False, "")
+                if a_ok and pkv != "none" and peak > pkv:
+                    out.append((sub, False,
+                                "%s (%s) is rated %.4g V and the clamped transient on %s "
+                                "reaches %.4g V: %.4g V over, for as long as the clamp "
+                                "conducts (its steady case is accepted; the transient is "
+                                "not part of that; rating read from %s, via %s)"
+                                % (sub, part, pkv, net, peak, peak - pkv, src, where)))
+                    continue
+                if a_ok:
+                    accepted += 1
+                    out.append((sub, True,
+                                "%s (%s) on %s: %.4g V against %.4g V rated, OVER ITS "
+                                "RATING by %.3g V and %s (rating read from %s, via %s)"
+                                % (sub, part, net, v, mx, v - mx, a_txt, src, where)))
+                    continue
                 out.append((sub, False,
                             "%s (%s) is rated %.4g V and the steady-state worst case on %s "
                             "is %.4g V: the pin is over its rating whenever the board is on "
-                            "(rating read from %s, via %s)"
-                            % (sub, part, mx, net, v, src, where)))
+                            "(rating read from %s, via %s)%s"
+                            % (sub, part, mx, net, v, src, where,
+                               "; " + a_txt if a_txt else "")))
                 continue
             if pkv == "none":
                 out.append((sub, True,
@@ -1771,6 +1844,10 @@ def pin_voltage_ratings(ctx):
                     % (graded, rated, m[1], m[2], m[5], m[0], m[3],
                        "; %d pin(s) declared to have no net-to-ground rating, each with a "
                        "reason" % unratable if unratable else "")))
+    if accepted:
+        out.append(("accepted", None,
+                    "%d pin(s) run OVER their steady rating on a signed acceptance, each "
+                    "printed above with who, when, why and up to what voltage" % accepted))
     return out
 
 

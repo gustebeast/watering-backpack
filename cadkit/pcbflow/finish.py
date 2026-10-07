@@ -401,16 +401,18 @@ def finish(stem, rounds=1, keep_route=False):
         # the nets its new violations are on, and the next attempt leaves those alone --
         # up to four times, each from the same untouched board.
         #
-        # ⚠ unwick.py IS THIS REPO'S AND IT STAYS IN THE CHAIN. Upstream's version of
-        # this loop runs close_last -> repair_planes. Ours runs close_last -> unwick ->
-        # repair_planes, because close_last lays new track AND NEW VIAS, and unwick is
-        # what keeps a via out of a pasted land and out of another hole's minimum
-        # (PCB_QUALITY M29 / A14). Taking upstream's hunk whole would have dropped it
-        # and silently put back the ten open barrels under solder paste that 6b53c4b
-        # measured and fixed -- silently, because the board MODEL reports those vias as
-        # tented, so every gate here would still have passed. The other two unwick calls
-        # (lines ~323 and ~359) survived the merge because they are not in this hunk;
-        # that is luck, and this comment is the part that is not.
+        # ⚠ unwick.py STAYS IN THE CHAIN: close_last -> unwick -> repair_planes, not
+        # close_last -> repair_planes. close_last lays new track AND NEW VIAS, and unwick
+        # is what keeps a via out of a pasted land and out of another hole's minimum
+        # (PCB_QUALITY M29 / A14). Dropping it puts back open barrels under solder paste
+        # SILENTLY, because the board model reports those vias as tented -- so every gate
+        # downstream still passes. It has to be a step in this loop and not a pass at the
+        # end, because the vias it moves are made inside the loop.
+        #
+        # This lived as a project-side edit to a vendored copy for one board's lifetime,
+        # with a comment explaining that the merge kept two of its three call sites by
+        # luck. That was the warning, not the fix; the pass and all three calls are
+        # upstream now, which is the only version of "it stays in the chain" that holds.
         _skip = set()
         import time as _time
         _close_t0 = _time.time()
