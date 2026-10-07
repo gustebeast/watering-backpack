@@ -137,13 +137,37 @@ void pinsInit() {
   // one that exists during reset, since DS-C IO_MUX row 17 gives IO14 "At Reset:
   // oe=0, ie=0" — no pull at all. The internal one (~45k) is in parallel and
   // only matters on a bench with no sensor wired. It is NOT a substitute for
-  // R23: R23 is what lets the external NPN inverter clamp the pin at 3V3 instead
+  // R23: R23 -- now one of three 100k in series, a 300k pull-up, with R26 = 100k
+  // in series into this pin and D7 clamping it to the rails (finding 30) -- is
+  // what lets the external NPN inverter hold the pin at 3V3 instead
   // of the sensor's InVCC = VBAT (CIRCUIT.md §4).
   // WHY NOT ANALOGUE: IO14 is ADC2_CH6, and IDF "Hardware Limitations" rules
   // ADC2 out while WiFi is up. It is read with digitalRead, so the conflict
   // never arises — this pin is the reason the ADC-unit check has to be against
   // the pin's ROLE, not merely its capability.
-  pinMode(LEVEL_PIN, INPUT_PULLUP);
+  // !! INPUT, NOT INPUT_PULLUP, AND THE CHANGE IS FINDING 30'S. This was
+  // INPUT_PULLUP, and while the pin sat directly on the open collector that was
+  // harmless -- the internal pull (~45k, 30-80k) simply paralleled the external
+  // one. Finding 30 put R26 = 100k IN SERIES between LEVEL and this pin, so the
+  // internal pull-up is no longer in parallel with anything: it is on the FAR
+  // side of R26 and forms a divider with it. With the collector hard low:
+  //
+  //   internal Rpu   pin sits at
+  //   30k            2.14 V
+  //   45k (typ)      1.83 V
+  //   80k            1.39 V
+  //
+  // VIL is 0.25 x VDD = 0.825 V, so the pin never comes within 0.5 V of a low at
+  // any pull value -- it parks in the Schmitt dead band. LEVEL_FULL_IS_LOW would
+  // never assert and tank-full would never fire. tools/check_level_alarm.py
+  // passes regardless, because it drives the debounce state machine with
+  // injected booleans and never models the pin's electrical level.
+  //
+  // The external 300k provides the high; no internal pull is wanted or helpful.
+  // (M35 notes erratum GPIO-3.6 may mean the internal pull on IO14 is not there
+  // at all, which would make this differ by IDF version -- worse than either
+  // outcome. INPUT is deterministic.)
+  pinMode(LEVEL_PIN, INPUT);
 
   // ── Analogue inputs (see §1 above for unit and channel) ────────────────────
 
@@ -155,9 +179,9 @@ void pinsInit() {
   // WHY NO pinMode: DS-C Table 6-1 note 2 — GPIO34-39 have no output driver and
   // no internal pull-up/pull-down, so OUTPUT would be dead silicon and
   // INPUT_PULLUP a silent no-op. Arduino's analogRead path selects the ADC pad
-  // function itself. The pin is held at a defined level by R20/R21 (100k/18k
+  // function itself. The pin is held at a defined level by R20/R21 (100k/10k
   // off VBAT) regardless, which is the only pull it has or needs.
-  // WHY 11 dB: the divider puts a fresh 20 V pack at ~3.05 V; a narrower
+  // WHY 11 dB: the divider puts a fresh 20 V pack at 1.82 V; a narrower
   // attenuation would clip and read the pack as flatter than it is, which would
   // RAISE the duty cap. 11 dB is the full ~3.3 V span (DS-C §4.9.1).
   analogSetPinAttenuation(VBAT_PIN, ADC_11db);
