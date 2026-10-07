@@ -2135,7 +2135,11 @@ def silk_prints_as_drawn(ctx):
     place. `strip_silk` does it for footprint graphics.
     """
     try:
-        from . import silkfit
+        # by path, not relatively: quality.py runs as a script too (see layout.py)
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        import silkfit
     except Exception as e:                                  # noqa: BLE001
         return [("silk clipped", None,
                  "silkfit is not importable (%s), so NO claim is made about whether "
