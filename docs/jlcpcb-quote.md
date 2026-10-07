@@ -1,4 +1,4 @@
-# The main board's JLCPCB quote, measured (2026-10-06)
+# The main board's JLCPCB quote, measured (2026-10-06, re-quoted 2026-10-07)
 
 Asked for: upload the board, check that everything looks right, and keep the pricing
 line items so savings have somewhere to be argued from. Method borrowed from the pedal
@@ -34,40 +34,61 @@ Standard PCBA, qty 5, top side only, 24 h PCB / 4-5 day assembly, lead-free HASL
 1 oz outer, green/white, 1.6 mm, "Remove Mark".
 
 ```
-PCB Price                                $11.10
+PCB Price                                $12.15
   Engineering fee                         $4.00
   Via Covering                            $0.00     <-- see "the via question" below
   Surface Finish                          $1.40
   Board                                   $5.70
+  Confirm Production file                 $1.05     <-- NEW, and deliberate
 
-Standard PCBA Price                     $182.54
+Standard PCBA Price                     $186.76
   Setup Fee                              $25.75
   Stencil                                 $8.27
   Panel                                   $0.00
   Large Size                              $0.00
-  Components (34 items)                  $88.11
+  Components (34 items)                  $88.50
   Feeders Loading fee                    $43.40     <-- the second-largest line
-  SMT Assembly                            $2.08
+  SMT Assembly                            $2.15
+  Confirm Parts Placement                 $0.45     <-- NEW, and deliberate
   Hand-soldering labor fee                $3.61
   Manual Assembly                         $2.56
   X-Ray Inspection                        $8.25
   Packaging fee                           $0.51
+  Depanel boards & edge rail              $3.31     <-- NEW, and NOT optional
 
-TOTAL                                   $193.64     for 5 boards = $38.73 each
-Weight                                    1.73 kg
+TOTAL                                   $198.91     for 5 boards = $39.78 each
 ```
+
+⚠ RE-QUOTED 2026-10-07 AND THE OLD NUMBERS ARE NOT PATCHED OUT, because what
+moved is the interesting part. It was $193.64. The $5.27 difference is four
+deliberate additions and one consequence, not drift:
+
+| line | was | now | why |
+|---|---|---|---|
+| Confirm Production file | -- | $1.05 | the last look at the panel before it is cut |
+| Confirm Parts Placement | -- | $0.45 | an engineer checks polarity and rotation |
+| Depanel + edge rail | -- | $3.31 | **required**; see the warning at the end |
+| Components | $88.11 | $88.50 | same 34 lines; F2's holder and the day's prices |
+| SMT Assembly | $2.08 | $2.15 | more placements after the fuse went on the board |
+
+Both "Confirm" lines were set with **"Do not confirm automatically"** ticked, so the
+order WAITS rather than going into production after 48 / 72 hours unreviewed. That is
+the whole reason they are being paid for; left on the default they expire into a
+production run and buy nothing.
 
 ## The via question, answered and closed
 
 The question was whether 0.25 mm vias were drawing a surcharge we could escape by going
 to 0.3 mm. **They are not, and we are already at 0.3 mm.** Every one of the board's 86
 vias is 0.6 mm pad on a 0.3 mm drill, which is JLCPCB's no-charge minimum, and the quote
-agrees in its own words: `Via Covering $0.00`. There is no saving here because the
-saving was already taken, presumably when the via size was chosen. Nothing to do.
+agrees in its own words: `Via Covering $0.00`. (The count was 86 when this was
+written and is **94** now -- U1's exposed pad went from six barrels to eight and the
+router laid the rest; the conclusion is unchanged because the rate is zero.) There is
+no saving here because the saving was already taken, presumably when the via size was chosen. Nothing to do.
 
 ## Where the money actually is
 
-**$69 of the $193.64 is the price of one part.** U2, the ESP32-WROOM-32E (C701342),
+**$69 of the total is the price of one part.** U2, the ESP32-WROOM-32E (C701342),
 is flagged **"Standard Only"** in the parts table. JLCPCB will not place it on Economic
 assembly, and selecting it forces the whole board onto the Standard tier. What that
 costs, read off the form:
@@ -120,9 +141,14 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    with two 5 mm rails on the 95 mm sides. The housing bay is cut for a 95 mm board. The
    order form has **"Depanel boards & edge rail before delivery"** under Advanced
    Options; if it is not selected the boards can arrive 105 mm wide and will not fit.
-   This is not in `ORDER.txt` yet.
-2. **⚠ THE PLACEMENT FILE UPLOADED HERE IS STALE — re-upload before ordering.** The
-   frames were measured after this quote (finding 24) and **13 of 59 placements moved**:
+   **In `ORDER.txt` now, and selected on the 2026-10-07 quote at $3.31** -- the form
+   states the rail arithmetic itself, so this is confirmed from its own words rather
+   than predicted.
+2. **⚠ THE PLACEMENT FILE UPLOADED HERE IS STALE — and so is the rest of the
+   package; upload the whole zip, see item 5.** The
+   frames were measured after this quote (finding 24) and **13 of the board's 64
+   placements moved** (this said "13 of 59"; 59 was a stale total, corrected at all
+   five sites that cited it):
    J4 by 10.16 mm, J5 by 7.62, J6 by 6.35 and 90°, the ESP32 by 90° and 3.68 mm, the
    buck by 270°, both gate drivers and Q3 by 180°. The prices above still stand — same
    parts, same board, same copper — but the CPL in this quote would have been assembled
@@ -134,6 +160,21 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    pad 1. Nothing orientation-related is left for a person.
    **And the "every part on its pads" line in the table above was my own misreading of
    that render**: those twelve parts were visibly off and I read past them.
-3. **Check stock the day you order.** Every figure here is from 2026-10-06.
-4. **J5 is still on the wrong edge** (finding 21). That is a design question, not an
-   order-form one, and it is unresolved.
+3. **Check stock the day you order.** Prices here were re-read on 2026-10-07; the
+   only figure NOT re-read is the shipping weight, 1.73 kg on 2026-10-06.
+4. ~~**J5 is still on the wrong edge** (finding 21).~~ **CLOSED, measured on the
+   placement file rather than seen in a render.** All five screw terminals now sit on
+   the -Y edge -- the one that faces down over the cable chase -- at an identical
+   `y = -147.000` in `main-cpl.csv`: J5 at x 63.70, J2 at 80.50, J3 at 92.25, J1 at
+   104.00, J4 at 128.40. The order is J5, J2, J3, J1, J4, which puts the two pump
+   terminals adjacent and keeps the pack's stub clear of VBAT's riser.
+
+5. **What was uploaded on 2026-10-07, and why the whole zip.** The 2026-10-06 order
+   carried the UNCORRECTED CPL, and the instruction written then said to re-upload the
+   BOM and CPL. That was two files short: the copper and drill moved afterwards too --
+   F2's holes 1.400 -> 2.050 mm, U1's exposed pad rebuilt, D7 moved off a courtyard
+   overlap, and every silk designator a mask opening would have clipped moved by A18.
+   Against the old package: **drill 136 -> 146 holes, F.Cu 567 -> 605 objects, F.Silk
+   2656 -> 3613**. Uploading two files of sixteen would have ordered the OLD board with
+   the NEW parts list, which is the one combination nothing downstream catches, because
+   each file is internally valid on its own.

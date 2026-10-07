@@ -1416,7 +1416,7 @@ BOARD_NOTES = {
         "tier":    "STANDARD, measured rather than inferred: U2 is flagged "
                    "Standard Only on the order page and Economic will not "
                    "place it, which drags the whole board up a tier (about "
-                   "$69 of a $193.64 quote for five -- docs/jlcpcb-quote.md). "
+                   "$69 of a $198.91 quote for five -- docs/jlcpcb-quote.md). "
                    "Standard also pads the outline to 105 x 112 with two 5 mm "
                    "rails, so TICK 'Depanel boards & edge rail before "
                    "delivery' or the boards arrive too wide for the bay. "
