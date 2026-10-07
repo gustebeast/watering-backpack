@@ -111,11 +111,78 @@ SIZE_J = 1.0
 # is this?), but it is reported, and the quality pass (A12) makes someone sign for it.
 SIZE_SMALL = 0.8
 LEGEND_MAX_PINS = 8        # a 2x20 gets its name only
+# how far from its connector a pinout block may be laid. The block names its connector
+# and lists the ways in order, so it still reads from further off (`silk_pinout_reach`);
+# the nearest free site is taken first whatever the reach.
+PINOUT_REACH = 14.0
 OPTICS_CLR = 12.0          # no label this close to a part whose own silk was stripped
 OPTICS_NAME_CLR = 30.0     # ...and the board's name, which can go anywhere, further still
 SIZE_REF = 1.0             # a designator is printed legibly or not at all
 REF_REACH = 2.0            # mm past the part's own half-diagonal: beside it, or nowhere
 REF_SKIP = ("TP", "H", "MH", "FID", "REF", "G", "LOGO")   # no part there to name
+
+# ── THE FACE (`silk_font`) ───────────────────────────────────────────────────
+# None = KiCad's own stroke font, and every size above. A board (or its project, through
+# the `face` argument of silk()) may ask for an INSTALLED outline font instead:
+#
+#     "silk_font": {"family": "Some Family", "bold": true, "size": 1.5}
+#
+# ⚠ ONE SIZE, AND NO SMALLER FALLBACK. An outline font's strokes are a fixed fraction of
+# its height, so "try it at 0.8" is not a smaller legible label, it is an unprintable
+# one: `size` is the height at which the face's THINNEST stroke reaches the fab's
+# minimum, and it is the caller's to have measured (KiCad's text size is not the cap
+# height either -- measure the plotted ink, not the font's tables).
+# ⚠ KICAD FALLS BACK SILENTLY. A family it cannot find (not installed for this user) is
+# drawn in a substitute face with no error and no warning, so _set_face proves the family
+# resolved before any label is placed, by drawing in it and in a name that cannot exist.
+FACE = None
+
+
+def _apply_face(t, board):
+    if FACE:
+        t.SetBold(bool(FACE.get("bold")))
+        t.SetUnresolvedFontName(FACE["family"])
+        t.ResolveFont(board.GetEmbeddedFonts())
+    return t
+
+
+def _set_face(face, board):
+    """Take `face` for this run: the sizes, and proof that KiCad found the family."""
+    global FACE, SIZE_TP, SIZE_J, SIZE_SMALL, SIZE_REF, SIZES_ID
+    if not face:
+        return
+    size = float(face["size"])
+
+    def width(family):
+        t = pcbnew.PCB_TEXT(board)
+        t.SetText("HIJ+-_024")
+        t.SetTextSize(pcbnew.VECTOR2I(MM(size), MM(size)))
+        t.SetBold(bool(face.get("bold")))
+        t.SetUnresolvedFontName(family)
+        t.ResolveFont(board.GetEmbeddedFonts())
+        return t.GetBoundingBox().GetWidth()
+    if width(face["family"]) == width("no such family \x7f%s" % face["family"]):
+        raise SystemExit("kicad_silk: the font family %r is not installed for this user -- "
+                         "KiCad would draw a substitute face without saying so. Install "
+                         "it (per-user is enough) and re-run" % face["family"])
+    FACE = dict(face)
+    SIZE_TP = SIZE_J = SIZE_SMALL = SIZE_REF = size
+    SIZES_ID = tuple(z for z in SIZES_ID if z >= size) or (size,)
+
+
+def _face_refs(board):
+    """The footprints' own designators, where they print, in the face and at its size."""
+    if not FACE:
+        return 0
+    n = 0
+    for fp in board.GetFootprints():
+        for f in fp.GetFields():
+            if f.IsVisible() and f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+                f.SetTextSize(pcbnew.VECTOR2I(MM(SIZE_REF), MM(SIZE_REF)))
+                f.SetTextThickness(MM(STROKE))
+                _apply_face(f, board)
+                n += 1
+    return n
 WIDER = 1.6                # the second ring: this much further out, before any turn
 MARK_D = 0.6               # a way-1 DOT, where not even a "1" fits: four fab line widths
 REF_SLIDE = 2.5            # mm a footprint's own designator may move to lie flat
@@ -226,6 +293,7 @@ class Side:
         t.SetLayer(self.layer)
         t.SetTextSize(pcbnew.VECTOR2I(MM(size), MM(size)))
         t.SetTextThickness(MM(STROKE))
+        _apply_face(t, self.board)
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
         t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
         t.SetMirrored(self.back)
@@ -590,7 +658,7 @@ def _legend(ref, pins, word, two_rows):
 
 
 def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=None,
-         read=None, pinout=None, ends=None):
+         read=None, pinout=None, ends=None, face=None, reach=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site
     (designators asked for by `refs` are reported but not returned: on a dense board
     most of them having no site is the expected result, not a finding)."""
@@ -606,6 +674,8 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         read = _notes.get("silk_read") if read is None else read
         pinout = _notes.get("silk_pinout") if pinout is None else pinout
         ends = _notes.get("silk_ends") if ends is None else ends
+        face = _notes.get("silk_font") if face is None else face
+        reach = _notes.get("silk_pinout_reach") if reach is None else reach
     way_words = dict(way_words or {})
     pinout, ends = set(pinout or ()), set(ends or ())
     read = float(read or 0.0) % 360.0
@@ -622,6 +692,11 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
             and d.GetShape() == pcbnew.SHAPE_T_CIRCLE and d.GetWidth() == 0
             and abs(d.GetRadius() - MM(MARK_D) // 2) <= 1]
     dark = tuple(dark)
+    _set_face(face, board)
+    if reach:
+        global PINOUT_REACH
+        PINOUT_REACH = float(reach)
+    _face_refs(board)                            # BEFORE they are turned and read
     ref_turned = _flatten_refs(board, read)      # BEFORE the sides read where they are
     sides = {False: Side(board, False, dark, read), True: Side(board, True, dark, read)}
     fps = sorted(board.GetFootprints(), key=lambda f: f.GetReference())
@@ -829,7 +904,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
             # next best thing to read while plugging, at the legible size or not at all.
             # The full names flat, the short words flat, and only then either turned.
             for text, turn in ((legend, None), (brief, None), (legend, why), (brief, why)):
-                if sides[own].place(text, SIZE_J, fp.GetPosition(), 14.0, step=0.5,
+                if sides[own].place(text, SIZE_J, fp.GetPosition(), PINOUT_REACH, step=0.5,
                                     rivals=rivals, turn=turn):
                     done.append("%s pinout (%s, in place of its ways)"
                                 % (ref, "back" if own else "front"))
@@ -845,7 +920,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         for size, text, back, turn in [(z, x, b, w) for z in (SIZE_J, SIZE_SMALL)
                                        for x in texts for w in (None, why)
                                        for b in (True, False)]:
-            if sides[back].place(text, size, fp.GetPosition(), 14.0, step=0.5,
+            if sides[back].place(text, size, fp.GetPosition(), PINOUT_REACH, step=0.5,
                                  rivals=rivals, turn=turn):
                 done.append("%s pinout (%s%s)" % (ref, "back" if back else "front",
                                                   ", short words" if text is not legend else ""))
