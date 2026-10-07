@@ -429,9 +429,15 @@ class Boards:
                     continue
                 w = (cq.Workplane("XY").text(line, lab["size"] / SILK_CAP, SILK_T,
                                              halign="center", valign="center")
-                     .translate((0.0, ((len(lines) - 1) / 2.0 - k) * pitch, 0.0))
-                     .rotate((0, 0, 0), (0, 0, 1), lab["angle"])
-                     .translate((lab["x"], lab["y"], t)))
+                     .translate((0.0, ((len(lines) - 1) / 2.0 - k) * pitch, 0.0)))
+                if side == "B":
+                    # BACK-SIDE INK IS ON THE BACK, AND READS FROM THE BACK. Seen from
+                    # above (the frame everything here is drawn in) it is mirror writing,
+                    # hanging under the laminate. It used to be laid on the TOP face the
+                    # right way round, i.e. in the one place the fab does not print it.
+                    w = w.mirror("YZ").translate((0.0, 0.0, -SILK_T))
+                w = (w.rotate((0, 0, 0), (0, 0, 1), lab["angle"])
+                     .translate((lab["x"], lab["y"], t if side == "F" else 0.0)))
                 out += ([s for s in w.vals() if s.Volume() > 0]
                         if hasattr(w.val(), "Volume") else [])
         if not out:
