@@ -838,11 +838,17 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                 missed.append(ref + " ways")
             if own and (ref + " ways") not in missed:
                 continue                  # that IS the back: no second copy beside it
-        for size, back, turn in [(z, b, w) for z in (SIZE_J, SIZE_SMALL)
-                                 for w in (None, why) for b in (True, False)]:
-            if sides[back].place(legend, size, fp.GetPosition(), 14.0, step=0.5,
+        # THE SHORT WORDS AT THE LEGIBLE SIZE BEFORE THE FULL NAMES UNDER IT: a block is
+        # as wide as its longest net name, and "GND 24V H L" read at 1.0 mm serves the
+        # person plugging the lead better than PWR_GND / CAN_A_H at 0.8.
+        texts = [legend] + ([brief] if brief != legend else [])
+        for size, text, back, turn in [(z, x, b, w) for z in (SIZE_J, SIZE_SMALL)
+                                       for x in texts for w in (None, why)
+                                       for b in (True, False)]:
+            if sides[back].place(text, size, fp.GetPosition(), 14.0, step=0.5,
                                  rivals=rivals, turn=turn):
-                done.append("%s pinout (%s)" % (ref, "back" if back else "front"))
+                done.append("%s pinout (%s%s)" % (ref, "back" if back else "front",
+                                                  ", short words" if text is not legend else ""))
                 if size < SIZE_J:
                     sides[back].small.append(ref + " pinout")
                 break
