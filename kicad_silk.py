@@ -109,6 +109,7 @@ SIZE_REF = 1.0             # a designator is printed legibly or not at all
 REF_REACH = 2.0            # mm past the part's own half-diagonal: beside it, or nowhere
 REF_SKIP = ("TP", "H", "MH", "FID", "REF", "G", "LOGO")   # no part there to name
 WIDER = 1.6                # the second ring: this much further out, before any turn
+MARK_D = 0.6               # a way-1 DOT, where not even a "1" fits: four fab line widths
 REF_SLIDE = 2.5            # mm a footprint's own designator may move to lie flat
 
 
@@ -225,6 +226,37 @@ class Side:
         t.SetPosition(pcbnew.VECTOR2I(0, 0))
         return t
 
+    def dot(self, near, reach, rivals):
+        """A filled dot MARK_D across at the free site nearest `near` and nearer it than
+        any of `rivals`. Returns True if it went down. Recognised (and cleared) on the
+        next run by being a filled board-level silkscreen circle of exactly this size."""
+        h = MM(MARK_D) // 2
+        n = int(reach / 0.25)
+        best = None
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                d2 = i * i + j * j
+                if d2 > n * n or (best is not None and d2 >= best[0]):
+                    continue
+                x, y = near.x + MM(i * 0.25), near.y + MM(j * 0.25)
+                if any((x - q.x) ** 2 + (y - q.y) ** 2
+                       < (x - near.x) ** 2 + (y - near.y) ** 2 for q in rivals):
+                    continue
+                r = [x - h, y - h, x + h, y + h]
+                if self.free(r):
+                    best = (d2, x, y, r)
+        if best is None:
+            return False
+        c = pcbnew.PCB_SHAPE(self.board, pcbnew.SHAPE_T_CIRCLE)
+        c.SetLayer(self.layer)
+        c.SetCenter(pcbnew.VECTOR2I(int(best[1]), int(best[2])))
+        c.SetEnd(pcbnew.VECTOR2I(int(best[1]) + h, int(best[2])))
+        c.SetFilled(True)
+        c.SetWidth(0)
+        self.board.Add(c)
+        self.rects.append(_grow(best[3], MM(0.15)))
+        return True
+
     def place_legible(self, s, size, near, reach, **kw):
         """`place` at `size`, else at SIZE_SMALL. Returns the size used, or 0."""
         for z in (size, SIZE_SMALL):
@@ -259,7 +291,7 @@ class Side:
         return best
 
     def place(self, s, size, near, reach, step=0.25, optics=None, turn=None,
-              rivals=None, wider=True):
+              rivals=None, wider=True, own=False):
         """Lay `s` at the free site nearest `near` (a VECTOR2I), no further than `reach`
         mm, at the board's reading direction. Returns True if it went down.
 
@@ -268,15 +300,17 @@ class Side:
         where the site must still be nearer `near` than any of `rivals`; and, only for
         a label given a `turn` reason -- what it belongs beside -- a quarter turn within
         `reach`. A label with no `turn` is never turned: its default site being taken is
-        not a reason."""
+        not a reason. `own=True` holds EVERY ring to the rivals rule, for a mark that
+        means nothing unless it is nearest its own pad (a way-1 mark)."""
         ang = self.read
-        best = self._nearest(s, size, ang, near, reach, step, optics)
+        close = rivals if own else None
+        best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close)
         if best is None and wider:
             best = self._nearest(s, size, ang, near, reach * WIDER, step, optics,
                                  rivals=rivals, inner=reach)
         if best is None and turn:
             ang = (self.read + 90.0) % 360.0
-            best = self._nearest(s, size, ang, near, reach, step, optics)
+            best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close)
             if best is not None:
                 self.turned.append((s.split(chr(10))[0], turn))
         if best is None:
@@ -332,8 +366,10 @@ def _ways(side, fp, pins, forms):
     pos = [pins[k].GetPosition() for k in nums]
     xs, ys = [q.x for q in pos], [q.y for q in pos]
     if len(nums) == 1:
-        return side.place(forms[0][nums[0]], SIZE_J, pos[0], 5.0,
-                          turn="beside its own pad")
+        # every wording flat before any is turned
+        return (any(side.place(f[nums[0]], SIZE_J, pos[0], 5.0) for f in forms)
+                or any(side.place(f[nums[0]], SIZE_J, pos[0], 5.0, wider=False,
+                                  turn="beside its own pad") for f in forms))
     if max(ys) - min(ys) < MM(0.05):
         along_x = True
     elif max(xs) - min(xs) < MM(0.05):
@@ -547,6 +583,11 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
     name = os.path.basename(stem)
     old = [d for d in board.GetDrawings()
            if d.GetClass() == "PCB_TEXT" and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)]
+    # ...and the way-1 dots of the last run (Side.dot)
+    old += [d for d in board.GetDrawings()
+            if d.GetClass() == "PCB_SHAPE" and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)
+            and d.GetShape() == pcbnew.SHAPE_T_CIRCLE and d.GetWidth() == 0
+            and abs(d.GetRadius() - MM(MARK_D) // 2) <= 1]
     dark = tuple(dark)
     ref_turned = _flatten_refs(board, read)      # BEFORE the sides read where they are
     sides = {False: Side(board, False, dark, read), True: Side(board, True, dark, read)}
@@ -610,7 +651,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
     # 1c. each connector's ways, named on the connector's OWN side, in line with the way.
     #     Before the name and the blocks: a way's word has one place it can be, and the
     #     name can go anywhere. The net's own name first, then the short words.
-    wayless = []
+    wayless, united = [], set()          # united: named in the same label as its word
     for fp in fps:
         ref = fp.GetReference()
         if not (ref.startswith("J") and ref[1:].isdigit()):
@@ -622,16 +663,49 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         first = min(pads)
         full = {k: (labels or {}).get(_net(q), _net(q)) for k, q in pads.items()}
         brief = {k: _short(_net(q), way_words) for k, q in pads.items()}
+        s = sides[fp.IsFlipped()]
+        shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
         forms = []
         for words in (full, brief):
             words = dict(words)
-            words[first] = "%d %s" % (first, words[first])
+            if len(pads) > 1:
+                words[first] = "%d %s" % (first, words[first])
+            elif not shown:
+                # A ONE-WAY connector (a pogo land, a single turret): no "1" -- there is
+                # no second way to tell it from -- and its designator goes down WITH its
+                # word, as one label. Laid separately on a row of such lands at a tight
+                # pitch, each designator lost its place to the next land's word and
+                # came to rest beside the wrong pad.
+                words[first] = "%s %s" % (ref, words[first])
             if words not in forms:
                 forms.append(words)
-        if _ways(sides[fp.IsFlipped()], fp, pads, forms):
+        if _ways(s, fp, pads, forms):
             done.append("%s ways (%s)" % (ref, "back" if fp.IsFlipped() else "front"))
+            if len(pads) == 1 and not shown:
+                united.add(ref)
         else:
             wayless.append(ref)
+            # NO ROOM FOR A WORD PER WAY: THEN AT LEAST WHICH END IS WAY 1, on the
+            # connector's own side. A pinout block -- wherever it ends up -- says what
+            # way 1 carries and not which contact it is. A bare "1", nearer way 1's pad
+            # than any other pad of the part, at the legible size; flat first, turned
+            # only if that is the only way to stand it against its own pin.
+            if 1 in pads and len(pads) > 1:
+                others = [q.GetPosition() for k, q in pads.items() if k != 1]
+                # far enough to get out from under the part's own body: a terminal
+                # block's pad is 4 mm inside its courtyard
+                cyb = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped()
+                                      else pcbnew.F_CrtYd).BBox()
+                far = max(4.0, min(cyb.GetWidth(), cyb.GetHeight()) / 2e6 + 2.5)
+                if s.place("1", SIZE_J, pads[1].GetPosition(), far, rivals=others,
+                           wider=False, own=True,
+                           turn="way 1's mark against its own pin (%s)" % ref):
+                    done.append("%s way-1 mark" % ref)
+                elif s.dot(pads[1].GetPosition(), far, others):
+                    # not even a "1": a dot beside way 1, the smallest mark that prints
+                    done.append("%s way-1 dot" % ref)
+                else:
+                    missed.append(ref + " way-1 mark")
 
     # 2. the board's own name, as large as will fit, front for choice. BEFORE the
     #    pinouts: on a 10 x 17 mm board there is room for one or the other, and which
@@ -679,6 +753,8 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
             continue
         s = sides[fp.IsFlipped()]
         shown = fp.Reference().IsVisible() and fp.Reference().GetLayer() == s.layer
+        if ref in united:
+            shown = True
         if not shown and not s.place_legible(ref, SIZE_J, fp.GetPosition(), 12.0,
                                              turn="beside its own connector (%s)" % ref):
             missed.append(ref)
