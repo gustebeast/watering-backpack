@@ -258,11 +258,19 @@ class Boards:
     font's capital height as a fraction of its em (OS/2 sCapHeight / unitsPerEm). Left
     out, the lettering is drawn in the CAD kernel's default face. Either way it is only
     as true as the font is the one the fab's ink was plotted in.
+
+    `silk_subst` redraws characters the font draws wrongly, WITHOUT editing the font:
+    {char: (stand_in, dy)} draws `char` as the font's own `stand_in` glyph moved `dy`
+    capital-heights up (negative is down). {"_": ("-", -0.6)} is an underscore made of
+    the hyphen's bar, for a display face whose underscore slot holds an ornament. The
+    stand-in has to be ONE plain outline that no other character in the label shares a
+    size with, because that size is how its faces are found again.
     """
 
     def __init__(self, geom_dir, *, height=None, tail=None, tht_legs=None, panel=None,
                  xh_mated_h=XH_MATED_H, ph_mated_h=PH_MATED_H, tht_tail=THT_TAIL,
-                 side_plug_run=None, silk_font=None, silk_cap=SILK_CAP):
+                 side_plug_run=None, silk_font=None, silk_cap=SILK_CAP,
+                 silk_subst=None):
         self.geom_dir = os.fspath(geom_dir)
         self.HEIGHT = dict(HEIGHT, **(height or {}))
         self.TAIL = dict(TAIL, **(tail or {}))
@@ -272,6 +280,7 @@ class Boards:
         self.side_plug_run = dict(SIDE_PLUG_RUN, **(side_plug_run or {}))
         self.silk_font = os.fspath(silk_font) if silk_font else None
         self.silk_cap = silk_cap
+        self.silk_subst = dict(silk_subst or {})
         self._cache = {}
 
     # ── reading ──────────────────────────────────────────────────────────────────
@@ -510,13 +519,16 @@ class Boards:
             for k, line in enumerate(lines):
                 if not line.strip():
                     continue
-                w = (cq.Workplane("XY").text(line, lab["size"] / self.silk_cap, SILK_T,
+                drawn = "".join(self.silk_subst.get(c, (c,))[0] for c in line)
+                w = (cq.Workplane("XY").text(drawn, lab["size"] / self.silk_cap, SILK_T,
                                              halign="center", valign="center", **face)
                      .translate((0.0, ((len(lines) - 1) / 2.0 - k) * pitch, 0.0)))
                 # each glyph's TOP face and nothing else
                 tops = [f for v in w.vals() if hasattr(v, "Faces") for f in v.Faces()
                         if f.Area() > 0 and abs(f.Center().z - SILK_T) < 1e-6
                         and abs(f.normalAt(f.Center()).z) > 0.99]
+                if drawn != line:
+                    tops = self._subst(line, drawn, tops, lab["size"], face)
                 if not tops:
                     continue
                 w = cq.Workplane("XY").newObject([cq.Compound.makeCompound(tops)])
@@ -532,6 +544,34 @@ class Boards:
         if not out:
             return None
         return cq.Workplane("XY").newObject([cq.Compound.makeCompound(out)])
+
+    def _subst(self, line, drawn, tops, size, face):
+        """Move the stand-in glyphs of `drawn` to where `line`'s own characters go.
+
+        The text is laid out as one string, so which face is which glyph is not handed
+        back; a stand-in's faces are found by SIZE (its glyph drawn alone is the
+        pattern) and paired, left to right, with the characters that draw as it."""
+        for stand in sorted({v[0] for v in self.silk_subst.values()}):
+            one = cq.Workplane("XY").text(stand, size / self.silk_cap, SILK_T, **face)
+            bb = one.val().BoundingBox()
+            tol = 0.02 * size
+
+            def is_stand(f):
+                b = f.BoundingBox()
+                return abs(b.xlen - bb.xlen) < tol and abs(b.ylen - bb.ylen) < tol
+
+            hits = sorted((i for i, f in enumerate(tops) if is_stand(f)),
+                          key=lambda i: tops[i].Center().x)
+            want = [c for c, d in zip(line, drawn) if d == stand and not c.isspace()]
+            if len(hits) != len(want):
+                raise ValueError(
+                    "silk_subst: %r has %d characters drawn as %r and %d faces that size "
+                    "-- the stand-in is not one plain outline, or another glyph matches "
+                    "it" % (line, len(want), stand, len(hits)))
+            for i, c in zip(hits, want):
+                if c in self.silk_subst:
+                    tops[i] = tops[i].translate((0.0, self.silk_subst[c][1] * size, 0.0))
+        return tops
 
     def ink(self, board: str, refs: bool = True):
         """ALL the board's lettering, both faces, as one part in solid()'s frame; None
