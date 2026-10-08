@@ -3040,6 +3040,94 @@ corroboration is **139 / 139**, having now gone stale twice, which is the argume
 reading it rather than quoting it. Its "the ONE remaining silk_overlap" is **three**,
 named: F2 over C21's designator, and R26 and C14 each over their own part's outline.
 
-**⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
+~~**⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
-must be re-uploaded before ordering.
+must be re-uploaded before ordering.~~
+
+**DONE 2026-10-08, and not as two files.** The whole current `main.zip` went up, all
+sixteen of them, because the copper and drill had moved too and re-uploading the CPL
+alone would have ordered the old board with the new parts list. 34 of 34 matched, and
+this time the match was diffed against `main-bom.csv` rather than read off the screen:
+70 references, 34 lines, zero substitutions, with the comparison made to fail on a
+planted wrong code for U2 first. The board is in the cart at $200.98; see
+`docs/jlcpcb-quote.md`. Nothing is ordered.
+
+
+### 55 — CLOSED: the FreeCAD tab stopped refreshing on every build, and the build printed it as a success
+
+Found by being asked to open the tab. `src/build.py` sets `out` to
+`assembly.step`'s path at the top of `main()`, saves to it, and then — 140 lines
+later, inside the **board retention gate** — reuses the same name for a scratch
+solid: `out = _swept(slid, (-1.0, 0.0, 0.0), 30.0)`. So the last two statements
+in `main()` were handed a `cq.Workplane` instead of a path.
+
+**Nothing was lost on disk.** `asm.save(out)` runs before the clobber, so
+`assembly.step` was always written correctly. What broke is the two lines after:
+
+* `print("Wrote %s …")` printed `Wrote <cadquery.cq.Workplane object at 0x…>`.
+  **This is the whole defect in one line, and it reads as success** — it says
+  "Wrote", it has a build number after it, and it is the last line of a
+  200-line log.
+* `show(out)` could not resolve a path. `show()` is documented *"Never raises"*
+  and means it: it caught the `TypeError`, printed one line to stderr —
+  `[freecad] viewer skipped: _path_normpath: path should be string, bytes or
+  os.PathLike, not Workplane` — and returned `False`. Confirmed directly by
+  calling `show()` with a Workplane.
+
+So the shared hub silently stopped being refreshed by builds. The failure was
+**not** silent in the strict sense — it printed — but stderr is unbuffered and
+stdout is block-buffered when piped, so that one line sorts to a random place
+in the middle of the log, nowhere near the "Wrote" line that contradicts it.
+A warning that lands 180 lines from the statement it falsifies is not a warning.
+
+**Fixed two ways.** The retention gate's scratch solid is `slid_sweep` now, so
+the name is not shared. And because a `show()` that returns `False` is invisible
+by construction, the tail of `main()` now asserts `isinstance(out, str)` before
+using it and prints `*** THE FREECAD TAB DID NOT REFRESH ***` if `show()` comes
+back false. **Made to fail:** the clobber was reinstated and the build stopped
+with `AssertionError: the STEP path was overwritten before show(): got
+<cadquery.cq.Workplane object …>. Some gate above reused the name `out` as a
+scratch solid.`
+
+### 56 — OPEN (mechanical, no copper): the battery cannot be lifted out — the access notch is 2.18 mm short
+
+**`py -3.12 -m src.build` exits 1 and has been doing so**, on the *battery
+access* gate:
+
+```
+=== battery access gate ===
+  wood     *** BLOCKS THE PACK, 161 mm3 ***
+  housing  clear
+  tank     clear
+  the pack needs 93 mm of lift to clear its rails
+```
+
+DESIGN_V2 lists this gate among the seven the build runs and says *"all exit
+non-zero on failure"*, and it was written for exactly this: *"the pack could not
+be lifted out. It fits in the dock, and that is not the same thing."*
+
+**It is not a misplaced notch, it is a short one, and the number is exact.**
+Intersecting the pack's lift-out sweep with the wood and measuring the result:
+
+| | |
+|---|---|
+| fouling volume | **161.3 mm³** |
+| x | −205.500 … −201.800 (3.700 mm — the outer plank's outboard edge) |
+| y | **7.820 … 10.000 (2.180 mm)** |
+| z | 188.000 … 208.000 (20.000 mm — the full plank thickness) |
+
+3.700 × 2.180 × 20.000 = 161.3 mm³, which is the gate's figure to the last digit,
+so the fouling is one rectangular prism and nothing else is touching.
+
+`src/lumber_frame.py` puts the notch at `NOTCH_Y0 = 10.0`, `NOTCH_Y1 = 96.0`.
+The sweep needs wood gone from **y ≥ 7.82**, so the notch's front end stops
+2.18 mm before the pack does. Everything else about it is right — the outboard
+limit, the depth, the 86 mm length, and both the housing and the tank are clear.
+
+**Not fixed here**, because it is a change to a frame dimension that
+`bom_consolidated.md` also states in words ("10–96 mm from the front") and the
+owner cuts the wood. The fix is to move `NOTCH_Y0` forward past 7.82 with
+clearance and re-take the sentence in the BOM; the gate then proves it.
+
+⚠ **This is a CAD/woodwork finding and touches no copper, no firmware and no
+fab output.** The board in the cart is unaffected.
