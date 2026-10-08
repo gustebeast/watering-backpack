@@ -387,6 +387,26 @@ else:
         else:
             print("   VBAT %g-%g V == elec/main.py's VBAT_MIN/VBAT_MAX" % (lo, hi))
 
+# ⚠ AND THE SAME CLAIM IS MADE IN PROSE, IN THE DOCUMENTS THAT CHOOSE PARTS WITH IT.
+# "a fresh Makita pack is 20 V and inductive spikes exceed that, so 24 V-max parts
+# are rejected" appeared in CIRCUIT.md, DESIGN_V2.md and bom_consolidated.md, and the
+# BOM's sensor line sized a 5-24 V part against "the pack's 18-20 V". The conclusion
+# survived at 21; the margin it was advertising did not.
+FRESH = re.compile(r"fresh[^.\n]{0,40}?pack is (\d+(?:\.\d+)?)\s*V", re.I)
+fresh_seen = 0
+for rel in GATED + ("bom_consolidated.md",):
+    path = ROOT / rel
+    if not path.exists():
+        continue
+    for lineno, line in enumerate(io.open(path, encoding="utf-8").read().splitlines(), 1):
+        for m in FRESH.finditer(line):
+            fresh_seen += 1
+            v = float(m.group(1))
+            if VBAT_MAX is not None and abs(v - VBAT_MAX) > 1e-9:
+                fail("%s:%d says a fresh pack is %g V; elec/main.py's VBAT_MAX is %g"
+                     % (rel, lineno, v, VBAT_MAX))
+print("   %d prose claim(s) about a fresh pack's voltage checked" % fresh_seen)
+
 print("5. slash pairs name parts that share a net")
 
 # Connectors are excluded: "J1/J2/J3" enumerates three terminals that share a

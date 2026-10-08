@@ -267,7 +267,7 @@ dissipates ~0.17 W. Both of v1's hot parts (buck and bridge) are gone.
   bare GPIO, at 7.5 A and 20 kHz). Plain Schottky freewheel rather than synchronous:
   it only conducts during off-time, and usage is mostly full-on.
 - 18 V -> 3.3 V buck, **LMR14020SDDA**, 0.6 A drawn of a 2 A part. Rated **>= 36 V in**
-  — a fresh Makita pack is 20 V and inductive spikes exceed that, so common 24 V-max
+  — a fresh Makita pack is 21 V and inductive spikes exceed that, so common 24 V-max
   parts are too close to the edge. Single stage; this also deletes the Traco TSR.
   ⚠ **NOT synchronous**, which this line claimed for months and which nearly cost the
   board. The LMR14020 has one high-side switch and needs an external **catch diode** —
