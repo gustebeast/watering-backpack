@@ -2889,6 +2889,104 @@ gate checks**. Add a third net ending in `_LO`, or a second starting `VBAT_`, an
 collision comes back silently. The words are declared in one place with the reason, which
 is the cheapest available mitigation, not a guarantee.
 
+### 53 — CLOSED: four files called R23 a 10k pull-up on a net it is not on, and the bench test expected the pin backwards
+
+Found 2026-10-08 while looking for last-minute changes before the boards are ordered.
+Nothing here moves copper; the board is bit-for-bit the same. Every defect is a figure
+or a sentence, and the costly one is the last.
+
+**`tools/check_part_values.py` is new, and `main.cpp` had asked for it by name.** At
+`RDIV_BOT_K`: *"THIS CONSTANT IS A COPY OF A BOARD VALUE AND NOTHING COMPARES THEM …
+no gate in the repo covers this line."* It now checks three kinds of claim, all derived
+from `elec/out/main.net`:
+
+1. **firmware constants that copy board facts** — `RDIV_TOP_K`/`RDIV_BOT_K` against
+   R20/R21, and the VBAT plausibility window against `elec/main.py`'s `VBAT_MIN`/`MAX`;
+2. **every component value claimed in prose** in the firmware and the live documents;
+3. **a slash pair must share a net** — `R26/C19` is not a filter if the two parts touch
+   nothing in common.
+
+| what it found | was | is |
+|---|---|---|
+| `VBAT_ASSUMED` | 20.0 V — **below** `VBAT_MAX` | 21.0 V |
+| `VBAT_PLAUS_HI`'s stated reason | "the divider saturates at 21.6" (the **18k** divider) | *> `VBAT_MAX`, with 1 V to spare* |
+| R23, in four files | "a 10k pull-up to 3V3" | **100k, and not on LEVEL** |
+| the level filter cap | C19 (22 µF, on 3V3) | **C22** (100n, 16 Hz corner) |
+| the `b` bench test | "dry pin=HIGH" | **dry pin=LOW** |
+| "a dead sensor stops the pump" | twice | **the buzzer sounds; nothing is interlocked** |
+
+**`VBAT_ASSUMED` is the one with teeth.** It is the assumption used when the sense path
+reads implausibly, and it sets the duty cap: `cap = PWM_MAX × 12 / v`, so assuming
+**less** than the real pack **raises** the cap. At 20.0 the cap was 153 and a real 21 V
+pack would have seen **12.60 V across a 12 V pump** — a 5 % overdrive in exactly the
+fault case the cap exists for. The sweep that took `VBAT_MAX` to 21.0 (finding 48) moved
+the board and left this behind.
+
+**⚠ And the bench test expected the pin backwards.** The comment beside the `b` command
+said *"DRY must read HIGH and WET must read LOW … Expected here: dry pin=HIGH"* — four
+lines under the chain that gives the other answer. `BRINGUP.md`'s table is right, check 9
+derives it right, `LEVEL_FULL_IS_LOW = false` says it, and ten lines below sat the
+warning **not** to flip the constant but to go and look at the MODE wire, then Q4/R29/R30,
+then the 300k string. An operator following it would have seen the correct reading,
+believed the board was miswired, and started taking apart hardware that was working.
+
+**Check 10 of `check_level_alarm.py`** now reads the polarity back out of the prose —
+`pin=LOW -> not full`, `dry … pin=`, `LOW means liquid` — across the firmware,
+`BRINGUP.md`, `CIRCUIT.md`, the sign-off and the BOM, and compares each with check 9's
+derivation. 7 claims read today; **zero claims read is a FAIL**, because a check whose
+patterns have stopped matching has quietly become decoration. ⚠ **Its first version
+passed vacuously**: in a `.py` file the whole line is inside a string literal, so a plain
+double quote marks the *source*, and `quality_signoff.py` excused every claim it made —
+including the inverted one. Only the typographic pair counts in Python sources now.
+That is the third harness this session that had to be rewritten for agreeing with itself.
+
+**Both were made to fail** against copied trees, so the gate runs unmodified and cannot be
+weakened to make a test pass: 8 cases and 7 cases respectively, including the R21 stale
+copy, a value changed on the *board* with the prose left behind, the `.py` quote trap,
+and the netlist absent — which must **die**, not skip.
+
+**Residual, named:** `check_part_values`'s `unparsed` branch is a belt for a widened token
+regex, not a guard that has been seen to fire.
+
+### 54 — CLOSED: every silk line on the board was 0.12 mm, and an outline font's "stroke" is not its ink
+
+Same pass. Two holes of the same shape, both in `cadkit` and both fixed upstream
+(canonical, then `propagate.py`; this board and ten others).
+
+**A12 has measured silk TEXT for height and stroke since the beginning and had never
+looked at a silk GRAPHIC.** Measured here: **all 264** of them — every part outline, every
+polarity band, every pin-1 mark — were KiCad's default **0.12 mm**, which is 80 % of the
+fab's own stated 0.15 mm minimum, *while the text beside them had been deliberately sized
+so its thinnest glyph cleared 0.15*. A fab does not reject thin silk; it prints it thin,
+broken, or not at all, and whichever happens the plot that was reviewed is not the board
+that arrives.
+
+`silkfit.thicken_ink()` raises them, reading the floor out of **quality's own fab table**
+rather than a second copy of 0.15, and runs before `fit_refs` so the fitter dodges the
+final ink. **It cost nothing**, which is the measurement that mattered: `silk_overlap`
+stayed at **3**, A18 still reports nothing clipped, 0 unconnected, 0 violations.
+
+**⚠ And `GetTextThickness()` is not an outline font's ink.** KiCad draws a TrueType face
+from the glyph's own outlines. The field still holds a number — **0.30 mm** on all 139 of
+this board's face texts — and A12 was reading it as the stroke and passing. The real
+thinnest ink is **0.1533 mm**, measured through `TransformTextToPolySet` when the face was
+chosen (finding 52) and read by nothing since. At 1.2 mm the same face would ink 0.12 mm
+**with that check still reading 0.30 and still passing** — an assert that can only check
+its own arithmetic, which is the third one of those this repo has found.
+
+The stroke measurement now applies to stroke-font text only. An outline face's ink must be
+measured and **declared per size** in `BOARD_NOTES["silk_ink"]` — `{1.5: 0.1533}` here —
+and an undeclared size **fails** rather than noting, because a note is a figure nobody
+read.
+
+**M31 had rotted with it** and is re-measured: it said *"all 17 board-level silk items are
+at 1.0 mm height and 0.15 mm stroke"*, which the face change falsified in both numbers.
+140 silk texts now — 139 in Rennie Mackintosh PSG at 1.5 mm, and BZ1's stock `+` polarity
+mark at 1.0 mm in the stroke font, on the floor for both. Its `138 / 138` CAD-label
+corroboration is **139 / 139**, having now gone stale twice, which is the argument for
+reading it rather than quoting it. Its "the ONE remaining silk_overlap" is **three**,
+named: F2 over C21's designator, and R26 and C14 each over their own part's outline.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.
