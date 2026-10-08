@@ -1450,6 +1450,19 @@ BOARD_NOTES = {
     # two words on the two terminals a person must tell apart, on a machine that pumps
     # liquid -- and GND became "G" from its supply table.
     # Each word below is distinct from every other and says what the way IS.
+    # ── The measured ink of the outline face, per size (quality A12) ─────────
+    # ⚠ AN OUTLINE FONT'S INK IS NOT IN THE TEXT OBJECT. KiCad draws a TrueType
+    # face from the glyph's own outlines, and the field KiCad calls thickness --
+    # 0.30 mm on every one of this board's 139 silk texts -- has nothing to do with
+    # how thin the ink gets. A12 was reading that field as the stroke and passing
+    # on it; the real figure is 0.1533 mm, the bar of "_" at 1.5 mm, measured
+    # through pcbnew's TransformTextToPolySet when the face was chosen (the table is
+    # in elec/silk.py, with 1.4 mm failing at 0.1431). At 1.2 mm this face would ink
+    # 0.12 and the old check would still have read 0.30 and still have passed.
+    # So the measurement is declared here, per size, and A12 fails on any outline
+    # text at a size that is NOT in this map -- the one number that cannot be
+    # derived from the board is the one that has to be written down.
+    "silk_ink": {1.5: 0.1533},
     "silk_short": {
         "PUMP_A_LO": "PA",      # pump A's low side; was "LO", same as B
         "PUMP_B_LO": "PB",      # pump B's low side; was "LO", same as A

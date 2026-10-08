@@ -401,8 +401,10 @@ MANUAL = {
         "GPIO5, pull-up, 1: unconnected, and nothing here uses SDIO. EN is "
         "the one strap this board drives, through R3 to 3V3 with C8 for the "
         "ramp, and J6 pin 5 brings it out so an adapter's DTR can reset the "
-        "part. The only open-drain line on the board is the level sensor's "
-        "output, and R23 pulls it up (M34)."
+        "part. The only open-collector line on the board is Q4's, the level "
+        "inverter, and the 300k string R23/R27/R28 pulls it up -- not R23 "
+        "alone, which this said, and the sensor's own output is off-board and "
+        "lands on R29 into Q4's base, not on a pull-up at all (M34)."
     ),
     "M14": (
         "SNVSAA5B 7.2.2.3 says it in these words -- 'The inductor current "
@@ -913,10 +915,15 @@ MANUAL = {
         "against a VON of 4.65 V max over temperature. Polarities, each read "
         "at both ends: IN- low = enabled (the non-inverting path, and the "
         "active-low enable asserted); the ESP32's EN is active-HIGH and R3 "
-        "pulls it up; LEVEL is an open collector pulled up by R23, so LOW "
-        "means liquid, MODE is shorted to GND to select the sensor's "
-        "normally-closed mode, and the firmware's LEVEL_FULL_IS_LOW encodes "
-        "exactly that (CIRCUIT.md section 4). No differential pair, no "
+        "pulls it up; LEVEL is Q4's open collector, pulled up by the 300k "
+        "string R23/R27/R28, so LOW means DRY and HIGH means liquid -- this "
+        "entry said “pulled up by R23, so LOW means liquid”, which named the "
+        "wrong part (R23 is 100k and is not on LEVEL) and inverted the "
+        "polarity. MODE is shorted to GND to select the sensor's "
+        "normally-closed mode, so dry drives the sensor HIGH, Q4 saturates and "
+        "LEVEL sits at ~0 V; the firmware's LEVEL_FULL_IS_LOW is FALSE and "
+        "encodes exactly that (CIRCUIT.md, tank level; derived by check 9 of "
+        "tools/check_level_alarm.py). No differential pair, no "
         "auto-direction level shifter and no op-amp feedback on this board."
     ),
     "M37": (

@@ -86,8 +86,19 @@
  *       1k from a high-Z pad gets no base current, so Q3 is off. This is why the
  *       buzzer needs no base pull-down where the pumps needed R6/R7: a BJT's
  *       base resistor is already the pull-down's job, a MOSFET gate's is not.
- *       LEVEL is held up by R23 (10k to 3V3), which reads "not full" — the safe
- *       state — through reset, before pinsInit, and if the sensor is unplugged.
+ *       LEVEL is held up through reset, before pinsInit, and with the sensor
+ *       unplugged — but by the 300k STRING R23/R27/R28 onto Q4's collector, with
+ *       R26 in series into the pin, not by R23 alone.
+ *       ⚠ THIS SAID "R23 (10k to 3V3)" AND NEITHER HALF OF THAT WAS TRUE:
+ *       R23 is 100k, and it is not on LEVEL at all.
+ *       Four files said it at once and two drew a protection conclusion from it;
+ *       tools/check_part_values.py now reads every such claim out of the netlist.
+ *       ⚠ AND THE LEVEL IT REACHES IS "FULL", NOT "not full". check 9 of
+ *       tools/check_level_alarm.py derives FULL IS HIGH from the netlist, so a
+ *       pulled-up pin is a tank alarm, which is the safe direction for a dead
+ *       sensor: a false alarm, not silence through an overflow. It is NOT a pump
+ *       stop — the alarm is the buzzer and nothing else, see loop() ("Deliberately
+ *       NOT an interlock on either pump").
  */
 #include "pins.h"
 
@@ -133,14 +144,18 @@ void pinsInit() {
   // pull-up/pull-down circuitry". That note is why the two analogue signals had
   // to come with external dividers and why a pull-up sense input could not have
   // gone on 34-39.
-  // WHY PULL-UP AND R23 BOTH: R23 (10k to 3V3) is the real pull-up and the only
-  // one that exists during reset, since DS-C IO_MUX row 17 gives IO14 "At Reset:
-  // oe=0, ie=0" — no pull at all. The internal one (~45k) is in parallel and
-  // only matters on a bench with no sensor wired. It is NOT a substitute for
-  // R23: R23 -- now one of three 100k in series, a 300k pull-up, with R26 = 100k
-  // in series into this pin and D7 clamping it to the rails (finding 30) -- is
-  // what lets the external NPN inverter hold the pin at 3V3 instead
-  // of the sensor's InVCC = VBAT (CIRCUIT.md §4).
+  // WHY THE EXTERNAL PULL IS THE ONLY PULL, AND WHAT IT ACTUALLY IS. ⚠ This read
+  // "R23 (10k to 3V3) is the real pull-up", which named the wrong part AND the
+  // wrong value: R23 is 100k and it is not on LEVEL. The pull is three 100k IN
+  // SERIES -- +3V3 -> R23 -> LEVEL_PU1 -> R27 -> LEVEL_PU2 -> R28 -> LEVEL, 300k
+  // in all -- landing on Q4's collector, with R26 = 100k in series from LEVEL into
+  // this pin and D7 clamping the pin to the rails (finding 30). It is 300k because
+  // it only has to source the 11 uA Q4's collector sinks. That string is what lets
+  // the on-board NPN inverter hold the pin at 3V3 instead of the sensor's
+  // InVCC = VBAT (CIRCUIT.md, tank level). It is also the ONLY pull that exists
+  // during reset, since DS-C IO_MUX row 17 gives IO14 "At Reset: oe=0, ie=0" --
+  // no internal pull at all -- and the only one after it, since this pin is set
+  // INPUT and not INPUT_PULLUP (see below for why that change had to happen).
   // WHY NOT ANALOGUE: IO14 is ADC2_CH6, and IDF "Hardware Limitations" rules
   // ADC2 out while WiFi is up. It is read with digitalRead, so the conflict
   // never arises — this pin is the reason the ADC-unit check has to be against

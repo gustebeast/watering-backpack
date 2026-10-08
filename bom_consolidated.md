@@ -242,8 +242,16 @@ bought and are on the shelf, and the reasoning is worth keeping.
   ⚠ **THE VARIANT IS LOAD-BEARING AND THIS LINE USED TO NAME THE WRONG ONE.** It
   said "XKC-Y25-V (or similar)"; "or similar" is wrong three ways and -V may be wrong
   too. The board feeds this sensor from **VBAT behind F1 (~15–20 V)** and reads it on
-  **IO14 with R23, a 10k pull-up to 3V3** — which only keeps 18 V off the pin if the
-  output is a true **NPN open collector**. So:
+  **IO14 through the on-board inverter Q4** — R29 100k into the base, R30 100k holding
+  it down, collector pulled up by the 300k string R23/R27/R28.
+  ⚠ This line used to read **"R23, a 10k pull-up to 3V3"**, and claimed it "only keeps
+  18 V off the pin if the output is a true NPN open collector". That was wrong twice:
+  R23 is **100k and is not on that
+  net**, and no pull-up of any value could do it, because the sensor drives its HIGH to
+  InVCC and would win. What keeps the pack off IO14 is **R29 and Q4's b-e junction**.
+  The variant still matters, for a different reason — the sensor has to survive and
+  switch on an 18 V supply, and a PNP output would source the pack into R29 rather than
+  sink Q4's base. So:
   - **5–24 V input.** Several listings are **5–12 V** sub-variants; 18 V kills those.
   - **NPN open-collector output.** Not PNP (sources the supply into the pin), not
     RS485 (no driver on this board), and **not necessarily -V**: the vendor describes

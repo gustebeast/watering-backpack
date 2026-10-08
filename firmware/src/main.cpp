@@ -50,7 +50,9 @@
  *   IO25  -> pump B gate driver   (pot  -> tank)
  *   IO35  -> VBAT_SENSE, off the R20/R21 divider (ADC1, input-only)
  *   IO34  -> joystick SIG, after its RC filter   (ADC1, input-only)
- *   IO14  -> tank level, open-collector, R23 pulls it up to 3V3
+ *   IO14  -> tank level, through Q4's inverting collector, pulled up by the 300k
+ *            string R23/R27/R28 and fed through R26 (NOT "R23, a 10k to 3V3",
+ *            which is what this line said and no part of which was true)
  *   IO27  -> buzzer, through Q3
  *   EN / IO0 / RXD0 / TXD0 -> programming header
  *
@@ -147,8 +149,9 @@ constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g
 //
 // Nothing was tracking it. RUN_DUTY is PWM_MAX, so every engage put the whole
 // pack across a 12 V pump: 1.7x rated on a fresh one. The divider has been on
-// the board the entire time -- R20/R21, 100k/18k into IO35, with C11 across the
-// bottom leg -- and no line of firmware read it.
+// the board the entire time -- R20/R21 into IO35, with C11 across the bottom leg
+// (100k/18k when this was written, 100k/10k since finding 33) -- and no line of
+// firmware read it.
 //
 // For a PWM'd brushed motor with a freewheel path the average armature voltage
 // is duty x V_pack, which is what makes the cap a one-liner:
@@ -193,8 +196,21 @@ constexpr float VBAT_SCALE  = (RDIV_TOP_K + RDIV_BOT_K) / RDIV_BOT_K;   // 11.00
 // expected pack -- the LOWEST duty. A sensor fault must never be able to raise
 // the duty, which is why the fallback is not PWM_MAX.
 constexpr float VBAT_PLAUS_LO = 10.0f;
-constexpr float VBAT_PLAUS_HI = 22.0f;       // the divider saturates at 21.6
-constexpr float VBAT_ASSUMED  = 20.0f;       // fresh pack: the safe assumption
+// ⚠ BOTH OF THESE WERE SET AGAINST A 20 V PACK AND THE BOARD NOW ADMITS 21.0.
+// VBAT_PLAUS_HI said "the divider saturates at 21.6", which was the 18k divider's
+// number (3.3 V x 6.5556); at 100k/10k the pin reaches 3.3 V only at a 36 V pack
+// and the ADC's characterised top of 2.450 V corresponds to 26.9 V, so nothing
+// saturates near this window. 22.0 survives as the window top because it is just
+// above elec/main.py's VBAT_MAX, which is the reason it should have given.
+constexpr float VBAT_PLAUS_HI = 22.0f;       // > VBAT_MAX (21.0) with 1 V to spare
+// ⚠ AND 20.0 HAD STOPPED BEING THE SAFE END. This is the assumption used when the
+// sense path reads implausibly, and it sets the duty cap: cap = PWM_MAX x 12 / v,
+// so assuming LESS than the real pack raises the cap. With VBAT_MAX at 21.0 a 20.0
+// assumption capped at 153 and put 12.60 V across a 12 V pump -- a 5 % overdrive in
+// exactly the fault case the cap exists for. The safe assumption is the TOP of the
+// range, never the middle. tools/check_part_values.py reads VBAT_MAX out of
+// elec/main.py and fails if this drops below it again.
+constexpr float VBAT_ASSUMED  = 21.0f;       // = VBAT_MAX: the worst case, not a guess
 constexpr int   VBAT_EVERY_N  = 20;          // 5 ms loop -> read every ~100 ms
 constexpr float VBAT_EMA_A    = 1.0f / 16.0f;   // slow; the pack sags slowly
 
@@ -301,10 +317,19 @@ constexpr int VOTE_K_OFF = 3;
 // ⚠ THE DIRECTION WAS CHOSEN FOR THE BROKEN-WIRE CASE, NOT FOR CONVENIENCE.
 // A severed or unplugged sensor lead leaves Q4's base at 0 V through R30, so Q4
 // is off, LEVEL floats HIGH on the pull-up, and this polarity calls that FULL --
-// the pump STOPS. The alternative wiring (MODE to VBAT, which is what CIRCUIT.md
-// prescribed in order to keep this constant true) inverts precisely that case: a
-// broken wire would read "not full" and keep filling a tank on someone's back.
-// A dead sensor must fail toward the dry side. See elec/main.py's inverter block.
+// SO THE BUZZER SOUNDS. The alternative wiring (MODE to VBAT, which is what
+// CIRCUIT.md prescribed in order to keep this constant true) inverts precisely
+// that case: a broken wire would read "not full" and stay SILENT while a tank on
+// someone's back overflowed. A dead sensor must fail toward the alarm.
+// ⚠ AND THE ALARM IS THE BUZZER, NOT A PUMP STOP. This said "the pump STOPS",
+// twice in this file, and loop() says the opposite about the same state --
+// "Deliberately NOT an interlock on either pump" -- which is the code. The header
+// gives the reason: tank-full would have to block pump B, the pot->tank
+// direction, and blocking that blocks RETRACT and leaves a primed line to drip.
+// So nothing is interlocked; what the polarity buys is that a dead sensor is
+// loud instead of quiet. Claiming otherwise is worse than claiming nothing,
+// because it is a protection a person would believe they had at bring-up.
+// See elec/main.py's inverter block.
 //
 // The manufacturer's warning not to "use the black wire as GND" is about not
 // using it as the power RETURN in place of the blue wire; shorting it to GND to
@@ -639,10 +664,20 @@ void handleCommand(char c) {
       // Bench bring-up for the two things that cannot be verified anywhere but
       // on the hardware: that the buzzer is wired and audible, and that the
       // level sensor's polarity really is the NC mode the schematic selects.
-      // Wet the sensor and watch pin= flip. DRY must read HIGH and WET must read
-      // LOW: the sensor is normally-closed (J5 MODE on GND) and Q4 inverts it, so
-      // dry -> sensor HIGH -> Q4 saturated -> LEVEL ~0 V... which is why the pin
-      // reads LOW when WET, not when dry. Expected here: dry pin=HIGH "not full".
+      // Wet the sensor and watch pin= flip.
+      // ⚠ DRY READS LOW AND WET READS HIGH, AND THIS COMMENT SAID THE OPPOSITE --
+      // "DRY must read HIGH and WET must read LOW", then "Expected here: dry
+      // pin=HIGH", while quoting the chain that gives the other answer. Walk it
+      // once more: the sensor is normally-closed (J5 MODE on GND), so DRY drives
+      // its output HIGH; that saturates Q4 through R29; a saturated Q4 holds its
+      // collector, which is LEVEL, at ~0 V. So DRY -> pin=LOW -> "not full", and
+      // WET -> sensor LOW -> Q4 off -> the 300k pulls LEVEL up -> pin=HIGH ->
+      // "FULL". That matches LEVEL_FULL_IS_LOW = false, check 9's derivation and
+      // BRINGUP.md's own table (TP10 ~0 V dry, ~3.3 V wet) -- this comment was the
+      // only thing in the repo that disagreed, and it is the one a person reads
+      // WHILE running the test, so it would have sent them to look for a fault in
+      // a board that was behaving correctly. Check 10 of check_level_alarm.py now
+      // reads this expectation out of the prose and compares it with the netlist.
       //
       // DO NOT FLIP LEVEL_FULL_IS_LOW IF IT READS BACKWARDS. This comment used to
       // say to -- "it is one constant" -- and that advice is now both wrong and
@@ -658,8 +693,9 @@ void handleCommand(char c) {
       // A DISCONNECTED SENSOR READS "FULL" ON PURPOSE, so an unplugged lead here
       // looks like a tank alarm rather than like a working empty tank: R30 holds
       // Q4's base down, Q4 is off, and the 300k pulls LEVEL up. That is the safe
-      // direction -- a dead sensor stops the pump -- and it means J5 must be
-      // landed before this test tells you anything.
+      // direction -- a dead sensor is LOUD rather than silent; it does not stop a
+      // pump, because the level is deliberately not an interlock (loop()) -- and
+      // it means J5 must be landed before this test tells you anything.
       logf("buzzer 1 s | level pin=%s -> %s (LEVEL_FULL_IS_LOW=%d, derived by "
            "check_level_alarm.py check 9 -- do not flip it, fix the wiring)\n",
            digitalRead(LEVEL_PIN) ? "HIGH" : "LOW",

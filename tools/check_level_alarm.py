@@ -255,6 +255,112 @@ def expected_full_is_low():
     return pin_hi, why
 
 
+# ══ check 10: the polarity as WRITTEN DOWN, not just as compiled ═════════════
+# Check 9 settles the CONSTANT. It says nothing about the prose, and the prose is
+# what a person follows at bring-up with the sensor in a cup of water. Three
+# statements were found inverted after check 9 was written and passing:
+#
+#   * firmware/src/main.cpp, beside the 'b' command: "DRY must read HIGH and WET
+#     must read LOW ... Expected here: dry pin=HIGH" -- backwards, in the same
+#     comment that quotes the chain giving the opposite answer, and ten lines
+#     above the warning NOT to flip the constant if it reads backwards. Following
+#     it, a correct board looks miswired and the next move is to take apart Q4.
+#   * elec/quality_signoff.py: "LEVEL is an open collector pulled up by R23, so
+#     LOW means liquid ... and LEVEL_FULL_IS_LOW encodes exactly that" -- it is
+#     false, so it encodes the other thing.
+#   * the same file's strapping-pin entry, on which part does the pulling.
+#
+# BRINGUP.md's table was right, which is the point: the disagreement was silent
+# because nothing compared the sentences with each other or with the netlist.
+#
+# So this reads the claims back out of the prose and checks them against check 9's
+# derivation. A value inside double quotes (or the typographic pair) is a
+# QUOTATION -- a retraction has to be able to state the old claim -- and every
+# quotation is reported, never silently dropped.
+POLARITY_FILES = ("firmware/src/main.cpp", "firmware/src/pins.h",
+                  "firmware/src/pins.cpp", "BRINGUP.md", "elec/CIRCUIT.md",
+                  "elec/quality_signoff.py", "bom_consolidated.md")
+
+_QUOTED = re.compile(u'["\u201c][^"\u201d\n]*["\u201d]')
+# \u26a0 AND IN A .py FILE THE WHOLE LINE IS INSIDE A STRING LITERAL, so the plain
+# double quote cannot mark a quotation there -- it marks the source. Read that way,
+# elec/quality_signoff.py excused every claim it made, which is how the first
+# version of this check passed while the inverted sentence was still in the file.
+# In Python sources only the TYPOGRAPHIC pair counts as a quotation.
+_QUOTED_PY = re.compile(u'\u201c[^\u201d\n]*\u201d')
+# "pin=LOW -> not full", which is the form BRINGUP.md tabulates and the form the
+# firmware's own logf prints.
+_PINSTATE = re.compile(r"pin\s*=\s*(HIGH|LOW)[^|\n]{0,24}?(not full|FULL)")
+# "dry ... pin=LOW". Requires the word pin in between, because "WET -> sensor LOW"
+# is a statement about the SENSOR's output, which is the opposite level and
+# equally true.
+_WETDRY = re.compile(r"\b(dry|DRY|wet|WET)\b[^.|\n]{0,60}?pin\s*=?\s*(HIGH|LOW)")
+# "LOW means liquid"
+_MEANS = re.compile(r"\b(HIGH|LOW)\b\s+means\s+(liquid|wet|dry|DRY|full|not full)",
+                    re.I)
+
+
+def prose_polarity(full_is_low):
+    """Every written claim about the pin's level, checked against check 9.
+
+    Returns (claims read, [quotation notes], [contradictions]).
+    """
+    # From the derivation: FULL is LOW when the constant is true, HIGH when false.
+    full_level = "LOW" if full_is_low else "HIGH"
+    dry_level = "HIGH" if full_is_low else "LOW"
+    read, notes, bad = 0, [], []
+    per_file = []
+    for rel in POLARITY_FILES:
+        path = ROOT / rel
+        if not path.exists():
+            bad.append("%s is missing" % rel)
+            continue
+        before = read
+        quoter = _QUOTED_PY if rel.endswith(".py") else _QUOTED
+        for ln, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            spans = [m.span() for m in quoter.finditer(line)]
+
+            def quoted(m):
+                return any(a <= m.start() < b for a, b in spans)
+
+            for m in _PINSTATE.finditer(line):
+                lvl, state = m.group(1), m.group(2)
+                want = full_level if state == "FULL" else dry_level
+                if quoted(m):
+                    notes.append("%s:%d quotes pin=%s -> %s" % (rel, ln, lvl, state))
+                    continue
+                read += 1
+                if lvl != want:
+                    bad.append("%s:%d says pin=%s -> %s; the board gives pin=%s "
+                               "for %s\n        %s"
+                               % (rel, ln, lvl, state, want, state, line.strip()[:90]))
+            for m in _WETDRY.finditer(line):
+                which, lvl = m.group(1).lower(), m.group(2)
+                want = full_level if which == "wet" else dry_level
+                if quoted(m):
+                    notes.append("%s:%d quotes %s -> pin=%s" % (rel, ln, which, lvl))
+                    continue
+                read += 1
+                if lvl != want:
+                    bad.append("%s:%d says %s reads pin=%s; the board gives %s"
+                               "\n        %s"
+                               % (rel, ln, which, lvl, want, line.strip()[:90]))
+            for m in _MEANS.finditer(line):
+                lvl, what = m.group(1).upper(), m.group(2).lower()
+                wet = what in ("liquid", "wet", "full")
+                want = full_level if wet else dry_level
+                if quoted(m):
+                    notes.append("%s:%d quotes \"%s means %s\"" % (rel, ln, lvl, what))
+                    continue
+                read += 1
+                if lvl != want:
+                    bad.append("%s:%d says \"%s means %s\"; the board gives %s"
+                               "\n        %s"
+                               % (rel, ln, lvl, what, want, line.strip()[:90]))
+        per_file.append("%s %d" % (rel.rsplit("/", 1)[-1], read - before))
+    return read, notes, bad, per_file
+
+
 def main():
     text = SRC.read_text(encoding="utf-8")
     if GUARD not in text:
@@ -344,6 +450,31 @@ def main():
     for line in why:
         print("        %s" % line)
     bad += not ok
+
+    # 10. the same polarity as it is WRITTEN DOWN, everywhere it is written down.
+    if want is None:
+        print("  polarity in prose  -> not checked: check 9 could not derive it   FAIL")
+        bad += 1
+    else:
+        read, notes, contra, per_file = prose_polarity(want)
+        # The verdict in the margin includes read == 0. A check that read nothing
+        # printing "ok" beside its own failure line is the margin lying, which is
+        # the whole of finding 47.
+        print("  polarity in prose  -> %d claim(s) read, %d quoted, %d contradict "
+              "the board   %s" % (read, len(notes), len(contra),
+                                  "ok" if not contra and read else "FAIL"))
+        print("        coverage: %s" % ", ".join(per_file))
+        for n in notes:
+            print("        note: %s" % n)
+        for c in contra:
+            print("        * %s" % c)
+        if read == 0:
+            # Nothing read is not a pass: the patterns have stopped matching the
+            # way the repo writes it, and the check has quietly become decoration.
+            print("        * NO polarity claim matched anywhere -- check 10 is "
+                  "reading nothing and cannot pass on that")
+            bad += 1
+        bad += bool(contra)
 
     print("\n%s" % ("every level/alarm property holds" if not bad
                     else "*** %d PROPERTY FAILURE(S) ***" % bad))
