@@ -99,6 +99,14 @@ HINT = {
            "note, which relocates its graphics to .Fab. There is no declaration for this "
            "rule and there should not be -- ink over a mask opening is not printed, so "
            "signing for it would be signing that the plot may lie",
+    "A19": "look at the character DRAWN in the face (render the font file, not the "
+           "board). If it is the character, add it to the face's `glyphs` and re-run the "
+           "labeller; if it is an ornament, redraw it in the font file or reword the "
+           "label (silk_labels). A missing record means the labeller has not run since "
+           "the font was applied: run finish again",
+    "A20": "re-run the labeller (finish --keep-route): kicad_silk no longer lays a block "
+           "there. If the board was lettered by hand, turn the block so its lines step "
+           "away from the pad row, or move it more than 3 mm off",
     "A17": "cadkit/kicad_silk.py prints all three (a word a way, else a pinout block and "
            "a way-1 mark): give it room -- `silk_short` words, a wider board edge, a part "
            "moved off the connector's own side. A pinout that can only go on the other "
@@ -107,6 +115,11 @@ HINT = {
     "A4": "read every pin against the maker's datasheet AND the footprint's pad numbering "
           "(top vs bottom view; a connector from its MATING face), then cite document and "
           "page in quality.pinouts -- by ref, value or footprint",
+    "A21": "move the via out from under the part: re-home the signal to a pin on an open "
+           "side, or take it out on the top layer. Declare the part's largest slug in "
+           "notes['slug_max'] and layout fences the band for the router",
+    "A22": "put a ground way between them: order the connector power, ground, data (and "
+           "its mirror on a wider housing), the same on every lead of the family",
 }
 
 
@@ -128,6 +141,9 @@ HARD = {
     "A17": ("nothing on its own side says which contact is way",
             "but gives no reason", "stale declaration"),
     "A18": ("will be clipped",),
+    "A19": ("",),
+    "A20": ("",),
+    "A21": ("",),
     "A16": ("steady-state worst case", "can make NO CLAIM",
             "no worst-case voltage is declared", "NO voltage rating is declared",
             "states no `max`", "with no `src`", "gives no `why`"),
@@ -2141,14 +2157,26 @@ def silk_prints_as_drawn(ctx):
             sys.path.insert(0, _here)
         import silkfit
     except Exception as e:                                  # noqa: BLE001
-        return [("silk clipped", None,
-                 "silkfit is not importable (%s), so NO claim is made about whether "
-                 "this board's silk prints as drawn" % type(e).__name__)]
+        # ⚠ FAIL, NOT None, AND THE CAREFUL HANDLER WAS WEAKER THAN NO HANDLER.
+        # ok=None renders as a "note": counted in neither fails nor opens, printed
+        # with "ok" in the margin. So the ONE rule here with no declaration
+        # mechanism -- because ink over a mask opening is not printed, and signing
+        # for it would be signing that the plot may lie -- had an accidental waiver
+        # that no other rule has: break silkfit and every board ships green at
+        # "0 FAIL, 0 OPEN". Letting the exception ESCAPE was already correct, since
+        # run()'s own handler turns a broken check into a FAIL. A check that could
+        # not run has not passed.
+        return [("silk clipped", False,
+                 "silkfit is not importable (%s), so this board's silk CANNOT be "
+                 "graded -- and ungraded silk is silk nobody has checked for "
+                 "clipping" % type(e).__name__)]
     try:
         bad = silkfit.clipped(ctx.board, pcbnew=pcbnew)
     except Exception as e:                                  # noqa: BLE001
-        return [("silk clipped", None,
-                 "the check itself failed: %s: %s" % (type(e).__name__, e))]
+        # FAIL for the reason given on the import handler above.
+        return [("silk clipped", False,
+                 "the check itself failed, so NOTHING on this board is graded: "
+                 "%s: %s" % (type(e).__name__, e))]
     n_silk = 0
     for fp in ctx.fps.values():
         for f in fp.GetFields():
@@ -2163,9 +2191,184 @@ def silk_prints_as_drawn(ctx):
                  "none overlaps a solder-mask opening" % n_silk)]
     worst = bad[0]
     return [("silk clipped", False,
-             "%d of %d silk object(s) will be clipped by the solder mask and so are "
+             "%d of %d silk object(s) will be clipped by the solder mask or the board "
+            "outline and so are "
              "drawn but not printed; the worst is %s, losing %.4f mm2 at (%.2f, %.2f)"
              % (len(bad), n_silk, worst[0], worst[1], worst[2][0], worst[2][1]))]
+
+
+def _labeller():
+    """cadkit/kicad_silk.py, by path: quality.py runs as a script too (see layout.py)."""
+    up = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if up not in sys.path:
+        sys.path.insert(0, up)
+    import kicad_silk
+    return kicad_silk
+
+
+@rule("A19")
+def silk_says_what_it_spells(ctx):
+    """Every character printed in an outline font is one somebody has looked at, drawn.
+
+    ⚠ THE TEXT OBJECT IS NOT THE INK. A display face draws ornaments on ordinary code
+    points, and the board, the netlist, the plot's own text and every rule here go on
+    saying "+5V" while the fab prints "TH5V" -- found by a person reading a gerber,
+    after five boards had passed. Nothing scripted can read a glyph, so the rule is
+    about the RECORD: the labeller writes down the family it lettered in and the
+    characters verified in it (`<board>.silk.json`, from the face's `glyphs`), and this
+    holds every printed text to that list. No declaration: an unverified character is
+    looked at and listed, or redrawn, or the label is reworded.
+    """
+    faced = []
+    texts = [d for d in ctx.board.GetDrawings() if d.GetClass() == "PCB_TEXT"]
+    texts += [f for fp in ctx.fps.values() for f in fp.GetFields() if f.IsVisible()]
+    for t in texts:
+        if t.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS) and t.GetFontName():
+            faced.append(t)
+    if not faced:
+        return [("silk glyphs", True,
+                 "every silk text is in KiCad's stroke font, which draws each character "
+                 "as itself")]
+    try:
+        with open(ctx.stem + ".silk.json", encoding="utf-8") as fh:
+            rec = json.load(fh)
+    except (OSError, ValueError):
+        rec = {}
+    fams = sorted({t.GetFontName() for t in faced})
+    if not rec.get("glyphs") or fams != [rec.get("family")]:
+        return [("silk glyphs", False,
+                 "%d silk text(s) are in %s, and the labeller's record of the face it "
+                 "lettered in (%s.silk.json) %s -- so no character on this board is "
+                 "verified as drawn" % (len(faced), " / ".join(fams), ctx.name,
+                                        "names %r" % rec.get("family") if rec.get("glyphs")
+                                        else "lists no verified characters"))]
+    try:
+        bad = _labeller().unverified_glyphs(ctx.board, rec["glyphs"])
+    except Exception as e:                                  # noqa: BLE001
+        return [("silk glyphs", None, "the check itself failed: %s: %s"
+                 % (type(e).__name__, e))]
+    if bad:
+        return [("silk glyphs", False,
+                 "%d silk text(s) use a character not verified as drawn in %s: %s"
+                 % (len(bad), fams[0], ", ".join("%r in %r" % (c, s) for s, c in bad[:8])))]
+    return [("silk glyphs", True,
+             "all %d silk text(s) in %s use only the %d characters verified as drawn in it"
+             % (len(faced), fams[0], len(set(rec["glyphs"]))))]
+
+
+@rule("A20")
+def pinout_not_read_as_pin_labels(ctx):
+    """No pinout LIST lies along a row of connector pins, where each line is read as the
+    label of the pin it happens to sit beside.
+
+    ⚠ RIGHT AS A LIST, WRONG BY POSITION. A block headed "J7" with "1 GND / 2 24V / 3 SW"
+    is correct text. Turned so its lines step along the pad row, half a millimetre from
+    the tails, at a line pitch within a few percent of the connector's, "1 GND" sits
+    under the 24 V pin of a power connector -- and a person with a meter probe reads the
+    board by position. A17 saw a pinout on the connector's side and passed it. Within
+    3 mm of ANY connector's pads (its own or a neighbour's) a block's lines must step
+    AWAY from the row; a word per way, each on its own pin, is the registered form and
+    is not a block. No declaration: the labeller lays it elsewhere or not at all, and
+    then A17 says what is missing.
+    """
+    try:
+        bad = _labeller().misregistered(ctx.board)
+    except Exception as e:                                  # noqa: BLE001
+        return [("pinout position", None, "the check itself failed: %s: %s"
+                 % (type(e).__name__, e))]
+    if bad:
+        return [("pinout position", False,
+                 "%d pinout block(s) lie along a connector's pad row within 3 mm and "
+                 "will be read as labels for those pins: %s"
+                 % (len(bad), ", ".join("%s's list along %s" % (a, b) if a != b else
+                                        "%s's list along its own pins" % a
+                                        for a, b in bad)))]
+    return [("pinout position", True,
+             "no pinout block lies along a connector's pad row within 3 mm")]
+
+
+@rule("A21")
+def no_via_under_a_slug(ctx):
+    """No via of another net stands under the largest exposed slug a part may arrive with.
+
+    The land is the slug's NOMINAL size; the slug has a tolerance and is bare metal at
+    the land's potential. notes["slug_max"] = {ref: (largest side in mm, source)} states
+    it; undeclared, the land itself is taken and the pass says so.
+    """
+    out = []
+    decl = ctx.notes.get("slug_max", {}) or {}
+    vias = [v for v in ctx.board.GetTracks() if v.GetClass() == "PCB_VIA"]
+    for ref in sorted(ctx.fps):
+        fp = ctx.fps[ref]
+        if not re.search(r"[0-9]EP|_EP[0-9]|-EP", fp.GetFPIDAsString().split(":")[-1]):
+            continue
+        smd = [p for p in fp.Pads() if p.GetNumber() and p.GetAttribute() == pcbnew.PAD_ATTRIB_SMD]
+        if not smd:
+            continue
+        ep = max(smd, key=lambda p: p.GetSize().x * p.GetSize().y)
+        bb = ep.GetBoundingBox()
+        hx, hy = MM(bb.GetWidth()) / 2.0, MM(bb.GetHeight()) / 2.0
+        said = ref in decl
+        if said:
+            hx = hy = max(hx, hy, float(decl[ref][0]) / 2.0)
+        c = ep.GetPosition()
+        bad = []
+        for v in vias:
+            if v.GetNetname() == ep.GetNetname():
+                continue
+            r = _via_dia(v) / 2.0
+            dx, dy = abs(MM(v.GetPosition().x - c.x)), abs(MM(v.GetPosition().y - c.y))
+            if dx < hx + r and dy < hy + r:
+                bad.append("%s (%.2f mm inside)" % (v.GetNetname() or "no net",
+                                                    min(hx + r - dx, hy + r - dy)))
+        what = ("its slug's largest %.2f mm (%s)" % (2 * hx, decl[ref][1]) if said else
+                "its %.1f x %.1f land (no slug_max declared: the land is taken as the slug)"
+                % (2 * hx, 2 * hy))
+        if bad:
+            out.append((ref, False, "%s: %d via(s) of another net under %s, with solder mask "
+                                    "alone between them and a slug on %s: %s"
+                        % (ref, len(bad), what, ep.GetNetname(), ", ".join(sorted(bad)))))
+        else:
+            out.append((ref, True, "%s: no via of another net under %s" % (ref, what)))
+    return out
+
+
+@rule("A22")
+def no_data_way_beside_power(ctx):
+    """On a wire-to-board connector no way that carries a signal stands next to a way
+    that carries a supply rail.
+
+    Two faults put neighbours together: a strand or a whisker between two crimps in the
+    housing, and a contact pushed into the next cavity when the lead is made. Ground
+    beside power is a blown fuse; a 3.3 V pin beside 24 V is a dead part somewhere down
+    the lead. Ways are read in pad-number order off wire-to-board footprints (JST, Molex
+    and their like); a way with no net, or one named as not connected, is nothing.
+    """
+    out = []
+    fam = re.compile(ctx.q.get("lead_footprints", r"JST|Molex|Hirose_DF|TE_|Wuerth_WR"), re.I)
+    for ref in sorted(ctx.fps, key=_nat):
+        fp = ctx.fps[ref]
+        if not fam.search(fp.GetFPIDAsString().split(":")[-1]):
+            continue
+        ways = {}
+        for p in fp.Pads():
+            if p.GetNumber().isdigit():
+                ways.setdefault(int(p.GetNumber()), p.GetNetname())
+        bad = []
+        for n in sorted(ways):
+            a, b = ways[n], ways.get(n + 1)
+            if b is None:
+                continue
+            for pw, sig, npw, nsig in ((a, b, n, n + 1), (b, a, n + 1, n)):
+                if (pw in ctx.power and sig and sig not in ctx.power
+                        and sig not in ctx.grounds and not NOT_CONNECTED.search(sig)):
+                    bad.append("way %d (%s) beside way %d (%s)" % (nsig, sig, npw, pw))
+        if bad:
+            out.append((ref, False, "%s: %s" % (ref, "; ".join(bad))))
+        elif any(w in ctx.power for w in ways.values()):
+            out.append((ref, True, "%s: %d ways, every way beside a supply is ground, a "
+                                   "supply or empty" % (ref, len(ways))))
+    return out
 
 
 @rule("A17")
@@ -2210,15 +2413,24 @@ def connector_labels(ctx):
 
     # a test pad's label is the test pad's: ink whose nearest pad on the whole board is a
     # TP's names that pad, however close a connector's contact on the same net is
-    probes = [_xy(q) for r, f in ctx.fps.items() if _prefix(r) == "TP" for q in f.Pads()]
+    # ...measured to each pad's COPPER, not its centre: a side-entry header's land is
+    # 3.5 mm long, and a "1" 1 mm off its end is 2.8 mm from its centre -- further than a
+    # test pad standing 2.3 mm away diagonally, which then took the mark for its own.
+    def _land(q):
+        bb = q.GetBoundingBox()
+        return (MM(bb.GetLeft()), MM(bb.GetTop()), MM(bb.GetRight()), MM(bb.GetBottom()))
+
+    probes = [_land(q) for r, f in ctx.fps.items() if _prefix(r) == "TP" for q in f.Pads()]
 
     def probe_label(centre):
         if not probes or not allpads:
             return False
-        d = min(math.dist(centre, q) for q in probes)
-        return d <= min(math.dist(centre, q) for q in allpads)
+        at = (centre[0], centre[1], centre[0], centre[1])
+        d = min(_box_gap(at, q) for q in probes)
+        return d <= min(_box_gap(at, q) for q in allpads)
 
-    allpads = [xy for _r, (_f, ws, _b) in conns.items() for xy in ws.values()]
+    allpads = [_land(q) for _r, (f, ws, _b) in conns.items() for q in f.Pads()
+               if q.GetNumber().isdigit() and int(q.GetNumber()) in ws]
     tally = collections.Counter()
     for ref in sorted(conns, key=_nat):
         fp, ways, _body = conns[ref]
@@ -2286,6 +2498,21 @@ def connector_labels(ctx):
                 marks.append(("dot", "", c))
         unnamed = sorted(set(ways) - set(worded))
         own_block, far_block = block(mine["texts"]), block(other["texts"])
+        if not far_block:
+            # ...or, on the other face of a through-hole row, a NUMBERED word at each
+            # tail ("2 24V" in line with tail 2): the pinout in the one form that is
+            # also right read by position (A20), and it counts as the pinout there
+            far = {}
+            for s, c, box in other["texts"]:
+                if "\n" in s or _box_gap(box, _body) > LABEL_REACH or probe_label(c):
+                    continue
+                k = min(ways, key=lambda n: math.dist(c, ways[n]))
+                m = re.match(r"^%d\s+(\S.*)$" % k, s.strip())
+                if m and _names_net(m.group(1), nets[(ref, k)],
+                                    [a.get(nets[(ref, k)]) for a in alias]):
+                    far[k] = (s, c)
+            if set(ways) <= set(far):
+                far_block = ("a numbered word at each tail", None)
         # what was found, for the fail harness (test_quality_a17.py) to break
         ctx.connector_ink[ref] = {"back": back, "words": dict(worded), "marks": marks,
                                   "own_block": own_block, "far_block": far_block,
