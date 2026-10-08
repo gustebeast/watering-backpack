@@ -411,12 +411,25 @@ contact dissipates 7.5² × 0.020 = **1.13 W**, which is the number that matters
 if a screw is left loose. A properly torqued joint is ~1 mΩ and 0.06 W. That
 asymmetry is the argument for the torque spec being written down.
 
-**Terminals provide NO strain relief** — a tugged cable pulls out of the clamp or
-snaps at it, so the anchor is in the housing: `src/housing.py` puts a buttress rib
-on the back plate under the board's bottom edge with a 10 × 7 mm tie slot through
-it (`TIE_*`), and the cables reach it through a single down-facing chase
-(`CHASE_Y0/Y1`) at y 134..158, between J3 and J4. Tie the bundle to that rib, not
-to the terminals.
+**Terminals provide NO strain relief, and NOTHING ELSE DOES EITHER.**
+
+⚠ **This paragraph used to describe a buttress rib with a 10 × 7 mm `TIE_*` slot and
+tell you to tie the bundle to it. That rib does not exist** — `grep -c TIE_
+src/housing.py` returns 0, and `src/housing.py` says the ties are *"gone at the
+user's request and nothing replaced them"*. `elec/quality_signoff.py` M38 signed for
+the same phantom geometry; both are corrected now.
+
+What is true: a tugged cable pulls out of the clamp or snaps at it. The **pack pair**
+gets real relief from the laminate and the fuse holder — and it is the pair carrying
+7.5 A, which is why that one was done. The **joystick lead, the level-sensor lead and
+the sensor splice** arrive down the chase and land straight on a screw clamp with
+nothing holding the bundle. That is **punchlist 27, open**. A tie around the bundle
+where it leaves the chase, anchored to anything at all, would close it.
+
+The cables reach the bay through a single down-facing chase (`CHASE_Y0/Y1`), measured
+at **y 105.63..197.29** — ⚠ this said "y 134..158, between J3 and J4", which is both
+the wrong extent and the wrong description: the chase spans **all five** terminals,
+which is what finding 21 moved them onto one edge for.
 
 The chase is the ONLY opening in the bay and it faces down, because an opening is
 a water path and the tank sits directly above it. The level sensor's lead leaves
