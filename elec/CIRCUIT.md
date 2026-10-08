@@ -187,14 +187,20 @@ check in this repo would pass.
   said "JST-PH" and the board has never had one.) Powered from **VBAT** behind F1,
   and read on IO14 through an **on-board NPN inverter** — Q4 (MMBT3904, SOT-23) with
   R29 100k in the base and R30 100k holding the base down — whose collector is pulled
-  up to 3V3 by the **300k string R23/R27/R28** and then filtered by R26/C19 into the
+  up to 3V3 by the **300k string R23/R27/R28** and then filtered by **R26/C22**
+  (100k + 100n, a 16 Hz corner — the sensor's own response is ~500 ms) into the
   pin. IO14 is capped at 3V3 whatever the pack does.
+
+  ⚠ **This named C19 as the filter cap, and C19 is a 22 µF decoupler on 3V3** — not
+  on this net at all, and 220× the capacitance, i.e. a 0.07 Hz corner against the
+  500 ms the sensor needs. `tools/check_part_values.py` now fails on a slash pair
+  whose two parts share no net, which is what that was.
 
   ⚠ **THE PULL-UP IS NOT A PROTECTION MECHANISM, and this entry twice said it was.**
   It first claimed the sensor's output could reach the pin directly because it is
   "NPN open-collector"; the XKC-Y25 family specifies its HIGH output as **InVCC**, the
   supply rail, so at a 21 V pack it drives 21 V out. It then prescribed an inverter
-  **spliced into the sensor lead** with R23 as a 10k collector pull-up. Neither is the
+  **spliced into the sensor lead** with "R23 as a 10k collector pull-up". Neither is the
   board. Q4 is a fitted part, R23 is **100k and does not touch LEVEL** — the pull is
   three 100k in series, `+3V3 → R23 → LEVEL_PU1 → R27 → LEVEL_PU2 → R28 → LEVEL` — and
   what keeps the pack off IO14 is **R29 and the b-e junction**, not any pull-up. The
