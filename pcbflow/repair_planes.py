@@ -17,7 +17,8 @@ import sys
 
 import layout
 import pcbnew
-import noassert                                      # noqa: F401,E402  (no GUI dialogs)
+import wx                                       # noqa: E402  (KiCad's python ships it)
+wx.DisableAsserts()                             # NO MODAL DIALOGS IN A BUILD STEP -- see route.py
 
 
 def main(stem):
