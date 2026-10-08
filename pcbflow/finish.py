@@ -120,6 +120,7 @@ def _silkfit(stem):
         return
     try:
         import pcbnew
+        import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
         board = pcbnew.LoadBoard(stem + ".kicad_pcb")
         notes = {}
         try:

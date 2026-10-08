@@ -43,6 +43,7 @@ import os
 import sys
 
 import pcbnew
+import noassert                                      # noqa: F401,E402  (no GUI dialogs)
 
 
 def net_lengths(board, merge_ref=None, merge_r=4.0):

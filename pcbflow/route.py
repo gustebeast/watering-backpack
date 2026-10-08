@@ -161,12 +161,28 @@ def _resite_post_pads(board, refs, notes):
     import math
 
     segs, vias = [], []
+
+    def _via_w(v):
+        """A via's diameter, asked for the way KiCad 10 wants it.
+
+        ⚠ PCB_VIA::GetWidth() WITH NO LAYER TRIPS A wxWidgets ASSERT, and the assert is
+        a MODAL DIALOG -- "Do you want to stop the program?" -- in the middle of the
+        route, which is the longest step here and the one most likely to be left
+        running. The flow does not hang because the board is wrong; it hangs waiting
+        for a click. A via may legitimately be a different diameter per layer; ours are
+        plain through vias of one, but asking properly costs nothing. Same helper as
+        layout.py's _via_r and quality.py's _via_dia -- this file never got it.
+        """
+        try:
+            return v.GetWidth(v.GetLayer())
+        except TypeError:
+            return v.GetWidth()
     for t in board.Tracks():
         n = t.GetNetname()
         if isinstance(t, pcbnew.PCB_VIA):
             a = t.GetStart()
             vias.append((pcbnew.ToMM(a.x), pcbnew.ToMM(a.y),
-                         pcbnew.ToMM(t.GetWidth()) / 2.0, n))
+                         pcbnew.ToMM(_via_w(t)) / 2.0, n))
         else:
             if t.GetLayer() != pcbnew.F_Cu:
                 continue           # a bare pad probes the front; other layers cannot short it
@@ -750,7 +766,12 @@ def route(stem, passes=None, timeout=14400, incremental=False, dsn_only=False):
             if t.GetClass() == "PCB_VIA":
                 v = pcbnew.PCB_VIA(board)
                 v.SetPosition(t.GetPosition())
-                v.SetWidth(t.GetWidth())
+                # the same deprecated call as above, on the frozen-net re-import path
+                try:
+                    _w = t.GetWidth(t.GetLayer())
+                except TypeError:
+                    _w = t.GetWidth()
+                v.SetWidth(_w)
                 v.SetDrill(t.GetDrill())
                 v.SetViaType(t.GetViaType())
                 v.SetNet(net)
