@@ -45,6 +45,7 @@ import re
 import sys
 
 import pcbnew
+import noassert                                      # noqa: F401,E402  (no GUI dialogs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DOC = os.path.join(os.path.dirname(HERE), "PCB_QUALITY.md")

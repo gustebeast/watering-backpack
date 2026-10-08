@@ -130,6 +130,7 @@ def local_pads(fp):
     """Our footprint's numbered pads in ITS frame: mm, y up, rotation taken out, and the
     flip taken out too for a part on the back (KiCad mirrors those top to bottom)."""
     import pcbnew
+    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
     th = math.radians(fp.GetOrientationDegrees())
     o = fp.GetPosition()
     out = []
@@ -231,6 +232,7 @@ def symmetric(fp):
     change it, and its origin is its centre in every library."""
     import re
     import pcbnew
+    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
     pads = [q for q in fp.Pads() if q.GetAttribute() != pcbnew.PAD_ATTRIB_NPTH]
     ref, name = fp.GetReference(), fp.GetFPIDAsString()
     return bool(len({q.GetNumber() for q in pads}) <= 2
@@ -246,6 +248,7 @@ def derive(pcb, code_of, table, refresh=False, log=print, pads_from=fetch_pads):
     returns the fab's pads (the library by default; a project that already holds them
     passes its own). Returns the number of entries written."""
     import pcbnew
+    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
     board = pcbnew.LoadBoard(pcb)
     n = 0
     for fp in sorted(board.GetFootprints(), key=lambda f: f.GetReference()):
@@ -293,6 +296,7 @@ def apply(pcb, rows, code_of, table, turn=None):
     origin shift mm, note)], unchecked = [(ref, value, footprint, why)] for every
     non-symmetric part left exactly as KiCad wrote it."""
     import pcbnew
+    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
     turn = turn or {}
     board = pcbnew.LoadBoard(pcb)
     by_ref = {r[0]: r for r in rows}
