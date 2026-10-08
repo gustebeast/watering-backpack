@@ -2762,6 +2762,46 @@ areas and the prose ring voltage: do not re-read the document, re-derive each cl
 the file that owns it. For a procedure that means asking, of every step, *is the board in
 a state where this reading exists?* Two of six stages failed that question.
 
+### 51 — CLOSED (does not gate the order): the five `track_dangling` warnings, measured instead of carried
+
+These five have been reported as "known `unwick` tails" for several passes without
+anybody saying where they are or what they touch. Before ordering copper, measured.
+
+**What they are.** Five tracks on **GND, F.Cu**, of 0.8500, 0.8500, 0.9494, 0.9502 and
+0.9502 mm, each with one end unconnected. They are the residue of
+`cadkit/pcbflow/unwick.py` retiring a via and not trimming the stub that fed it — the
+defect is in the tool, not in this board's design.
+
+**Where they are.** All five sit in the cluster around **x 137–141, y 73–78**, which is
+inside U2's footprint, in the thermal-pad stitching region (U2's exposed pad is 21 pad
+objects, per M25/M29).
+
+**Why that is the question worth asking.** A short ground stub is inert almost anywhere
+— but copper under a PCB antenna detunes it even when the copper is ground and properly
+connected, so "it is only GND" would not have settled it. Checked properly:
+
+* **There are NO copper rule areas on this board at all** — zero zones with
+  `GetIsRuleArea()`. The antenna's relief is the **board outline**, which is why
+  [finding 39](#39) cut the board back instead of drawing a keepout.
+* That relief is the **4.6 × 4.6 mm cutout at x 140.70–145.30, y 47.70–52.30** (15.9 mm²,
+  which `finish.py` re-checks every run and reports as `1 cutout(s) match`).
+* The stubs are at **y 73–78**, about **21 mm** from that cutout. Not in it, not near it.
+
+**Verdict: order the board.** Five sub-millimetre tails on the ground net, one end
+connected to the plane, 21 mm from the only relief on the board and inside a region that
+is already dense ground stitching. At 2.4 GHz a 0.95 mm stub is under a hundredth of a
+wavelength; on a net that is a plane it is not a stub in any meaningful sense. They cost
+nothing, they shade nothing, and they are warnings rather than violations — `finish.py`
+still reports **0 violations**.
+
+**The fix belongs upstream, not here.** `unwick` should trim the feeding segment when it
+retires a via, which is a change to canonical `cadkit` and therefore a change to eleven
+consumers. Doing it now would re-route this board for a cosmetic gain on the day it is
+being ordered, so it is deliberately left. What has changed is that the five are no
+longer carried as an unexamined line in a status summary: the number, the net, the layer,
+the lengths and the distance to the only thing that could have made them matter are all
+written down, so the next person does not have to re-derive them to decide the same way.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.
