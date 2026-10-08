@@ -174,6 +174,18 @@ def _resite_post_pads(board, refs, notes):
             segs.append((pcbnew.ToMM(a.x), pcbnew.ToMM(a.y),
                          pcbnew.ToMM(b.x), pcbnew.ToMM(b.y),
                          pcbnew.ToMM(t.GetWidth()) / 2.0, n))
+    # ⚠ THE DECLARED REPAIR TRACKS ARE COPPER TOO, AND THEY ARE NOT ON THE BOARD YET.
+    # They are laid just after this, so a pad whose only copper IS its declared stub -- a
+    # debug pad on a pin that was a no-connect until now -- read as standing on nothing
+    # and was walked off the end of the stub it was declared with. Counted here, a
+    # declared stub is own copper to its pad and an obstacle to every other one.
+    for _net, _lay, _w, _pts in notes.get("repair_tracks", ()):
+        if _lay != "F.Cu":
+            continue
+        _q = [layout._to_board(_x, _y) for _x, _y in _pts]
+        for _a, _b in zip(_q, _q[1:]):
+            segs.append((pcbnew.ToMM(_a.x), pcbnew.ToMM(_a.y),
+                         pcbnew.ToMM(_b.x), pcbnew.ToMM(_b.y), _w / 2.0, _net))
 
     courts = []
     for fp in board.GetFootprints():
