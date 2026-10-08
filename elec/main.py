@@ -6,7 +6,7 @@
 Design rationale lives in elec/CIRCUIT.md; this file is the executable version of
 it. Where a number has a reason, the reason is beside it.
 
-ONE RAIL SETS EVERYTHING: a Makita 18 V LXT pack is ~20 V fresh and ~15 V flat,
+ONE RAIL SETS EVERYTHING: a Makita 18 V LXT pack is 21 V fresh and 15 V flat,
 and it is the only supply on the board. So every part on VBAT is rated >= 40 V,
 and the pump FETs >= 60 V so the inductive clamp has real margin. 24 V-max buck
 parts (MP2315, AP63203) sit 4 V from a fresh pack before any switching spike and
@@ -463,7 +463,7 @@ CAP_10U   = CAP_VGATE        # the board's only 10 uF: +3V3 bulk and VGATE alike
 # recovers when the fault is removed. 0.2 A of hold current against a sensor
 # that draws about 10 mA is twenty times headroom -- no nuisance trips from
 # inrush into C18 -- while still being far below what damages the thin lead it
-# protects. 30 V is the common 1206 PPTC tier and clears a 20 V fresh pack.
+# protects. 30 V is the common 1206 PPTC tier and clears a 21 V fresh pack.
 LVL_FUSE_V_MIN  = 30.0       # V, must clear a fresh pack
 LVL_FUSE_I_HOLD = 0.2        # A, hold current
 LVL_SENSOR_I_MA = 10.0       # the XKC-Y25's own draw, the number holds against
@@ -540,6 +540,29 @@ assert TVS_CLAMP < PUMP_FET_VDS_MIN, (
 # 5.1 V of absolute maximum and 1.1 V of recommended maximum left -- so the TVS
 # is what keeps the buck inside its datasheet, and raising the clamp by 1.2 V
 # would take it outside while the FETs still looked fine.
+# ⚠ THE DOUBLE-INSERTION RING, DERIVED RATHER THAN WRITTEN DOWN. Hot-plugging a
+# cable-fed supply rings its input to about twice the source voltage (the classic
+# L-C step response, undamped), and VBAT IS cable-fed: the pack docks live at the
+# Makita holder. This figure is what M16 signs U1's VIN rating against, and it was
+# prose only -- "2 x 20 V = 40 V ... leaves 4 V" -- so when VBAT_MAX went from 20.0
+# to 21.0 for the 5S arithmetic, nothing fired and the sign-off kept quoting 40.
+# It is 42.0 V now, it leaves 2 V on the absolute maximum, and it has crossed from
+# EQUALLING the recommended maximum to EXCEEDING it by 2 V. That is not a pass on
+# its own and is not claimed as one: what holds VIN down is the TVS clamping at
+# 38.9 V, below the ring, with C1/C2's ESR damping the LC underneath it.
+BUCK_VIN_RING = 2.0 * VBAT_MAX   # V, undamped hot-plug ring on a cable-fed input
+
+assert BUCK_VIN_RING < BUCK_VIN_ABSMAX, (
+    "a %.1f V hot-plug ring on a %.1f V pack exceeds U1's %.1f V VIN absolute "
+    "maximum: nothing downstream of this survives the plug"
+    % (BUCK_VIN_RING, VBAT_MAX, BUCK_VIN_ABSMAX))
+
+# and the clamp has to be UNDER the ring or it never conducts and never helps
+assert TVS_CLAMP < BUCK_VIN_RING, (
+    "the TVS clamps at %.1f V but the ring only reaches %.1f V, so it never "
+    "conducts on a plug event and M16's damping argument is empty"
+    % (TVS_CLAMP, BUCK_VIN_RING))
+
 assert TVS_CLAMP < BUCK_VIN_RECMAX, (
     "the TVS clamps at %.1f V and the buck's recommended maximum VIN is %.0f: "
     "a clamp event runs U1 outside its datasheet" % (TVS_CLAMP, BUCK_VIN_RECMAX))
@@ -693,7 +716,7 @@ assert TVS_I2T_MARGIN > 1.5, (
 # and it is lower because the firmware will not run the pump at 50 %.
 PUMP_I            = 7.5          # A, the pump's running current (CIRCUIT.md 1)
 PUMP_V_NOM        = 12.0         # V, pump nameplate -- firmware's PUMP_V_NOM
-FREEWHEEL_DUTY    = 1.0 - PUMP_V_NOM / VBAT_MAX      # 0.40 at a fresh 20 V pack
+FREEWHEEL_DUTY    = 1.0 - PUMP_V_NOM / VBAT_MAX      # 0.43 at a fresh 21 V pack
 FREEWHEEL_I_AVG   = FREEWHEEL_DUTY * PUMP_I          # 3.00 A
 # ⚠ THE BOARD SIDE OF THE THERMAL PATH IS MEASURED; THE PART SIDE IS NOT, AND
 # THAT ASYMMETRY IS THE WHOLE POINT. D2's tab is the CATHODE and sits on the
@@ -805,7 +828,7 @@ def circuit():
     # at assembly, so JST's plug/unplug advantage goes unused, and a terminal is
     # ONE part with no mating half to stock (PCB_README §3).
     j_bat = gen.part("J1", "TB-5.08-2", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal",
-                     ["VBAT", "GND"], "battery in, 15-20 V, 7.5 A — ONE pump at a time, held by tools/check_pump_dirs.py, so this never carries both; "
+                     ["VBAT", "GND"], "battery in, 15-21 V, 7.5 A — ONE pump at a time, held by tools/check_pump_dirs.py, so this never carries both; "
                      "WJ500V-5.08-2P, UL 10 A / IEC 24 A")
     j_pa  = gen.part("J2", "TB-5.08-2", "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal",
                      ["VBAT", "LO"], "pump A, 7.5 A")
@@ -826,7 +849,7 @@ def circuit():
 
     # ── Input protection ────────────────────────────────────────────────────
     d_tvs = gen.part("D1", "SMCJ24A", "Diode_SMD:D_SMC", ["K", "A"],
-                     "TVS: 24 V standoff > 20 V pack, ~39 V clamp < 60 V FETs")
+                     "TVS: 24 V standoff > 21 V pack, ~39 V clamp < 60 V FETs")
     c_in1 = gen.part("C1", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
     c_in2 = gen.part("C2", "100u/50V", "Capacitor_SMD:CP_Elec_10x10.5", 2, "bulk at the switches")
 
@@ -887,7 +910,7 @@ def circuit():
     # VIN "as close as possible to the VIN and GND pins"; this board had only
     # C1/C2, two 100 uF electrolytics THIRTY-EIGHT MILLIMETRES away. At 500 kHz
     # the switching current has to come from somewhere every cycle, and 38 mm of
-    # track is about 40 nH: the loop rings VIN on every edge, and a 20 V pack
+    # track is about 40 nH: the loop rings VIN on every edge, and a 21 V pack
     # ringing on 40 nH has somewhere to go on a part rated 40 V.
     #
     # The electrolytics are bulk for the PUMP legs and they are staying bulk for
@@ -928,7 +951,7 @@ def circuit():
     # "The RT/SYNC pin can't be left floating or shorted to ground" -- datasheet
     # SNVSAA5B section 6.3.8, in those words. It was floating. 49.9k is the
     # datasheet's own table value for 500 kHz, which with the 15 uH inductor
-    # gives 0.55 A of ripple at a 20 V input with the 10 uH part
+    # gives 0.56 A of ripple at a 21 V input with the 10 uH part
     # (BUCK_RIPPLE_A above derives it; 15 uH gave 0.37 and saturated).
     r_rt = gen.part("R8", BUCK_RT, "Resistor_SMD:R_0603_1608Metric", 2,
                     "switching frequency: %.0f kHz" % BUCK_FSW_KHZ)
@@ -1012,7 +1035,7 @@ def circuit():
     #
     # 10 V, not 5: it is inside the driver's 4.5-18 V window with margin at both
     # ends, and it enhances the FET harder than the 4.5 V its Rds(on) is quoted
-    # at. 1k5 passes 3.3 mA at a flat 15 V pack and 6.7 mA at a fresh 20 V one.
+    # at. 1k5 passes 3.3 mA at a flat 15 V pack and 7.3 mA at a fresh 21 V one.
     r_vg = gen.part("R9", VGATE_R, "Resistor_SMD:R_0805_2012Metric", 2,
                     "VGATE dropper — %.1f mA at a flat pack" % VGATE_I_MIN_MA)
     d_vg = gen.part("D5", VGATE_ZENER, "Diode_SMD:D_SOD-123", ["K", "A"],
@@ -2015,7 +2038,7 @@ BOARD_NOTES = {
         # TWO ENTRIES FOR VBAT, BECAUSE VBAT HAS TWO CURRENTS. The old single
         # entry declared 7.5 A to every load including the buck's VIN pin, and
         # that is not a conservative simplification, it is a false statement
-        # about the board: U1 draws 3.3 V x 0.6 A out of a 15-20 V pack, which
+        # about the board: U1 draws 3.3 V x 0.6 A out of a 15-21 V pack, which
         # is ~0.16 A in, and its VIN pad is 1.95 x 0.60 mm -- a pad that cannot
         # physically accept the 3.18 mm the claim demands. The claim was
         # unmeetable because it was wrong, and A1 was right to fail it.
@@ -2140,7 +2163,7 @@ BOARD_NOTES = {
         },
         # ── A16: what every net reaches, and what every pin is rated for ──
         # ⚠ THE WORST CASE ON THIS BOARD IS NOT 18 V AND IT IS NOT 20 V EITHER.
-        # The pack is 20 V fresh (VBAT_MAX) and D1 clamps at 38.9 (TVS_CLAMP),
+        # The pack is 21 V fresh (VBAT_MAX) and D1 clamps at 38.9 (TVS_CLAMP),
         # so every net the pack reaches has TWO numbers, and the parts on it are
         # judged against both. Every figure below is one of this file's own
         # constants or a reading cited in `src` -- nothing here is retyped.
@@ -2156,7 +2179,7 @@ BOARD_NOTES = {
         #              current, with ~0 V across it. The 38.9 V appears across
         #              the PTC AND its load in series, and the PTC only ever has
         #              to hold off a voltage when it has opened, which it does
-        #              against the 20 V pack.
+        #              against the 21 V pack.
         #   D1.1/D1.2  the part IS the clamp. 38.9 V is its own VC.
         #   U2.7       the tap of the 100k/18k divider. See its entry.
         "net_volts": {

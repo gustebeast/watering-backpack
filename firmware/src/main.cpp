@@ -21,7 +21,7 @@
  * machine — including the flick straight from hard-forward to hard-back, which
  * crosses the release band faster than the release vote can see it.
  *
- * PUMP VOLTAGE IS REGULATED. The pumps are 12 V and the pack is 15-20 V, so the
+ * PUMP VOLTAGE IS REGULATED. The pumps are 12 V and the pack is 15-21 V, so the
  * duty ceiling tracks the pack through the VBAT divider on IO35 and holds the
  * average armature voltage at 12 V (see "Pump voltage regulation"). Until this
  * existed, RUN_DUTY was PWM_MAX and every engage put the whole pack across a
@@ -140,8 +140,8 @@ constexpr int PWM_MAX  = (1 << PWM_RES) - 1;
 constexpr int DUTY_CAP = PWM_MAX;            // lower to cap max pump speed (e.g. 200)
 
 // ── Pump voltage regulation ──────────────────────────────────────────────────
-// The pumps are 12 V. The pack is 15-20 V. elec/CIRCUIT.md §1: "Duty is capped
-// in firmware to synthesise 12 V from an 18-20 V pack. PWM already chops the
+// The pumps are 12 V. The pack is 15-21 V. elec/CIRCUIT.md §1: "Duty is capped
+// in firmware to synthesise 12 V from a 15-21 V pack. PWM already chops the
 // supply, so the motor does not care -- but the cap must track the pack voltage,
 // which is what the divider below is for."
 //

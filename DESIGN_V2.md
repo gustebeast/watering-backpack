@@ -347,7 +347,7 @@ An **external capacitive sensor** (XKC-Y25 class) clamped to the *outside* of th
 wall at the full line. Nothing penetrates the tank and nothing touches the water, which
 sidesteps the 44 mm opening entirely — the binding constraint on every other approach.
 
-- Powered **directly from the battery rail** (5-24 V spec covers the pack's 18-20 V), so
+- Powered **directly from the battery rail** (5-24 V spec covers the pack's 15-21 V), so
   it needs no 5 V rail — important, since the board now only makes 3.3 V.
 - Configure the output **NPN open-collector** and pull it up to 3.3 V on the main board.
   The sensor runs at 18 V but an open-collector output only pulls down, so the GPIO sees
@@ -407,7 +407,7 @@ Standalone:
 | `tools/check_bom.py` | the BOM's volumes and cut list are generated fact written by hand. Both had gone stale within a day of the edits that moved them |
 | `tools/check_pump_dirs.py` | "never both pumps at once" has to hold, not usually hold. Transcribes the firmware and fails if the C++ it claims to transcribe changed |
 | `tools/check_plumbing.py` | a route that cannot be bent, or one that passes through something. Every hose-to-fitting contact now carries a MEASURED ceiling: the bare pair list it replaced was hiding a hose drawn curving through 45 mm of rigid elbow, sixty times its neighbours' reading |
-| `tools/check_level_alarm.py` | the tank is carried on someone's back, so the sensor is crossed constantly. The debounce *is* the feature and a still bucket cannot test it |
+| `tools/check_level_alarm.py` | the tank is carried on someone's back, so the sensor is crossed constantly. The debounce *is* the feature and a still bucket cannot test it. Check 9 also derives `LEVEL_FULL_IS_LOW` from the netlist, because the other eight take it as an input and passed with it set either way (finding 47) |
 | `tools/check_bead_grid.py` | every wall, plate, lid and skirt in the housing was 3.0 mm, which at a 0.8 nozzle is 3.75 beads — so Arachne, not the drawing, chose the section of every load-bearing wall in the part. Nothing had pinned a nozzle diameter at all. Off-grid lengths are allowed where AGENTS.md allows them, but each must name its kind (hardware / clearance / standards) and its reason, and the gate fails on an exemption that has gone stale as readily as on an off-grid wall |
 | `tools/check_ic_pinouts.py` | a gate driver whose pinout was wrong on four of five pins, putting a GPIO on its supply and a 4 A output onto the 3.3 V rail — and every stage downstream agreed, because every stage downstream was derived from it. Checks pin maps against datasheet tables cited by document and page, each supply pin against its part's operating window, each rail against the voltage it is meant to BE (3.12 V is inside every part's window and still wrong), and every numbered pad on the routed board for a net — which is how two floating anode leads and the ESP32's whole thermal ground were found |
 

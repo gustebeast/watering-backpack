@@ -32,10 +32,26 @@ the real role:
     the WROOM-32E pinout, because a transposition there is a dead board that
     every other check in this repo would pass.
 
-Note on LEVEL_PIN: the firmware sets INPUT_PULLUP and the board also fits R23
-to 3V3. Both together is deliberate and harmless (parallel pull-ups); the
-external one is what keeps the open-collector sensor's 18 V rail off the pin,
-so the internal one is not a substitute for it.
+⚠ NOTE ON LEVEL_PIN -- THIS SAID SOMETHING THAT WAS NOT TRUE OF THIS BOARD,
+and two sign-off entries (M20, M35) cited it as their authority. It read: "the
+firmware sets INPUT_PULLUP and the board also fits R23 to 3V3 ... parallel
+pull-ups ... the external one is what keeps the open-collector sensor's 18 V
+rail off the pin". Measured, every clause of that is wrong:
+
+  * the firmware does pinMode(LEVEL_PIN, INPUT) -- see firmware/src/pins.cpp.
+    There is no internal pull and so no parallel pair.
+  * R23 is 100k, not 10k, and it DOES NOT TOUCH the pin's net. The pull is three
+    100k in series: +3V3 -> R23 -> LEVEL_PU1 -> R27 -> LEVEL_PU2 -> R28 -> LEVEL.
+  * no pull-up of any value keeps the pack off IO14. A pull-up cannot: the sensor
+    drives its HIGH output to InVCC, the supply rail, and would win. What caps
+    the pin is the ON-BOARD INVERTER -- Q4 with R29 in the base -- whose collector
+    is what the 300k string pulls up. The 300k only has to source the 11 uA that
+    collector sinks, which is why it can be 300k at all.
+
+So nothing here is load-bearing for protection, and "do not tidy R23 away" was
+protecting the wrong part for the wrong reason. The polarity that results from
+the inverter IS load-bearing, and it is now gated: see check 9 in
+tools/check_level_alarm.py, which derives LEVEL_FULL_IS_LOW from the netlist.
 """
 import ast
 import pathlib

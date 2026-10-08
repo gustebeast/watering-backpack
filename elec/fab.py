@@ -308,7 +308,7 @@ LCSC = {
                                     # (C17/C18/C20/C21). They sit on VBAT at 20 V,
                                     # 40% of rating, where a 1206 X5R keeps roughly
                                     # half its marked value. That is the known cost
-                                    # of a ceramic on a 20 V rail, and it is why
+                                    # of a ceramic on a 21 V rail, and it is why
                                     # the 100u/50V electrolytics above are the ones
                                     # carrying the ripple.
     ("22u/16V",  "C_1206_3216Metric"): "C12891",   # ⚠ THE PART IS 25 V AND THE
