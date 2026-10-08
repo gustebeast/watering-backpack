@@ -2715,6 +2715,53 @@ both directions **while still disarmed**, and does not fit F2's blade or land a 
 until stage 5. The staging is not advisory — it is what makes this finding harmless on
 the bench.
 
+### 50 — CLOSED: the bring-up procedure shipped with two steps that cannot be performed in the state they specify
+
+`BRINGUP.md` was written in one pass and pushed. Walking it back against the netlist and
+the firmware's control flow — rather than re-reading the prose — found **two steps that
+ask for readings the board does not produce**, both introduced by the pass that wrote it.
+That is the defect a procedure exists to prevent, so both are recorded in the file
+itself rather than quietly corrected.
+
+**Stage 2: measurements with the fuse out.** The step said to leave F2's blade **out**
+and then asked for 3V3, VGATE and both gate voltages. Measured on the netlist, `VBAT` is
+the **far side of F2** and carries `U1.2`/`U1.3` (VIN and EN), `R9.1` (the VGATE
+dropper), `TP2` and both pump terminals; `VBAT_RAW` is only `J1.1`, `F2.1`, `C21.1`. With
+the blade out **the whole board is dead** and TP2 reads 0 V. F2 is the pack's isolator
+and nothing finer: out for stages 0–1, in at stage 2. What makes stage 2 safe is that
+nothing which can move is landed and the firmware boots disarmed — not the fuse. The pack
+is now read at **J1's own screw** with the blade out and at **TP2** with it in, which
+also turns a bad fuse or holder into a visible difference between two readings.
+
+**Stage 4: a direction field that is never computed.** The step said to confirm both
+directions "while still disarmed" by watching `s` report `dir=A` and `dir=B`. It never
+will: the direction vote sits inside `if (armed && !otaActive)` in `loop()`, so a
+disarmed board leaves `runDir` at `DIR_NONE` and `s` prints `dir=none` however hard the
+stick is pushed. **An operator following that step concludes the joystick is broken.**
+What *is* live while disarmed is the raw reading — `readVbat()` and `readLevel()` are
+called at the top of `loop()`, outside the armed branch, and the periodic telemetry line
+prints `raw= filt= offset=` with a `[DISARMED]` marker. Stage 4 now judges the stick by
+**`rawoff=`** against ±300 (`DEADBAND_ON`, the same threshold the vote uses once armed),
+and says explicitly that `dir=none` here is by design.
+
+**One firmware change came out of it, at zero copper.** `s` printed `centre=` and
+`duty=` but **not the live reading**, so the one command you reach for when a board
+boots and does nothing could not show the joystick at all. The last reading is now kept
+at file scope and `s` reports `joy raw= filt= rawoff= off=`, and appends
+`(none: disarmed, judge by rawoff)` to the direction field when the motor is inhibited,
+so the console explains itself without the operator holding this file. Builds clean,
++196 bytes of flash (78.3 % of the app slot, unchanged to one decimal).
+
+**Stages 3, 5 and 6 were walked the same way and are correct.** Stage 3's three level
+states hold, including unplugged-reads-FULL, because `readLevel()` is outside the armed
+branch; stage 5's off-latency of ~15 ms is `VOTE_K_OFF × 5`; stage 6's `rssi=`/`ip=`
+come from the same `s`.
+
+**The method is the reusable part**, and it is the same one that caught the stale pour
+areas and the prose ring voltage: do not re-read the document, re-derive each claim from
+the file that owns it. For a procedure that means asking, of every step, *is the board in
+a state where this reading exists?* Two of six stages failed that question.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.
