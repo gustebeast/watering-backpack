@@ -279,6 +279,24 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
         # see _edges(). A move that puts a designator off the board is not a cheaper
         # trade than a silk overlap, it is the defect this pass exists to prevent.
         edges, extent = _edges(board, pcbnew)
+        # ⚠ A CONNECTOR THAT HANGS OVER THE EDGE BRINGS ITS OUTLINE WITH IT. A jack or a
+        # header mounted at the board's edge has a library outline drawn round the whole
+        # body, and the strokes of it that lie past the cut line are ink the router
+        # removes: drawn, not printed, and A18 says so. They cannot be nudged -- they are
+        # where the body is -- so those strokes, and only those, go to .Fab, where a body
+        # outline off the board belongs. (`strip_silk` is the tool for taking a part's
+        # WHOLE outline off the silk; it acts at layout, so it costs a re-route, and it
+        # would take the strokes that do print with it.) Graphics only: text is a
+        # designator or a label and is handled as one.
+        _over = {}
+        for fp in board.GetFootprints():
+            for g in fp.GraphicalItems():
+                if (g.GetLayer() == silk_layer and g.GetClass() == "PCB_SHAPE"
+                        and _off_board(g.GetBoundingBox(), extent)):
+                    g.SetLayer(fab_layer)
+                    _over[fp.GetReference()] = _over.get(fp.GetReference(), 0) + 1
+        for _ref in sorted(_over):
+            demoted.append((_ref, "%d outline stroke(s) past the board edge" % _over[_ref]))
         masks, silks = [], []
         for fp in board.GetFootprints():
             for p in fp.Pads():
