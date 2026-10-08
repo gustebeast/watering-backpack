@@ -591,7 +591,8 @@ def _check_gerbers(gdir, notes, board, pcb):
     # (SOIC-8), whose copper reaches B.Cu through thermal vias while the part sits on
     # top. Asking IsOnLayer(F_Paste) asks the question the gerber actually answers.
     import pcbnew as _pcb
-    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
+    import wx                                       # noqa: E402  (KiCad's python ships it)
+    wx.DisableAsserts()                             # NO MODAL DIALOGS IN A BUILD STEP -- see route.py
     _bd = _pcb.LoadBoard(pcb)
     for _lay, _suffix, _name in ((_pcb.F_Paste, "F_Paste.gtp", "F.Paste"),
                                  (_pcb.B_Paste, "B_Paste.gbp", "B.Paste")):
@@ -654,7 +655,8 @@ def _check_drill(pcb, drill_dir, board):
     """
     import math
     import pcbnew
-    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
+    import wx                                       # noqa: E402  (KiCad's python ships it)
+    wx.DisableAsserts()                             # NO MODAL DIALOGS IN A BUILD STEP -- see route.py
     drl = [f for f in os.listdir(drill_dir) if f.lower().endswith(".drl")]
     if not drl:
         raise SystemExit("%s: the drill export produced no .drl file" % board)
@@ -700,7 +702,8 @@ def _rotation_critical(pcb):
     separately, what could not be.)
     """
     import pcbnew
-    import noassert                               # noqa: F401  (no GUI dialogs -- see pcbflow/noassert.py)
+    import wx                                       # noqa: E402  (KiCad's python ships it)
+    wx.DisableAsserts()                             # NO MODAL DIALOGS IN A BUILD STEP -- see route.py
     board = pcbnew.LoadBoard(pcb)
     out, total = [], 0
     for fp in board.GetFootprints():
