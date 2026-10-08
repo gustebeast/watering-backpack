@@ -1413,8 +1413,89 @@ def fab_capability(ctx):
                 texts.append((g, "%s %s" % (ref, (g.GetText() or "")[:12])))
     worst("silk text height", [(MM(t.GetTextHeight()), "'%s'" % n) for t, n in texts],
           fab["silk_height"], "smallest silk text")
-    worst("silk text stroke", [(MM(t.GetTextThickness()), "'%s'" % n) for t, n in texts],
-          fab["silk_stroke"], "thinnest silk stroke")
+
+    # ⚠ AN OUTLINE FONT'S INK IS NOT IN THIS FIELD, AND THIS CHECK USED TO READ IT
+    # ANYWAY. KiCad renders a TrueType/OpenType face from the glyph's own outlines;
+    # GetTextThickness() still returns a number -- 0.30 mm on the board that found
+    # this -- and it has nothing to do with how thin the ink gets. The real figure
+    # there was 0.1533 mm, measured once through TransformTextToPolySet when the face
+    # was chosen. So "thinnest silk stroke: least 0.300" was true of the field and
+    # silent about the board, and at a size of 1.2 the same face would have inked
+    # 0.12 mm with this check still reading 0.30 and still passing.
+    #
+    # The stroke measurement therefore applies to STROKE-FONT text only. For outline
+    # text the ink has to have been measured by whoever chose the face and DECLARED,
+    # per size, in the board's `silk_ink` note: {size_mm: measured thinnest ink mm}.
+    # An undeclared size FAILS rather than noting, because a note here is a figure
+    # nobody read: the measurement is cheap, one-off, and the alternative is a board
+    # whose lettering may not print.
+    def _outline(t):
+        try:
+            return bool((t.GetFontName() or "").strip())
+        except Exception:                   # noqa: BLE001
+            return False        # a KiCad without GetFontName has no outline fonts
+
+    stroked = [(t, n) for t, n in texts if not _outline(t)]
+    outlined = [(t, n) for t, n in texts if _outline(t)]
+    worst("silk text stroke",
+          [(MM(t.GetTextThickness()), "'%s'" % n) for t, n in stroked],
+          fab["silk_stroke"], "thinnest silk stroke (stroke font)")
+    if outlined:
+        decl = ctx.notes.get("silk_ink") or {}
+        decl = {round(float(k), 3): float(v) for k, v in decl.items()}
+        sizes = {}
+        for t, n in outlined:
+            sizes.setdefault(round(MM(t.GetTextHeight()), 3), []).append(n)
+        undeclared = sorted(s for s in sizes if s not in decl)
+        thin = sorted(s for s in sizes if s in decl
+                      and decl[s] < fab["silk_stroke"] - 1e-6)
+        if undeclared:
+            out.append(("silk outline-font ink", False,
+                        "%d outline-font silk text(s) in %d size(s); no measured ink "
+                        "declared for %s mm (e.g. %s). GetTextThickness is NOT the ink "
+                        "of an outline face -- measure the thinnest glyph at that size "
+                        "(pcbnew TransformTextToPolySet) and declare it in the board's "
+                        "`silk_ink` note"
+                        % (len(outlined), len(sizes),
+                           ", ".join("%.3f" % s for s in undeclared),
+                           sizes[undeclared[0]][0])))
+        elif thin:
+            out.append(("silk outline-font ink", False,
+                        "declared ink %.4f mm at size %.3f is under the fab's %.2f mm "
+                        "minimum (%d size(s)): the lettering may print broken or not "
+                        "at all" % (decl[thin[0]], thin[0], fab["silk_stroke"],
+                                    len(thin))))
+        else:
+            out.append(("silk outline-font ink", True,
+                        "%d outline-font silk text(s); declared thinnest ink %s mm "
+                        "against the fab's %.2f minimum"
+                        % (len(outlined),
+                           ", ".join("%.4f@%.3f" % (decl[s], s) for s in sorted(sizes)),
+                           fab["silk_stroke"])))
+
+    # silk GRAPHICS -- outlines, polarity bands, pin-1 marks. Never measured before,
+    # and on the board that found this every one of 264 was 0.12 mm, KiCad's default
+    # and 80 % of the floor. finish.py's silkfit step raises them, so a board built
+    # through the flow passes this; one that is not, does not, which is the point.
+    inks = []
+    for ref, fp in ctx.fps.items():
+        for g in fp.GraphicalItems():
+            if g.GetClass() != "PCB_TEXT" and g.GetLayer() in silk:
+                try:
+                    w = g.GetWidth()
+                except Exception:           # noqa: BLE001
+                    continue
+                if w > 0:
+                    inks.append((MM(w), "%s %s" % (ref, g.GetClass())))
+    for d in b.GetDrawings():
+        if d.GetClass() != "PCB_TEXT" and d.GetLayer() in silk:
+            try:
+                w = d.GetWidth()
+            except Exception:               # noqa: BLE001
+                continue
+            if w > 0:
+                inks.append((MM(w), "board %s" % d.GetClass()))
+    worst("silk graphic width", inks, fab["silk_stroke"], "thinnest silk line")
     return out
 
 

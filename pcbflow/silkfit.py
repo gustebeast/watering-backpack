@@ -253,6 +253,49 @@ def clipped(board, pcbnew=None):
     return sorted(out, key=lambda t: -t[1])
 
 
+def thicken_ink(board, floor_mm, pcbnew=None, log=print):
+    """Raise every silk GRAPHIC thinner than the fab's minimum to it. Returns
+    (raised, thinnest_before).
+
+    ⚠ WHY THIS IS HERE AND NOT LEFT TO THE FOOTPRINT. A part outline arrives with
+    the land, drawn by whoever drew the library, and KiCad's default silk width is
+    0.12 mm -- below every fab's stated silkscreen minimum, and below the width the
+    same board's TEXT is held to. The fab does not reject it; it prints it thin,
+    broken, or not at all, and whichever happens the plot that was reviewed is not
+    the board that arrives. That is the same rule A18 enforces for clipped ink, and
+    it is the owner's: a drawing must match the built thing.
+
+    This moves no copper and touches no text -- silk shapes only -- so it is safe on
+    a kept-route board, and it runs BEFORE fit_refs so the fitter dodges the final
+    ink rather than the thin ink.
+    """
+    if pcbnew is None:
+        import pcbnew as _p
+        pcbnew = _p
+    silk = (pcbnew.F_SilkS, pcbnew.B_SilkS)
+    floor = pcbnew.FromMM(floor_mm)
+    raised, thinnest = 0, None
+    items = [g for fp in board.GetFootprints() for g in fp.GraphicalItems()] \
+        + list(board.GetDrawings())
+    for g in items:
+        if g.GetClass() == "PCB_TEXT" or g.GetLayer() not in silk:
+            continue
+        try:
+            w = g.GetWidth()
+        except Exception:                                   # noqa: BLE001
+            continue        # a shape with no width (a bitmap) has no ink to raise
+        if w <= 0:
+            continue        # 0 means "use the design default", which layout.py sets
+        thinnest = w if thinnest is None else min(thinnest, w)
+        if w < floor - 1:                                   # 1 nm of slack
+            g.SetWidth(floor)
+            raised += 1
+    if raised:
+        log("silk ink: %d graphic(s) raised to the fab's %.2f mm minimum "
+            "(thinnest was %.3f mm)" % (raised, floor_mm, pcbnew.ToMM(thinnest)))
+    return raised, (pcbnew.ToMM(thinnest) if thinnest is not None else None)
+
+
 def fit_refs(board, notes=None, log=print, pcbnew=None):
     """Move every visible silk reference so it prints as drawn.
 
