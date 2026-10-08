@@ -4374,6 +4374,61 @@ def _add_zone(board, net, layer, inset, w, h, poly=None, priority=0):
     return zone
 
 
+def _slug_rings(board, slug_max, via_d=0.6):
+    """Fence the ground under a part's EXPOSED SLUG against vias: notes["slug_max"] =
+    {ref: (largest slug side in mm, "where that figure is from")}.
+
+    ⚠ THE LAND IS THE SLUG'S NOMINAL SIZE AND THE SLUG HAS A TOLERANCE. A QFN's belly
+    land is drawn to the nominal exposed pad, and the 1 mm between it and the pin row is
+    the most tempting via site on the board. But the datasheet gives the slug a range --
+    WCH's QFN68 is 6.2 +0.3 / -1.2 over a 5.2 mm land -- so a part at the top of it
+    reaches half a millimetre past the land on every side, bare metal at ground, lying on
+    whatever is there with a coat of solder mask between. A signal via's annulus under it
+    is one mask pinhole from a short to ground that no test on a board without that
+    particular part will find.
+
+    So the band between the land and the slug's largest extent (plus a via's own radius)
+    takes no via of any net: a vias-only rule area on the board, which the DSN export
+    hands the router as a via keepout, and the same rectangles returned in layout
+    coordinates for the stitcher. Tracks cross it freely. quality.py A21 measures the
+    finished board against the same note.
+    """
+    rects = []
+    o = _to_board(0, 0)
+    for ref, spec in sorted((slug_max or {}).items()):
+        fp = board.FindFootprintByReference(ref)
+        if fp is None:
+            raise SystemExit("slug_max names %s, which is not on the board" % ref)
+        smd = [q for q in fp.Pads() if q.GetNumber() and q.GetAttribute() == pcbnew.PAD_ATTRIB_SMD]
+        ep = max(smd, key=lambda q: q.GetSize().x * q.GetSize().y)
+        bb = ep.GetBoundingBox()
+        cx = pcbnew.ToMM(ep.GetPosition().x - o.x); cy = -pcbnew.ToMM(ep.GetPosition().y - o.y)
+        hx, hy = pcbnew.ToMM(bb.GetWidth()) / 2.0, pcbnew.ToMM(bb.GetHeight()) / 2.0
+        out = float(spec[0]) / 2.0 + via_d / 2.0 + 0.05
+        if out <= max(hx, hy):
+            continue
+        ring = [(cx - out, cy + hy, cx + out, cy + out), (cx - out, cy - out, cx + out, cy - hy),
+                (cx - out, cy - hy, cx - hx, cy + hy), (cx + hx, cy - hy, cx + out, cy + hy)]
+        for x0, y0, x1, y1 in ring:
+            z = pcbnew.ZONE(board)
+            z.SetIsRuleArea(True)
+            z.SetDoNotAllowTracks(False)
+            z.SetDoNotAllowVias(True)
+            z.SetDoNotAllowZoneFills(False)
+            z.SetDoNotAllowPads(False)
+            z.SetLayerSet(pcbnew.LSET.AllCuMask())
+            poly = pcbnew.SHAPE_LINE_CHAIN()
+            for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+                poly.Append(_to_board(x, y))
+            poly.SetClosed(True)
+            z.AddPolygon(poly)
+            board.Add(z)
+        rects += ring
+        print("  %s: no via between its %.1f x %.1f belly land and its slug's largest "
+              "%.2f mm (%s)" % (ref, 2 * hx, 2 * hy, float(spec[0]), spec[1]))
+    return rects
+
+
 def build(stem):
     """stem = the path prefix shared by <stem>.net and <stem>.board.json."""
     comps, nets = read_netlist(stem + ".net")
@@ -4554,11 +4609,17 @@ def build(stem):
                                  inner=notes.get("diff_pair_inner")):
         print("  diff pair %s: %s" % (name, msg))
 
+    _slug = _slug_rings(board, notes.get("slug_max"))
+    for _v in notes.get("vias", ()):
+        for _x0, _y0, _x1, _y1 in _slug:
+            if _x0 - 0.3 < _v[1] < _x1 + 0.3 and _y0 - 0.3 < _v[2] < _y1 + 0.3:
+                raise SystemExit("declared via %s at (%.2f, %.2f) stands in a slug_max "
+                                 "ring (see _slug_rings)" % (_v[0], _v[1], _v[2]))
     stitch = set(notes.get("stitch_nets", ()))
     if stitch:
         n = _stitch_plane_pads(board, stitch, _outline_pts(notes),
                                allow=set(notes.get("stitch_exceptions", ())),
-                               keepouts=notes.get("via_keepouts", ()),
+                               keepouts=list(notes.get("via_keepouts", ())) + _slug,
                                escape_pins=set(notes.get("pin_escapes", ())),
                                escape_runs=notes.get("escape_runs"),
                                declared=notes.get("tracks", ()),

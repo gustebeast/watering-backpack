@@ -95,6 +95,71 @@ def _centre(box):
     return (o.x + s.x // 2, o.y + s.y // 2)
 
 
+def _edges(board, pcbnew):
+    """Edge_Cuts as (obstacles, extent): the outline's own shapes, and its bbox.
+
+    ⚠ THE BOARD EDGE WAS NOT AN OBSTACLE, WHICH MADE THE FIXER DANGEROUS RATHER
+    THAN MERELY INCOMPLETE. The obstacle set was mask apertures and silk, so nothing
+    stopped the ring search parking a designator PAST THE OUTLINE. Demonstrated: a
+    reference 1.0 mm inside the right edge, with a wide aperture covering everything
+    inboard, was moved 1.50 mm to x 148.05 on a board whose edge is at 147.55 -- off
+    the board -- and clipped() then reported all 74 silk objects printing as drawn.
+    KiCad's own DRC called it silk_edge_clearance. A designator that is entirely
+    ABSENT is strictly worse than the missing letter this rule exists to prevent,
+    and the fixer is what put it there.
+
+    TWO TESTS, BECAUSE ONE DOES NOT COVER IT. Intersecting the outline's shapes
+    catches text STRADDLING an edge -- including the edge of an internal cutout,
+    which a bounding box would miss entirely. But text parked wholly outside the
+    board intersects nothing at all, so containment in the extent is checked too.
+    Neither is sufficient alone; together they bound a board that is convex or has
+    cutouts, which is every board this toolchain makes.
+    """
+    polys = []
+    lo_x = lo_y = hi_x = hi_y = None
+    half = 0
+    for d in board.GetDrawings():
+        if d.GetLayer() != pcbnew.Edge_Cuts:
+            continue
+        # ⚠ THE BOUNDARY IS THE CENTRELINE, AND THE BOUNDING BOX IS NOT. An
+        # Edge_Cuts shape is a STROKE, so its box is the cut line plus half a line
+        # width either side -- about 0.05 mm here. Measured against the box, U2's
+        # footprint outline, which sits 0.050 mm inside the edge, read as crossing it
+        # and this gate reported 0.0050 mm2 of lost ink on a board that is fine.
+        half = max(half, (getattr(d, "GetWidth", lambda: 0)() or 0) // 2)
+        bb = d.GetBoundingBox()
+        lo_x = bb.GetLeft() if lo_x is None else min(lo_x, bb.GetLeft())
+        hi_x = bb.GetRight() if hi_x is None else max(hi_x, bb.GetRight())
+        lo_y = bb.GetTop() if lo_y is None else min(lo_y, bb.GetTop())
+        hi_y = bb.GetBottom() if hi_y is None else max(hi_y, bb.GetBottom())
+        ps = _poly_of(pcbnew, d, pcbnew.Edge_Cuts)
+        if ps is not None:
+            polys.append((bb, ps))
+    if lo_x is None:
+        return [], None
+    return polys, (lo_x + half, lo_y + half, hi_x - half, hi_y - half)
+
+
+# 1 um, which no fab holds, so "exactly on the cut line" counts as inside
+_EDGE_EPS = 1000
+
+
+def _off_board(box, extent, margin=0):
+    """True when `box` reaches measurably outside `extent` (the Edge_Cuts centreline).
+
+    Proximity to the edge is NOT this function's business: KiCad's own
+    silk_edge_clearance owns that and finish.py runs it on every board. This answers
+    the one question that rule cannot -- is the ink on the board at all.
+    """
+    if extent is None:
+        return False
+    lo_x, lo_y, hi_x, hi_y = extent
+    return (box.GetLeft() < lo_x + margin - _EDGE_EPS
+            or box.GetRight() > hi_x - margin + _EDGE_EPS
+            or box.GetTop() < lo_y + margin - _EDGE_EPS
+            or box.GetBottom() > hi_y - margin + _EDGE_EPS)
+
+
 def _near(pcbnew, box, obstacles, reach):
     """The obstacles whose box comes within `reach` of this one; the rest cannot matter.
 
@@ -132,6 +197,7 @@ def clipped(board, pcbnew=None):
         pcbnew = _p
     ds = board.GetDesignSettings()
     expansion = getattr(ds, "m_SolderMaskExpansion", 0) or 0
+    edges, extent = _edges(board, pcbnew)
     out = []
     for silk_layer, mask_layer, _fab in _sides(pcbnew):
         cu_layer = pcbnew.F_Cu if silk_layer == pcbnew.F_SilkS else pcbnew.B_Cu
@@ -168,6 +234,19 @@ def clipped(board, pcbnew=None):
                 c.BooleanIntersection(m)
                 if c.OutlineCount():
                     area += abs(c.Area()) * 1e-12
+            # ⚠ THE ROUTER REMOVES INK AS SURELY AS THE MASK DOES. Ink past the
+            # outline is cut off the board; ink across it is cut in half. Neither is
+            # a solder-mask opening, so this used to report NEITHER -- and the fitter,
+            # which shares this geometry, would happily park a designator off the
+            # board and be told it printed as drawn.
+            if _off_board(box, extent):
+                # The reported area is the WHOLE glyph: exact when the object is
+                # wholly outside, an upper bound when it straddles. It is not
+                # refined, because the figure only has to be non-zero to fail the
+                # rule and the remedy is the same either way -- put the ink on the
+                # board.
+                area += abs(ps.Area()) * 1e-12
+                name += " [past the board outline]"
             if area > 1e-6:
                 p = obj.GetPosition()
                 out.append((name, area, (pcbnew.ToMM(p.x), pcbnew.ToMM(p.y))))
@@ -196,6 +275,10 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
         cu_layer = pcbnew.F_Cu if silk_layer == pcbnew.F_SilkS else pcbnew.B_Cu
 
         # ── the obstacle sets, built once per side ──────────────────────────
+        # the outline is side-independent, and it is FORBIDDEN rather than costed:
+        # see _edges(). A move that puts a designator off the board is not a cheaper
+        # trade than a silk overlap, it is the defect this pass exists to prevent.
+        edges, extent = _edges(board, pcbnew)
         masks, silks = [], []
         for fp in board.GetFootprints():
             for p in fp.Pads():
@@ -243,10 +326,20 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
                                [(bb, ps) for r, bb, ps in others if r != ref], reach)
 
             def score(dx, dy, shape=None):
-                """(clipped, silk overlaps) for the text moved by (dx, dy)."""
+                """(clipped, silk overlaps) for the text moved by (dx, dy).
+
+                None means "this position is not allowed": a mask opening, or the
+                board outline.
+                """
                 t = pcbnew.SHAPE_POLY_SET(base if shape is None else shape)
                 t.Move(pcbnew.VECTOR2I(dx, dy))
                 for ps in near_mask:
+                    if _hits(pcbnew, t, ps):
+                        return None, None
+                tb = t.BBox()
+                if _off_board(tb, extent):
+                    return None, None
+                for ps in _near(pcbnew, tb, edges, pcbnew.FromMM(1.0)):
                     if _hits(pcbnew, t, ps):
                         return None, None
                 n = 0
