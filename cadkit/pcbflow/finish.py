@@ -127,6 +127,25 @@ def _silkfit(stem):
                 notes = json.load(fh)
         except OSError:
             pass
+        # ⚠ THE INK FLOOR COMES OUT OF THE FAB TABLE, not a second copy of 0.15.
+        # quality.py owns that table and A12 grades the result against the same
+        # entry, so a fab change moves the fixer and the rule together.
+        floor = None
+        try:
+            qpath = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "quality.py")
+            qspec = importlib.util.spec_from_file_location("quality_fab", qpath)
+            qmod = importlib.util.module_from_spec(qspec)
+            qspec.loader.exec_module(qmod)
+            floor = float(qmod.FAB["silk_stroke"])
+        except Exception as exc:                            # noqa: BLE001
+            # NOT a silent skip: say that the ink was not raised, and let A12 --
+            # which reads the same table -- be the thing that fails.
+            print("  silk ink NOT raised (%s: %s): A12 decides"
+                  % (type(exc).__name__, exc))
+        if floor:
+            mod.thicken_ink(board, floor, pcbnew=pcbnew, log=lambda m: print(" " + m))
+
         moved, demoted, kept = mod.fit_refs(
             board, notes=notes.get("quality", {}) or {},
             log=lambda m: print(" " + m), pcbnew=pcbnew)
