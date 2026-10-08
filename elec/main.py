@@ -1439,6 +1439,27 @@ SUPPORTS = [(-43.0, -40.0), (43.0, -40.0), (-43.0, 50.0)]   # pads, NOT drilled
 
 BOARD_NOTES = {
     "outline_mm": (BOARD_W, BOARD_L),
+
+    # ── The short word for each way, where the full net name will not fit ────
+    # ⚠ THESE ARE CHOSEN BECAUSE THE DERIVED ONES MADE J2 AND J3 IDENTICAL.
+    # kicad_silk letters a way with the full net name where it fits and a short word
+    # where it does not, and at the 1.5 mm this board's face requires (elec/silk.py:
+    # measured, it is the smallest size whose thinnest glyph clears 0.15 mm) the full
+    # names do not fit a 5.08 mm way pitch. Left to _short(), which takes the tail
+    # after the last underscore, PUMP_A_LO and PUMP_B_LO BOTH became "LO" -- the same
+    # two words on the two terminals a person must tell apart, on a machine that pumps
+    # liquid -- and GND became "G" from its supply table.
+    # Each word below is distinct from every other and says what the way IS.
+    "silk_short": {
+        "PUMP_A_LO": "PA",      # pump A's low side; was "LO", same as B
+        "PUMP_B_LO": "PB",      # pump B's low side; was "LO", same as A
+        "GND": "GND",           # was "G"
+        "VBAT_RAW": "RAW",      # ahead of F2 -- the only way on J1 that is not GND
+        "VBAT_LVL": "LVL",      # behind F1, the level sensor's fused feed
+        "SENSE_RAW": "OUT",     # J5's way is LABELLED OUT; the net name is incidental
+        "+3V3": "3V3",
+        "VBAT": "VBAT",
+    },
     # ── Order-form choices, which live in NO gerber (PCB_QUALITY M12) ────────
     # Two of these four are not preferences, they are DESIGN DEPENDENCIES, and
     # until now they existed only as assumptions inside other people's sums:
@@ -2688,28 +2709,25 @@ BOARD_NOTES = {
         # on the front, and neither is worth a re-spin for a programming header that
         # is used with a USB-serial adapter in hand and the board on a bench.
         "connector_labels": {
-            # ⚠ J1 IS DECLARED BECAUSE THE RESPIN TOOK ITS FRONT-FACE ROOM, and the
-            # declaration is the honest record of that rather than a way to quiet A17.
-            # Measured on the routed board: J1's full pinout block is on B.Silk beside
-            # the part -- "J1", "1 VBAT_RAW", "2 GND" -- and F.Silk carries its way-1
-            # mark and nothing else. That is the face every connector on this board is
-            # labelled on (M26), so it is the convention and not an exception; what
-            # changed is that kicad_silk can no longer fit a WORD AT EVERY WAY on the
-            # front, because the six parts this respin added (Q4/R29/R30, C23/C24, R31)
-            # took the space it used to use. The front face at J1 is the worst of them
-            # for room: F2's blade holder sits 15.05 mm above it at (-1.60, -31.95) and
-            # J1's own pads plus the VBAT_RAW and VBAT pours fill what is left.
-            # A person wiring the pack reads the block on the back, which is where this
-            # board's convention puts it, and the way-1 mark on the front tells them
-            # which end they are counting from.
-            "J1": {"back_only":
-                   "the full pinout block is on B.Silk beside the part (J1, 1 VBAT_RAW, "
-                   "2 GND), the same face every other connector on this board is "
-                   "labelled on (M26), and F.Silk carries its way-1 mark. A word at "
-                   "every way no longer fits on the front: F2's holder is 15.05 mm "
-                   "above J1 and the pack pads and the VBAT_RAW/VBAT pours take the "
-                   "rest. It is a 2-way pack terminal wired once, on a bench, with the "
-                   "pinout readable on the back and pin 1 marked on the front"},
+            # ⚠ J1'S back_only DECLARATION WAS DELETED HERE WHEN THE FACE CHANGED,
+            # and it must COME BACK if the face is ever reverted. The declaration was
+            # right for KiCad's stroke font: at 1.0 mm with the full net names,
+            # kicad_silk could not fit a word at every way on J1's front face -- F2's
+            # blade holder sits 15.05 mm above J1 and the pack pads plus the VBAT_RAW
+            # and VBAT pours take what is left -- so the block went on B.Silk and this
+            # recorded that.
+            # Under "Rennie Mackintosh PSG" at 1.5 mm (elec/silk.py) the way words are
+            # the SHORT ones from silk_short above, and "1 RAW" / "2 GND" need less room
+            # than "1 VBAT_RAW" / "2 GND" did at the smaller size. So J1's ways are now
+            # named on its own side, the declaration described a board that had stopped
+            # existing, and A17 failed HARD on it -- which is the gate working, not a
+            # nuisance. Deleted rather than reworded, because there is nothing left to
+            # declare.
+            # A17's verdict moves with the silkscreen, so: REVERT THE FACE AND THIS
+            # COMES BACK. An earlier pass in this project got this wrong in the other
+            # direction, emptying connector_labels to clear a declaration that was only
+            # transiently stale; the lesson is that the declaration is a statement about
+            # a particular silkscreen, not about the connector.
             "J6": {"back_only":
                    "the full pinout block is on B.Silk beside the part, the same face "
                    "every other connector on this board is labelled on (M26). F.Silk "
