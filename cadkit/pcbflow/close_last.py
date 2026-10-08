@@ -28,7 +28,8 @@ import re
 import sys
 
 import pcbnew
-import noassert                                      # noqa: F401,E402  (no GUI dialogs)
+import wx                                       # noqa: E402  (KiCad's python ships it)
+wx.DisableAsserts()                             # NO MODAL DIALOGS IN A BUILD STEP -- see route.py
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repair_search as RS   # noqa: E402
