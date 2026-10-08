@@ -868,7 +868,7 @@ receiver — and cost 4 unconnected, because the router then took an F.Cu diagon
 LEVEL across the power section and severed PUMP_A_LO and VBAT. Reverted, and the
 remaining finding is accepted as **25** below rather than bought with routing damage.
 
-**Closed at 0 unconnected / 0 violations / 0 FAIL / 0 OPEN**, 59 placements, 34 BOM
+**Closed at 0 unconnected / 0 violations / 0 FAIL / 0 OPEN**, 70 placements, 34 BOM
 lines, 17 frames corrected and 0 unfitted. The board did not grow: still 95 × 112.
 
 ---
@@ -2386,16 +2386,30 @@ plus a re-route to save $0.00. **Do not do it.** Recorded beside the part in
 board's 86 vias are already 0.6 mm on a 0.3 mm drill, and the quote says
 `Via Covering $0.00`. Nothing to recover.
 
-## 23. The edge rails will arrive attached unless the order says otherwise
+## 23 - CLOSED: the depanel option is in ORDER.txt and selected on the quote
 
-**Open, and it is an order-form action rather than a design change.** Standard PCBA
+**Closed 2026-10-07, and it was the one pre-order item that bricks five assembled
+boards, tracked by an entry that read "Open" and said the opposite of the truth.**
+`elec/out/fab/main/ORDER.txt` carries it on the `tier:` line -- "TICK 'Depanel boards
+& edge rail before delivery' or the boards arrive too wide for the bay" -- and
+`docs/jlcpcb-quote.md` records it SELECTED on the 2026-10-07 quote at **$3.31**, a
+line item on the order form rather than a prediction. The text below is kept because
+its arithmetic is still the reason the option matters.
+
+⚠ AND THE MARGIN IS NOT THE 10 mm THIS ENTRY IMPLIED. The bay cavity is 105.24 mm
+in Y, so a 105.0 mm un-depaneled outline leaves **0.24 mm** of total slack against the
+**2.00 mm** the board must slide to clear the retention lip -- and it fouls the +Y wall
+by 3.00 mm on the way in. It does not present as an obvious 10 mm miss; it presents as
+a board that will not go in, or will not stay in.
+
+**Was open, and it is an order-form action rather than a design change.** Standard PCBA
 pads the outline to **105 x 112 mm by adding two 5 mm rails on the 95 mm sides** — the
 form states this itself. The housing bay is cut for a 95 mm board.
 
-**"Depanel boards & edge rail before delivery" is under Advanced Options and is not
-currently in `ORDER.txt`.** If it is missed, five boards arrive 10 mm too wide for the
-bay they were designed into, and trimming a rail off a finished assembled board by hand
-is how an edge trace gets cut.
+**"Depanel boards & edge rail before delivery" is under Advanced Options.** If it is
+missed, five boards arrive 10 mm wider than the bay they were designed into -- see the
+0.24 mm note above for how little of that it takes -- and trimming a rail off a finished
+assembled board by hand is how an edge trace gets cut.
 
 ## 24. CLOSED — the frames are measured: 17 placements corrected, 0 unfitted
 
@@ -2417,7 +2431,9 @@ runs, and what it found would have ruined the assembly:
 | J1, J2, J3 (2-way terminals) | — | origin +2.54 mm each |
 | BZ1 (buzzer) | — | origin +3.80 mm |
 
-**13 of 59 placements changed.** The origin shifts are arithmetic, not noise, and
+**13 placements changed, of 70.** (This said "13 of 59". 59 was never this board's
+total; it is 70 now, after the level inverter, two output capacitors and the IO0
+strap.) The origin shifts are arithmetic, not noise, and
 they are the exact failure the module's docstring predicts: KiCad puts a connector's
 origin on **pin 1** and the fab's library puts it at the **row centre**. J4's 10.16 =
 (5−1)×5.08/2; J5's 7.62 = (4−1)×5.08/2; J6's 6.35 = (6−1)×2.54/2. J4 was two whole

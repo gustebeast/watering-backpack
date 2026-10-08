@@ -305,7 +305,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
 Fab: **JLCPCB**. Prefer Basic/Preferred library parts to avoid extended-part fees.
 
 - [ ] 🎒 **ORDER THE BOARD — `elec/out/fab/main/main.zip`, assembled.** 95 × 112 mm,
-  2-layer, 59 placements, **34 BOM lines, 0 open values**, quality **0 FAIL / 0 OPEN**.
+  2-layer, 70 placements, **34 BOM lines, 0 open values**, quality **0 FAIL / 0 OPEN**.
   This list had no line for the board itself — the one most expensive thing in the
   project — so it never appeared in a to-buy roll-up. Before paying:
   - **Check the rotations in JLCPCB's previewer.** The CPL carries KiCad's
@@ -318,7 +318,7 @@ Fab: **JLCPCB**. Prefer Basic/Preferred library parts to avoid extended-part fee
     with "Depanel boards & edge rail before delivery" TICKED.
   - **F2's blade is not a BOM line** — the holder is on the board and §5's owned
     7460K45 goes in it. The five terminals and the buzzer are placed by JLCPCB like
-    everything else -- all 59 placements are in the CPL. You solder nothing on
+    everything else -- all 70 placements are in the CPL. You solder nothing on
     the board. The only two joints needing an iron are off-board and both are
     on the level sensor: extending its lead (§4) and the NPN inverter that goes
     in that lead at the J5 end (elec/CIRCUIT.md §7, finding 17).

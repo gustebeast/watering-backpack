@@ -146,9 +146,14 @@ Recorded in `elec/fab.py` beside the part so nobody re-derives the idea.
    than predicted.
 2. **⚠ THE PLACEMENT FILE UPLOADED HERE IS STALE — and so is the rest of the
    package; upload the whole zip, see item 5.** The
-   frames were measured after this quote (finding 24) and **13 of the board's 64
-   placements moved** (this said "13 of 59"; 59 was a stale total, corrected at all
-   five sites that cited it):
+   frames were measured after this quote (finding 24) and **13 placements moved**:
+   ⚠ THIS SENTENCE HAS NOW BEEN WRONG TWICE, WHICH IS WHY IT NO LONGER CARRIES A
+   TOTAL. It said "13 of 59"; 59 was never this board's total. It was then corrected to
+   64 with the claim that 59 had been "corrected at all five sites that cited it" --
+   and that claim was itself false when written: four live sites still said 59, two of
+   them inside bom_consolidated.md's own ORDER THE BOARD checklist. The total is **70**
+   today and is printed by `elec/fab.py` on every run, so the count belongs there and
+   not in prose. What this item is actually about is the 13 that MOVED:
    J4 by 10.16 mm, J5 by 7.62, J6 by 6.35 and 90°, the ESP32 by 90° and 3.68 mm, the
    buck by 270°, both gate drivers and Q3 by 180°. The prices above still stand — same
    parts, same board, same copper — but the CPL in this quote would have been assembled
