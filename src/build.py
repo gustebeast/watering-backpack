@@ -389,8 +389,8 @@ def main() -> int:
     slid = board.translate((0.0, -H.BOARD_SLIDE_Y, 0.0))
     s_seat = housing_solid.intersect(slid)
     s_seat_v = s_seat.val().Volume() if s_seat.val() is not None else 0.0
-    out = _swept(slid, (-1.0, 0.0, 0.0), 30.0)
-    i = out.intersect(housing_solid)
+    slid_sweep = _swept(slid, (-1.0, 0.0, 0.0), 30.0)
+    i = slid_sweep.intersect(housing_solid)
     free = (i.val().Volume() if i.val() is not None else 0.0) - s_seat_v
     ok = held > 1.0 and free <= 1.0
     blocked += 0 if ok else 1
@@ -414,8 +414,19 @@ def main() -> int:
     b = asm.toCompound().BoundingBox()
     print("\nwhole assembly %.0f x %.0f x %.0f mm"
           % (b.xlen, b.ylen, b.zlen))
+    # ⚠ `out` IS THE STEP PATH AND MUST STILL BE A STRING HERE. It was once
+    # reused as a scratch Workplane by the board-retention gate above, which
+    # cost nothing on disk -- asm.save() already ran -- but handed show() an
+    # object. show() never raises by design, so it printed ONE stderr line
+    # and returned False, and the FreeCAD tab silently stopped refreshing on
+    # every build. The "Wrote <cadquery.cq.Workplane object>" line was the
+    # only tell and it reads like success. Assert instead of trusting it.
+    assert isinstance(out, str), (
+        "the STEP path was overwritten before show(): got %r. Some gate above "
+        "reused the name `out` as a scratch solid." % (out,))
     print("Wrote %s  [build #%d]" % (out, build_n))
-    show(out)
+    if not show(out):
+        print("*** THE FREECAD TAB DID NOT REFRESH *** see the [freecad] line above")
     return bad + oversize + blocked + board_bad
 
 
