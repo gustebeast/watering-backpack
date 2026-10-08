@@ -64,12 +64,21 @@ LCSC = {
                                     # knee current left over. IPD034N06N3G (98 nC at
                                     # 10 V) and AP9990GH (Ciss 3.7 nF) are better on
                                     # RDS(on) and do not fit that budget.
-    "SCHOTTKY-60V-15A-vf0V59": "C260296",   # SMC MBRB2060CT, D2PAK, 495, 740 mV at 10 A.
+    "SCHOTTKY-60V-15A-vf0V55": "C260296",   # SMC MBRB2060CT, D2PAK, 495, 740 mV at 10 A.
                                     # Common-cathode dual, which is what the footprint's
                                     # {1:A, 2:K, 3:A2} declaration expects; both anodes
                                     # are paralleled so each leg sees 3.75 A of the 7.5 A
                                     # peak, and the hot Vf lands near 0.50 V against the
-                                    # 0.59 V ceiling main.py derives.
+                                    # 0.556 V ceiling main.py derives.
+                                    # ⚠ THE KEY WAS vf0V59 AND THE PART DID NOT CHANGE.
+                                    # VBAT_MAX went 20 -> 21 V (a 5S LXT pack off the
+                                    # charger), the duty is 12/Vpack, so the diode's
+                                    # conduction went 40 -> 42.9 % and I_avg 3.000 ->
+                                    # 3.214 A against the same 1.786 W budget: the
+                                    # REQUIREMENT tightened to 0.556 V. MBRB2060CT still
+                                    # clears it on 0.50 V per leg, but by 0.056 V instead
+                                    # of 0.095 V, so this is the first line to re-read if
+                                    # the pour area or the bay ambient ever moves.
     "SCHOTTKY-60V-3A": "C7428237",  # SS36 in SMA, 8146. The buck's catch diode: 0.50 A
                                     # average, so an SMA jellybean is ample.
     "ZENER-10V-0W5":   "C2103",     # BZT52C10, SOD-123, 84843. 9.4-10.6 V band keeps
@@ -354,7 +363,7 @@ OPEN_VALUES = frozenset()
 #
 # ⚠ WHAT THIS SET WAS ALSO DOING, so it is not lost with the entries. Four of
 # the fifteen were REQUIREMENTS wearing a value's clothes -- "NFET-60V-10mR",
-# "SCHOTTKY-60V-15A-vf0V59", "SCHOTTKY-60V-3A", "PTC-30V-200mA" -- and each one
+# "SCHOTTKY-60V-15A-vf0V55", "SCHOTTKY-60V-3A", "PTC-30V-200mA" -- and each one
 # sat in a footprint that fab_package's GENERIC pattern matches: R_, C_, Fuse_,
 # Inductor_SMD, Diode_SMD:D_SOD and Diode_SMD:D_SM[AB]. The pattern is right to
 # exist (a diode in an SMA land normally IS picked by part number, which is why

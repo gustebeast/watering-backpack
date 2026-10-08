@@ -30,7 +30,21 @@ OUT_DIR = gen.begin(__file__)           # before skidl is imported — see gen.b
 from skidl import Net  # noqa: E402
 
 # ── Design figures ──────────────────────────────────────────────────────────
-VBAT_MAX = 20.0          # fresh Makita pack
+VBAT_MAX = 21.0          # fresh Makita pack, OFF THE CHARGER
+# ⚠ THIS WAS 20.0, AND THE SAME FILE ALREADY KNEW BETTER 25 LINES DOWN.
+# An "18 V" LXT pack is a NAMEPLATE: 5 cells in series at 3.6 V nominal. The
+# terminal voltage is 5 x 4.2 = 21.0 V off the charger and 5 x 3.0 = 15.0 V flat,
+# and VBAT_MIN is already 15.0 -- so the design had committed to 5S at the bottom
+# of the range while capping the top at a figure no 5S pack stops at. The ADC
+# divider block below tabulates 15 V / 18 V / 21 V and states that "the whole
+# 15-21 V range sits inside the ADC's characterised LINEAR band": the sense path
+# was designed for 21 V and every OTHER margin in the file was taken at 20.
+# What moves with it is recorded where it lands -- the freewheel diode's required
+# Vf (the duty is 12/Vpack, so a FULL pack is the diode's worst case, not a flat
+# one), R9's dissipation, and the docked-inrush energy. Nothing moves the wrong
+# way: D1's SMCJ24A breaks down at 26.7 V minimum, so it still does not conduct
+# at 21 V, and the hot-plug ring stays bounded by its 38.9 V clamp rather than by
+# 2 x VBAT_MAX.
 VBAT_MIN = 15.0          # flat
 PUMP_A   = 7.5           # per pump, peak
 
@@ -695,7 +709,7 @@ FREEWHEEL_RTH_JA  = 42.0         # C/W, D2PAK on 687 mm2 of 1 oz -- ASSUMED
 FREEWHEEL_TA      = 50.0         # C, inside the sealed bay on a hot day
 FREEWHEEL_TJ_MAX  = 125.0        # C, the floor of this class's rating
 FREEWHEEL_P_MAX   = (FREEWHEEL_TJ_MAX - FREEWHEEL_TA) / FREEWHEEL_RTH_JA   # 1.786 W
-FREEWHEEL_VF_MAX  = FREEWHEEL_P_MAX / FREEWHEEL_I_AVG                      # 0.595 V
+FREEWHEEL_VF_MAX  = FREEWHEEL_P_MAX / FREEWHEEL_I_AVG                      # 0.556 V
 assert 0.30 < FREEWHEEL_VF_MAX < 0.90, (
     "the Vf ceiling came out at %.3f V, which is outside what a 60 V Schottky "
     "can be: check the duty, the pour area or the ambient" % FREEWHEEL_VF_MAX)
@@ -703,7 +717,7 @@ assert 0.30 < FREEWHEEL_VF_MAX < 0.90, (
 # comment is a requirement the person doing the sourcing never sees. The same
 # reasoning put the saturation current into L1's "10uH/4A6sat": the BOM line is
 # the last place the number can still change the part that gets bought.
-# ⚠ FLOORED, NOT ROUNDED, AND _house WOULD HAVE ROUNDED. _house(0.595, "V")
+# ⚠ FLOORED, NOT ROUNDED, AND _house WOULD HAVE ROUNDED. _house(0.556, "V")
 # gives "0V6" -- it rounds to the nearest tenth, which is right for a nominal
 # value like 4A6 and wrong for a CEILING: it would print a limit 0.005 V looser
 # than the one the arithmetic produced, and a part sourced against the printed
