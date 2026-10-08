@@ -1,4 +1,4 @@
-# The main board's JLCPCB quote, measured (2026-10-06, re-quoted 2026-10-07)
+# The main board's JLCPCB quote, measured (2026-10-06, re-quoted 2026-10-07, re-uploaded and CARTED 2026-10-08)
 
 Asked for: upload the board, check that everything looks right, and keep the pricing
 line items so savings have somewhere to be argued from. Method borrowed from the pedal
@@ -7,6 +7,89 @@ a real fab package through the real order form and read the answer.
 
 Nothing was ordered. The quote auto-saves into the JLCPCB account under
 **Projects > Quotes**, project name `main`.
+
+## 2026-10-08: the whole package re-uploaded, and the board is IN THE CART
+
+**Still nothing ordered.** It is saved in the cart, not paid for; the owner checks out.
+
+This is the upload `ORDER.txt`'s BLOCKER demanded and it is now DISCHARGED: the
+package that went up is the current `elec/out/fab/main.zip`, all sixteen files,
+regenerated immediately before the upload (70 placements, 34 BOM lines, 0 OPEN).
+The two silkscreen respins that happened after the 10-07 quote -- the face change
+and the ink widening to the 0.15 mm fab floor -- are on the fab's server now. The
+10-07 package is no longer the one being quoted against.
+
+**The parts match was verified mechanically rather than read off the screen.** The
+page said *34 parts detected, 34 parts confirmed*, which is the same sentence it said
+on 10-06; so the 34 designator-sets and their matched LCSC codes were scraped off the
+review table and diffed against `main-bom.csv`. **70 references, 34 lines, zero
+mismatches, nothing matched that is not in our BOM and nothing in our BOM unmatched.**
+The comparison was then fed a deliberately wrong code for U2 and it reported the
+substitution, so the agreement is a measurement and not an empty loop.
+
+**The form confirmed two things it states in its own words**, which is the only kind
+of confirmation worth having here:
+
+* *"The board size is modified to be 105mm*112mm due to adding two 5mm edge rails on
+  the shorter sides."* The housing bay is cut for 95 mm, so **Depanel boards & edge
+  rail before delivery = Yes**, $3.31. Unchanged from 10-07, re-read today.
+* The placement preview, in 2D, puts all five screw terminals on the -Y edge in the
+  order **J5 J2 J3 J1 J4** with the labels `LVL GND OUT GND | VBAT PA | VBAT PB |
+  RAW GND | 3V3 GND RAW GND GND` -- the arrangement finding 21 was closed on, now seen
+  on the fab's own render and not only in `main-cpl.csv`. C1 and C2 agree on all four
+  polarity cues (part-model `+` left, cathode band right, board silk `+` left, both
+  caps identical), which is what `elec/fab_polarity.py` already proved for all six
+  polarised parts off the layer-49 pin-1 dot.
+
+### What moved since 10-07, and it is only parts pricing
+
+| line | 10-07 | 10-08 | |
+|---|---|---|---|
+| Components (34 items) | $88.50 | **$90.46** | same 34 lines, the day's prices |
+| SMT Assembly | $2.15 | **$2.26** | same 70 placements |
+| Standard PCBA | $186.76 | **$188.83** | |
+| **TOTAL** | **$198.91** | **$200.98** | 5 boards, **$40.20 each** |
+
+Every other line is identical to the dollar: Engineering $4.00, Via Covering **$0.00**,
+Surface Finish $1.40, Board $5.70, Confirm Production file $1.05, Setup $25.75,
+Stencil $8.27, Feeders Loading **$43.40**, Confirm Parts Placement $0.45,
+Hand-soldering $3.61, Manual Assembly $2.56, X-Ray $8.25, Packaging $0.51,
+Depanel $3.31. Panel and Large Size are $0.00. Build time PCB 24 h / assembly 4-5 days,
+both $0.00.
+
+So the respin cost **$2.07, all of it component price drift**, and the $1.28-per-line
+feeder rate is untouched because the BOM is still 34 lines. The silkscreen work was
+free, as predicted.
+
+### Carted, and the two "Confirm" options are set to WAIT
+
+Both were ticked **"Do not confirm automatically"**, same as 10-07 and for the same
+reason: left on the default they expire into a production run after 48 / 72 hours and
+buy nothing. Confirm Parts Placement $0.45 and Confirm Production file $1.05 only have
+value if the order stops and waits for a person.
+
+Cart line, for checking against: **2 items, merchandise $200.98, DHL Express (DDP)
+$40.07, subtotal $241.05, 1.73 kg, estimated ship 2026-10-14.** Shipping is the one
+figure nothing in this repository can derive -- it is read, not computed -- and it went
+$31.23 -> $40.07 only because the weight went 0.33 kg (bare PCB) to 1.73 kg (assembled,
+packed), which is the same 1.73 kg this document recorded on 10-06.
+
+⚠ **TWO THINGS THE OWNER DECIDES, NOT THIS DOCUMENT.** (1) The account is showing
+**Save $30.00 and Save $20.00 coupons**; they apply at checkout and no one has applied
+them. (2) The customs Product Description was set to
+**Research\Education\DIY\Entertainment > Programmable Controller, HS 853890**, chosen
+by the owner from the form's own list: 8538.90 is parts for the control boards and
+panels of 8537, which is what an MCU-driven pump and level controller is. The
+alternatives offered were DIY (HS 902300, demonstration apparatus -- the code describes
+something this board is not) and Development Board (HS 847330, parts of data-processing
+machines).
+
+⚠ **THE CART ALSO HOLDS TWO OTHER PROJECTS' BOARDS** -- `output_panel_Y29`
+($9.05 + $257.54) and `optical_Y27` ($42.35 + $355.02). They were there before this
+upload and nothing here touched them. Only the two `main_Y30` lines are selected.
+Checking out everything in the cart would spend about $864 of merchandise rather than
+$201, so the selection matters at the checkout screen.
+
 
 ## What the upload confirmed
 
