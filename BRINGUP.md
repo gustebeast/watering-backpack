@@ -28,7 +28,18 @@ source per stage, as below.
 |---|---|---|
 | VBAT to GND, resistance | TP2 ↔ TP1 | **not a short.** Tens of kΩ and rising as C1/C2 charge off the meter |
 | 3V3 to GND, resistance | TP3 ↔ TP1 | **not a short.** Hundreds of Ω at minimum; a dead short here is an assembly fault |
-| F2 | the blade holder | **blade OUT.** It is the staging switch for everything below |
+| F2 | the blade holder | **blade OUT.** It isolates the pack from the whole board — see below |
+
+⚠ **WHAT THE BLADE DOES AND DOES NOT STAGE.** VBAT is the far side of F2, and VBAT
+carries U1's VIN *and* EN, R9's VGATE dropper, TP2 and both pump terminals. So the blade
+out means **the entire board is unpowered** — it is the pack's isolator, nothing finer.
+It comes **out** for stages 0 and 1 and goes **in** at stage 2, and from there what keeps
+things safe is that nothing which can move is landed and the firmware boots disarmed.
+
+**Two nets have no test pad, on purpose, because a screw terminal is already a probe
+point:** VBAT_RAW (J1 to F2, ahead of the blade) is probed at **J1's own screw**, and
+VBAT_LVL (F1 to J5, behind the level fuse) at **J5 way 1's screw** — which is how you
+tell a tripped F1 from a dead sensor.
 
 Nothing is landed on J1–J5 yet. The ten test pads are net-labelled on the silk:
 TP1 GND, TP2 VBAT, TP3 +3V3, TP4 VGATE, TP5 SW, TP6 GATE_A, TP7 GATE_B,
@@ -65,14 +76,48 @@ commonest reason a first flash fails (M26).
 **If the upload fails:** the baud is pinned to 115200 for exactly this reason, so
 suspect the wiring before the board. Swap pins 3 and 4 as the first experiment.
 
+⚠ **IF IT FLASHES AND THEN REBOOTS IN A LOOP, SUSPECT THE ADAPTER, NOT THE BOARD.**
+An adapter's 3V3 usually comes from a small LDO good for 50—100 mA. Flashing is fine
+because the radio is off, but `netSetup()` brings WiFi up on the first boot and an
+ESP32's transmit peaks run to several hundred mA. The board's own 88 µF of output
+capacitance absorbs a transient, not a sustained draw.
+
+The symptom is named rather than silent: arduino-esp32 enables the brownout detector by
+default and nothing here disables it, so the console prints **`Brownout detector was
+triggered`** before each reset. Seeing that at stage 1 is an underpowered adapter.
+**Do not diagnose the board from this stage — move to stage 2 and judge it on pack
+power.** `monitor_filters = esp32_exception_decoder` is set so that a genuine panic,
+as opposed to a brownout, arrives as a decoded backtrace instead of raw addresses.
+
+**Firmware footprint, measured** (`pio run -e main-usb`, 2026-10-08): builds clean,
+**RAM 16.0 %** (52,512 of 327,680) and **Flash 78.3 %** (1,026,150 of 1,310,720). The
+flash figure is against ONE app slot of `default.csv`, which carries two so OTA can
+swap between them — so the image fits with about 284 KB spare, and that margin is
+what an OTA update has to keep fitting into.
+
 ## Stage 2 — the pack, still with nothing attached that can move
 
-Adapter 3V3 **off** (leave TX/RX/GND landed to keep the console). Dock the pack. F2
-blade **still out**, J2/J3 (pumps) **empty**, J4/J5 empty.
+Adapter 3V3 **off** (leave TX/RX/GND landed to keep the console). **J2/J3 (pumps) empty,
+J4/J5 empty** — that, plus the disarmed firmware, is what makes this stage safe.
+
+Dock the pack, then fit **F2's blade**. The board is dead until you do: VBAT is on the
+far side of the fuse and feeds U1's VIN, so there is no 3V3 and no VGATE to measure with
+the blade out.
+⚠ An earlier version of this file said "blade **still out**" here and then asked for
+3V3 and VGATE anyway. It is recorded rather than quietly fixed because it is the exact
+shape of error a procedure exists to prevent: a state the steps cannot be performed in.
+
+First, with the pack docked and the blade still out:
 
 | measure | where | expect |
 |---|---|---|
-| pack voltage | TP2 ↔ TP1 | **15.0–21.0 V.** 21 V is a fresh pack off the charger, not 20 — a "18 V" Makita is 5S |
+| pack at the terminal | **J1's screw** ↔ TP1 | **15.0–21.0 V.** 21 V is a fresh pack off the charger, not 20 — a "18 V" Makita is 5S. This is VBAT_RAW, ahead of the fuse, which is why it reads with the blade out |
+
+Then fit the blade, and the rest of the board comes alive:
+
+| measure | where | expect |
+|---|---|---|
+| pack, board side | TP2 ↔ TP1 | **the same voltage**, within a few mV. A difference here is the fuse or its holder |
 | 3V3 | TP3 | **3.30 V** |
 | VGATE | TP4 | **10 V**, the zener rail |
 | GATE_A | TP6 | **0 V** |
