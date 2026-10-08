@@ -85,6 +85,13 @@ them from its "strip_silk" list (what a pcbflow-generated board carries). The sa
 supply `silk_rev` (the revision, when `--rev` is not given), `silk_refs`, `silk_labels`
 and `silk_name`.
 
+`silk_words` in the same notes: `[(text, x, y, "front" | "back"), ...]`, words that belong
+to a PLACE rather than to a part's pad -- what a socket is for, a warning beside an inlet.
+x, y are the centre of the site in the BOARD FILE's millimetres (what the editor's cursor
+and a DRC report give). They are laid LAST, so they move nothing else, at the free site
+nearest the point and no further than WORD_REACH from it; one with no site there is
+reported like any other label and never squeezed in.
+
 IDEMPOTENT: it deletes the board-level silkscreen text it finds first and lays the set
 again. The board's NAME is the stem's basename, upper-cased, underscores as spaces.
 """
@@ -843,8 +850,11 @@ def _legend(ref, pins, word, two_rows):
     return ref + "\n" + "\n".join(lines)
 
 
+WORD_REACH = 1.5           # mm a `silk_words` entry may sit from the point it was given
+
+
 def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=None,
-         read=None, pinout=None, ends=None, face=None, reach=None):
+         read=None, pinout=None, ends=None, face=None, reach=None, sited=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site
     (designators asked for by `refs` are reported but not returned: on a dense board
     most of them having no site is the expected result, not a finding)."""
@@ -862,6 +872,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         ends = _notes.get("silk_ends") if ends is None else ends
         face = _notes.get("silk_font") if face is None else face
         reach = _notes.get("silk_pinout_reach") if reach is None else reach
+        sited = _notes.get("silk_words") if sited is None else sited
     way_words = dict(way_words or {})
     pinout, ends = set(pinout or ()), set(ends or ())
     read = float(read or 0.0) % 360.0
@@ -1234,6 +1245,19 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
             ref_done.append(ref)
         else:
             ref_missed.append(ref)
+
+    # 6. words for a place (`silk_words`). LAST: every other label has its site by now,
+    #    so asking for one cannot move another, and a kept board re-lettered with a word
+    #    added differs from the last run by that word alone.
+    for text, wx, wy, face_ in (sited or ()):
+        if face_ not in ("front", "back"):
+            raise SystemExit("silk_words: %r is on %r -- 'front' or 'back'" % (text, face_))
+        s = sides[face_ == "back"]
+        if s.place_legible(text, SIZE_J, pcbnew.VECTOR2I(MM(wx), MM(wy)), WORD_REACH,
+                           wider=False):
+            done.append("'%s' (%s)" % (text, face_))
+        else:
+            missed.append(text)
 
     for d in old:                           # after every read; the save is next
         board.Remove(d)
