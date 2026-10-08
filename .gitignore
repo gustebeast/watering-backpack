@@ -32,3 +32,12 @@ skidl_REPL.log
 # be diffed against the last good one. It is a working file, not a source: the
 # generator IS the source and re-running it reproduces the .kicad_mod exactly.
 *.kicad_mod.prev
+
+# The silkscreen face is a LICENSED .otf (elec/silk.py). This repository is
+# PUBLIC, so the font file must never be committed to it -- it is installed
+# per-user instead, and a build without it falls back to KiCad's stroke font
+# and says so. Ignored pre-emptively: there is no elec/fonts/ here today, and
+# the point is that dropping one in cannot publish it by accident.
+elec/fonts/
+*.otf
+*.ttf

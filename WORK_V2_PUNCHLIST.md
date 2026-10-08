@@ -2802,6 +2802,93 @@ longer carried as an unexamined line in a status summary: the number, the net, t
 the lengths and the distance to the only thing that could have made them matter are all
 written down, so the next person does not have to re-derive them to decide the same way.
 
+### 52 — CLOSED: the board is lettered in Rennie Mackintosh PSG, and the face made the two pump terminals identical before it was fixed
+
+Owner's request, 2026-10-08: letter the silkscreen in the same face the
+public-steel-guitar boards use, set up the same way. The `.otf` was supplied from that
+project's `elec/fonts/` and installed per-user.
+
+**The plumbing is a project-local `elec/silk.py`**, which `finish.py` picks up
+automatically because a project's own `silk.py` beats the shared `cadkit/kicad_silk.py`
+(see its `_step`). The licensed font is **not** in this repository and must not be; it
+has to be installed for a build to produce the boards as ordered, and `fallback: true`
+means a clone without it still finishes — in KiCad's stroke font, **saying so loudly**.
+
+**1.5 mm is measured here, not inherited.** The glyph ink was rendered through pcbnew's
+`TransformTextToPolySet` and measured directly, because `GetBoundingBox()` on a text
+object returns the text BOX and reports the cap height and the thinnest bar as the same
+number — which measures nothing:
+
+| size | cap height | thinnest ink (the bar of `_`) | |
+|---|---|---|---|
+| 1.4 | 1.308 mm | **0.1431 mm** | **fails** JLCPCB's 0.15 mm floor |
+| 1.5 | 1.401 mm | **0.1533 mm** | clears it, by 0.0033 mm |
+
+So 1.5 is the **smallest size this face can be lettered at**, with no smaller fallback.
+`_` is the thinnest glyph and this board's labels are full of it; the next thinnest is
+`I` at 0.1701 mm. That this lands on the steel guitar's own 0.153 mm is corroboration,
+not the source.
+
+**⚠ AND AT 1.5 mm THE FULL NET NAMES STOP FITTING, WHICH MADE J2 AND J3 IDENTICAL.**
+`kicad_silk` letters a way with its full net name where that fits and a short word where
+it does not, and `_short()` derives that word from **the tail after the last
+underscore**. `PUMP_A_LO` and `PUMP_B_LO` both end in `_LO`, so:
+
+| | before the fix | after |
+|---|---|---|
+| J2 (pump A) | `1 VBAT` / **`2 LO`** | `1 VBAT` / **`2 PA`** |
+| J3 (pump B) | `1 VBAT` / **`2 LO`** | `1 VBAT` / **`2 PB`** |
+| every GND way | `G` | `GND` |
+| J1 | `1 RAW` / `2 G` | `1 RAW` / `2 GND` |
+| J5 | `1 LVL` / `2 G` | `1 LVL` / `2 GND` |
+
+**The two terminals a person must tell apart printed the same two words**, on a machine
+that pumps liquid, and M26/M1's whole argument is that the wiring is readable off the
+silk. Not a legibility complaint — an actively misleading drawing. Fixed by declaring
+`silk_short` in `BOARD_NOTES` (the notes are consulted *before* the derivation), with a
+word per way that is distinct from every other and says what the way is. `SENSE_RAW`
+became `OUT` while there, because J5's way is **labelled** OUT and the net name is
+incidental to whoever is holding the screwdriver.
+
+**The face IMPROVED connector labelling, which was not the expectation.** A17 before: two
+connectors with their pinout on the other face only (J1 and J6). After: **five of six
+have a word at every way on their own side**, and only J6 remains back-only. Shorter
+words need less room than the long names did even at the bigger size — which is also why
+**J1's `back_only` declaration had to be deleted**, A17 failing hard on it as stale. That
+deletion is **face-dependent and says so at the site**: revert the face, the long names
+return, J1's front runs out of room, and the declaration must come back. An earlier pass
+in this project got this wrong in the other direction by emptying `connector_labels` to
+clear a declaration that was only transiently stale.
+
+**Made to fail four ways** — a declaration is worth what its guards have been seen to do:
+
+1. family not installed, `fallback` on → letters in the stroke font and prints the
+   warning, `FACE_MISSING` set;
+2. family not installed, `fallback` off → refuses, rather than letting KiCad substitute
+   a face silently;
+3. `glyphs` not declared → refuses (this is a display face: ITC drew `+` as a TH
+   ligature, and `+5V` has plotted as `TH5V` on real boards with every check passing);
+4. `widths` told to expect the **un-redrawn ITC** ratio of 1.42 → fires, reporting the
+   installed file at 0.97. That is positive evidence the installed file is the redrawn
+   PSG one, not merely a family-name match.
+
+The first harness for this proved nothing and was thrown away: it called a `_face`
+function that does not exist (the real one is `_set_face`), so all four tests reported
+"accepted" vacuously. Second time this session a harness has had to be rewritten for
+not actually exercising the thing it tested.
+
+**State:** all **139** silk texts in Rennie Mackintosh PSG at 1.5 mm, no stroke-font
+fallback; A18 reports **0 clipped of 345** silk objects; A19 confirms all 139 use only
+the 48 characters verified as drawn in this file. `silk_overlap` went 1 → 3, and the two
+new ones are each a designator over **its own part's** outline (R26 on R26, C14 on C14)
+— the mildest kind, since both objects print and the label is unambiguously on the right
+part. 0 unconnected, 0 violations, 0 FAIL, 0 OPEN; build #521.
+
+**Residual, named:** the distinctness of the short words is a design choice that **no
+gate checks**. Add a third net ending in `_LO`, or a second starting `VBAT_`, and the
+collision comes back silently. The words are declared in one place with the reason, which
+is the cheapest available mitigation, not a guarantee.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.
