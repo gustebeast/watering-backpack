@@ -929,11 +929,20 @@ py -3.12 elec/main.py                                   # netlist + board.json
 <KiCad python> elec/fab.py main                          # -> elec/out/fab/main.zip
 ```
 
-Current result: 95 x 112 mm, 1.6 mm, 69 footprints, 4 mounting holes, **0
-unconnected and 0 violations** — 59 routed parts plus the ten bring-up pads of
-finding 9. 32 DRC *warnings* remain: 27 silkscreen (`silk_over_copper` ×17,
-`silk_overlap` ×10), most of them the net labels sitting on the copper they
-name, which is where a label belongs; and five `track_dangling`. `finish.py` prints warnings but deliberately does not fail
+Current result: 95 x 112 mm, 1.6 mm, **80 footprints**, 4 mounting holes, **0
+unconnected and 0 violations** — **70 routed parts** plus the ten bring-up pads of
+finding 9. **6 DRC *warnings*** remain: one `silk_overlap` and five
+`track_dangling`.
+⚠ ALL FOUR OF THESE FIGURES WERE STALE, and two of them by a lot. It read
+"69 footprints ... 59 routed parts ... 32 DRC warnings: 27 silkscreen
+(`silk_over_copper` ×17, `silk_overlap` ×10) ... and five `track_dangling`".
+The part counts predate the respin; the **seventeen `silk_over_copper` warnings
+and nine of the ten `silk_overlap` are simply gone**, cleared by the silkfit
+work rather than waived, which is why the total fell from 32 to 6. Re-read them
+off `elec/out/main.finish.drc.json`, which is the file the run writes, instead
+of from this paragraph. The five `track_dangling` are unchanged and are the
+known `unwick` tails — it retires a via without trimming the GND stub that fed
+it. `finish.py` prints warnings but deliberately does not fail
 a board on them, so these are accepted, not overlooked. What it *does* fail on is
 an **unexpected violation class**, which is how finding 9's five courtyard
 overlaps and the TP10 short were both caught.
