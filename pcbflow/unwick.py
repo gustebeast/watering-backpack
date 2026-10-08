@@ -33,6 +33,7 @@ import os
 import sys
 
 import pcbnew
+import noassert                                      # noqa: F401,E402  (no GUI dialogs)
 
 MM = pcbnew.ToMM
 FM = pcbnew.FromMM
