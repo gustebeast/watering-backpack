@@ -1018,9 +1018,23 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                   and o.GetReference().startswith("J")]
         theirs = [q for q in theirs if q[2] > q[0] and q[3] > q[1]]
 
-        def own_side(r, mine=mine, theirs=theirs):
+        # ⚠ AND NEARER ITS OWN CONTACTS THAN ANY TEST PAD. A bare "1" beside a test pad
+        # is that pad's to anyone reading the board (and to quality A17, which gives ink
+        # to a test pad when one is the nearest copper): a bring-up pad sited on the
+        # track leaving way 1 took the mark standing in line with the way.
+        lands = [_rect(q.GetBoundingBox()) for q in ways.values()]
+        probes = [_rect(q.GetBoundingBox()) for o in fps
+                  if o.GetReference().startswith("TP") and o.IsFlipped() == fp.IsFlipped()
+                  for q in o.Pads()]
+
+        def own_side(r, mine=mine, theirs=theirs, lands=lands, probes=probes):
             g = _gap(r, mine)
-            return all(g + MM(0.3) <= _gap(r, q) for q in theirs)
+            if not all(g + MM(0.3) <= _gap(r, q) for q in theirs):
+                return False
+            cx, cy = (r[0] + r[2]) // 2, (r[1] + r[3]) // 2
+            at = (cx, cy, cx, cy)
+            d = min(_gap(at, q) for q in lands)
+            return all(d + MM(0.1) <= _gap(at, q) for q in probes)
         for k in marks:
             what = "way-1" if k == 1 else "way-%d" % k
             others = [q.GetPosition() for n, q in ways.items() if n != k]

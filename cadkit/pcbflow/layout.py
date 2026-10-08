@@ -1905,8 +1905,9 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
     import math
     board.BuildConnectivity()
     cc = board.GetConnectivity()
-    pads = [(q.GetBoundingBox(), q.GetNetname())
-            for fp in board.GetFootprints() for q in fp.Pads()]
+    pads = [(bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom(), q.GetNetname())
+            for fp in board.GetFootprints() for q in fp.Pads()
+            for bb in (q.GetBoundingBox(),)]
     # ⚠ WITH THE LAYER, because the via hop below needs it. A track is only an obstacle
     # on its OWN layer; a via is one on all of them, which is what None means here.
     segs = [((t.GetStart().x, t.GetStart().y), (t.GetEnd().x, t.GetEnd().y),
@@ -1918,6 +1919,32 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
     margin = pcbnew.FromMM(width / 2.0 + clr)
     drills = [(t.GetPosition().x, t.GetPosition().y) for t in board.GetTracks()
               if t.GetClass() == "PCB_VIA"]
+    # ⚠ A GRID OVER THE OBSTACLES, BECAUSE `clear` IS ASKED A MILLION TIMES. It used to
+    # walk every pad and every segment on the board for each sample point -- and to call
+    # into KiCad four times per pad to read its box -- so the cost went as (pairs x
+    # candidate paths x samples) x (everything on the board): most of an hour on the
+    # optical board, more than the router took. An obstacle can only refuse a point
+    # that lies inside its own box grown by the margin, so each one is filed under the
+    # 1 mm cells that grown box touches and a point asks its own cell. Same test, same
+    # answer, a few dozen candidates instead of several thousand.
+    _CELL = pcbnew.FromMM(1.0)
+    grid_p, grid_s = {}, {}
+
+    def _file(grid, x0, y0, x1, y1, item):
+        for ci in range(int(x0 // _CELL), int(x1 // _CELL) + 1):
+            for cj in range(int(y0 // _CELL), int(y1 // _CELL) + 1):
+                grid.setdefault((ci, cj), []).append(item)
+
+    for _p in pads:
+        _file(grid_p, _p[0] - margin, _p[1] - margin, _p[2] + margin, _p[3] + margin, _p)
+
+    def _file_seg(s):
+        (ax, ay), (bx, by), hw = s[0], s[1], s[2]
+        r = hw + margin
+        _file(grid_s, min(ax, bx) - r, min(ay, by) - r, max(ax, bx) + r, max(ay, by) + r, s)
+
+    for _s in segs:
+        _file_seg(_s)
 
     def clear(x, y, net, layer=None):
         # ⚠ THE BOARD EDGE, AGAIN. This is the THIRD copper-laying routine in this file
@@ -1931,14 +1958,15 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
         if not _inside(outline, int(x), int(y),
                        margin - pcbnew.FromMM(clr) + pcbnew.FromMM(0.3)):
             return False
-        for bb, onet in pads:
+        cell = (int(x // _CELL), int(y // _CELL))
+        for left, top, right, bottom, onet in grid_p.get(cell, ()):
             if onet == net:
                 continue
-            dx = max(bb.GetLeft() - x, 0, x - bb.GetRight())
-            dy = max(bb.GetTop() - y, 0, y - bb.GetBottom())
+            dx = max(left - x, 0, x - right)
+            dy = max(top - y, 0, y - bottom)
             if math.hypot(dx, dy) < margin:
                 return False
-        for (ax, ay), (bx, by), hw, onet, olay in segs:
+        for (ax, ay), (bx, by), hw, onet, olay in grid_s.get(cell, ()):
             if onet == net:
                 continue
             # ⚠ ONLY WHEN A LAYER IS ASKED FOR. Passing None keeps the old, layer-BLIND
@@ -2065,6 +2093,7 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
                             # the reach was raised to 14.0 -- a latent bug, not a new one.
                             # The layer was in hand at both sites all along.
                             segs.append((q0, q1, pcbnew.FromMM(width) / 2.0, _net, layer))
+                            _file_seg(segs[-1])
                         hop = _hop_via_inner(board, a, b, net, inner,
                                              lambda x, y, nn, **kw: clear(x, y, nn),
                                              _seg_ok, _emit,
@@ -2112,6 +2141,7 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
                         t.SetNet(a.GetNet())
                         board.Add(t)
                         segs.append((q0, q1, pcbnew.FromMM(width) / 2.0, net, lay))
+                        _file_seg(segs[-1])
                         made += 1
                     board.BuildConnectivity()
                     cc = board.GetConnectivity()
