@@ -487,7 +487,7 @@ def fab(board):
             f.write("\n  rows that arrive UNTICKED with quantity 0 ('multiple types of parts'): "
                     "tick each one\n")
             for c, v, _k in _mixed:
-                f.write("  %-12s %s, %d placements\n" % (c + ":", v, n))
+                f.write("  %-12s %s, %d placements\n" % (c + ":", v, _k))
     crit, _total = _rotation_critical(pcb)
     with open(os.path.join(d, "ROTATION-CHECK.txt"), "w", encoding="utf-8") as f:
         f.write("%s -- what to look at in the fab's placement preview\n\n" % board)
