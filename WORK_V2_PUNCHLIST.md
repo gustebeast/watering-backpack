@@ -2528,6 +2528,142 @@ it still passes — otherwise the harness proves nothing.
 `cadkit/pcbflow` beside `fab_frames`, and that is worth doing, but upstreaming it means
 propagating to eleven consumers and is its own job.
 
+### 47 — CLOSED: the overfill alarm's polarity was ungated, and the gate's own docstring was the stale source
+
+Found while correcting two sign-off entries (M20, M35) that both described **a
+protection mechanism this board does not have**. Three separate defects, all pointing
+at the same sentence.
+
+**1. `tools/check_level_alarm.py` validated the alarm with the flag as an INPUT.** Its
+eight properties all start from `HIT = full_low`, so the suite passes with
+`LEVEL_FULL_IS_LOW` set *either way* — and that flag is the whole question of whether
+the buzzer sounds on a full tank or an empty one. It was **wrong in this repo** until
+the inverter went on the board, and nothing said so. A gate that takes the answer as a
+parameter is not checking it.
+
+**2. The claim it rested on, measured.** `check_pin_map.py`'s docstring said: *"the
+firmware sets INPUT_PULLUP and the board also fits R23 to 3V3 ... parallel pull-ups ...
+the external one is what keeps the open-collector sensor's 18 V rail off the pin."*
+Every clause is false of this board:
+
+| the claim | measured |
+|---|---|
+| firmware sets `INPUT_PULLUP` on IO14 | `pinMode(LEVEL_PIN, INPUT)` — `firmware/src/pins.cpp:170` |
+| "parallel pull-ups" | there is no internal pull, so there is no pair |
+| R23 is 10k | R23 is **100k** |
+| R23 pulls up LEVEL | R23 is the **+3V3 end** of a series string and is not on LEVEL: `+3V3 → R23 → LEVEL_PU1 → R27 → LEVEL_PU2 → R28 → LEVEL` = **300k** |
+| the pull-up keeps the pack off the pin | **no pull-up can.** The XKC-Y25 drives its HIGH to InVCC and would win. **Q4 and R29** cap the pin; the 300k only sources the 11 µA Q4's collector sinks |
+
+That docstring was cited by M20 and M35 **as their authority**, which is the worst
+version of this defect: a gate whose documentation lies about what it gates, loaned out
+to two sign-off entries as evidence.
+
+**3. `elec/CIRCUIT.md`'s whole tank-level entry still drew the pre-respin circuit** —
+an inverter **spliced into the sensor lead**, the black MODE wire moved to **VBAT**, and
+the way marked MODE **left empty**. After the respin that is precisely the wiring that
+**inverts the overfill alarm**, printed as the build instruction, on a board whose
+terminal is silkscreened MODE. Rewritten to the built thing: four wires, four ways,
+straight across, MODE on GND, `LEVEL_FULL_IS_LOW = false`, and the old table kept
+visible as the trap it was.
+
+**THE FIX IS A GATE, NOT A NOTE.** Check 9 of `check_level_alarm.py` **derives** the
+expected flag from `elec/out/main.net`:
+
+* J5's **MODE way** picks the sensor's output sense — on GND it is normally closed, so
+  no liquid → sensor HIGH;
+* each **grounded-emitter stage** between J5's OUT way and the module pin flips that
+  sense again (the walk refuses to travel through GND or a rail, so R30's hold-off and
+  the 300k string's far end are dead ends, not paths);
+* the result is compared with the firmware.
+
+It retypes nothing: way labels come out of `elec/main.py`'s own `gen.part()` call, the
+module pin out of `check_pin_map.py`'s WROOM-32E table, and `LEVEL_PIN` out of
+`pins.h`. Measured on the board as built: *J5 way 3 (OUT) → U2 pin 13 (IO14), 1
+inverting stage; MODE on GND; no liquid → pin LOW, so FULL is HIGH* → `false`, which is
+what the firmware says.
+
+**Made to fail five ways, each caught, each a pass before:** the firmware flag flipped;
+MODE moved to VBAT (the old build note's wiring — derives `true`); Q4 deleted (0 stages
+— derives `true`); Q4's emitter lifted off GND; and J5's MODE label renamed. The last
+two return **`None`**, printed as `?` and **counted as a failure** — a check that cannot
+read the board has not passed it. One round of the harness itself had to be thrown
+away: it edited the netlist with literal strings that did not match its whitespace, so
+two of the five tests were doctored by accident and one reported a pass it had not
+earned. A harness that silently does nothing proves the gate works.
+
+**One real defect in the derivation, found by that harness:** a transistor sits on both
+the net the walk arrives on and the net it leaves by, so Q4 was counted **twice** and
+the two inversions cancelled — giving `FULL IS LOW`, a *wrong* answer rather than a
+missing one. Stages are now counted once per reference.
+
+### 48 — CLOSED: finding 5 raised VBAT_MAX and nothing fired, because the figure that mattered most was prose
+
+Finding 5 corrected `VBAT_MAX` from 20.0 to 21.0 — a Makita "18 V" pack is 5S, so it
+is 5 × 4.2 = **21 V off the charger**. The constant changed, every gate stayed green,
+and **twenty sites went on saying 20 V**, including one that was not decoration.
+
+**The one that mattered.** M16 signs the board against hot-plug ringing: a cable-fed
+supply rings to about twice the source voltage, and VBAT *is* cable-fed because the
+pack docks live at the Makita holder. The entry read *"2 × 20 V = 40 V against ... U1's
+44 V VIN ... leaves 4 V — it passes, but on the RECOMMENDED maximum of 40 V it passes
+by nothing at all."* At 21 V:
+
+| | written | measured at VBAT_MAX = 21.0 |
+|---|---|---|
+| ring | 40.0 V | **42.0 V** |
+| margin on U1's 44 V absolute max | 4.0 V | **2.0 V** — halved |
+| against the 40 V *recommended* max | "passes by nothing at all" | **exceeds it by 2.0 V** |
+
+So the figure did not just drift, it **changed standing**: the ring is now outside the
+part's recommended operating range rather than exactly at its edge. The board is still
+sound, and for a reason that was already written down — the SMCJ24A clamps at 38.9 V,
+*below* the ring, with C1/C2's electrolytic ESR damping the LC underneath — but the
+sign-off was quoting a margin that no longer existed.
+
+**Why nothing fired: the ring was prose.** `BUCK_VIN_ABSMAX = 44.0` and
+`BUCK_VIN_RECMAX = 40.0` were both real constants with asserts on `TVS_CLAMP`, but
+*2 × VBAT_MAX* was a sentence in a sign-off entry. **A figure that no gate reads stops
+being true.** It is now derived in `elec/main.py`:
+
+```python
+BUCK_VIN_RING = 2.0 * VBAT_MAX   # V, undamped hot-plug ring on a cable-fed input
+assert BUCK_VIN_RING < BUCK_VIN_ABSMAX
+assert TVS_CLAMP < BUCK_VIN_RING   # a clamp ABOVE the ring never conducts
+```
+
+The second assert is the less obvious one and is the one that catches a lazy fix: drop
+`VBAT_MAX` far enough and the TVS stops clamping on a plug event at all, which would
+leave M16's damping argument *empty* while every number in it still looked fine.
+**Both were made to fail:** lowering `BUCK_VIN_ABSMAX` to 41.0 gives *"a 42.0 V
+hot-plug ring on a 21.0 V pack exceeds U1's 41.0 V VIN absolute maximum"*, and
+`VBAT_MAX = 19.0` gives *"the TVS clamps at 38.9 V but the ring only reaches 38.0 V,
+so it never conducts"*. Raising `VBAT_MAX` to 22.5 to test the first one is
+**pre-empted by an upstream assert on R9's dissipation** (104 mW in an 0805 at 83 % of
+rating), which is worth knowing: the rail already has a guard above it.
+
+**The other nineteen, recomputed rather than find-and-replaced.** Several carried
+*derived* numbers, so swapping 20 for 21 would have left the arithmetic wrong in a new
+way:
+
+| | was | now |
+|---|---|---|
+| `FREEWHEEL_DUTY` comment | 0.40, conducts 40 % | **0.43, conducts 42.9 %** |
+| buck inductor ripple | 0.55 A | **0.56 A** |
+| peak at the 0.6 A load | 0.876 A | **0.878 A** |
+| C1/C2 50 V derating ratio | 2.5× | **2.38×** |
+| the 1k5 dropper's current | 6.7 mA | **7.3 mA** |
+| `VBAT_PIN`'s divider output (`pins.cpp`) | 1.82 V | **1.91 V** (100k/10k, VBAT/11 — still clear of the 11 dB span, so the attenuation choice stands) |
+
+Plus plain-prose sites in `CIRCUIT.md`, `DESIGN_V2.md`, `fab.py`, `main.cpp` and the
+J1 terminal's own description, and the firmware comment that **quotes** CIRCUIT.md §1
+verbatim — which had to move with it, or the quotation marks would be lying.
+
+Two sites deliberately still say 20 V: the `elec/main.py` comment and the M16 sentence
+that **quote the retired text** in order to name what was wrong.
+
+Board after the sweep: **0 unconnected, 0 violations, 0 FAIL, 0 OPEN**, 70 placements,
+all gates pass, build #516.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.

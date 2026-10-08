@@ -181,7 +181,8 @@ void pinsInit() {
   // INPUT_PULLUP a silent no-op. Arduino's analogRead path selects the ADC pad
   // function itself. The pin is held at a defined level by R20/R21 (100k/10k
   // off VBAT) regardless, which is the only pull it has or needs.
-  // WHY 11 dB: the divider puts a fresh 20 V pack at 1.82 V; a narrower
+  // WHY 11 dB: the divider puts a fresh 21 V pack at 1.91 V (100k/10k, so
+  // VBAT/11; this said 1.82 V, which was the 20 V pack finding 5 retired); a narrower
   // attenuation would clip and read the pack as flatter than it is, which would
   // RAISE the duty cap. 11 dB is the full ~3.3 V span (DS-C §4.9.1).
   analogSetPinAttenuation(VBAT_PIN, ADC_11db);

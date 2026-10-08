@@ -12,7 +12,7 @@ the requirement is stated first.
 
 ## Supply and the voltage that sets everything
 
-Source is a **Makita 18 V LXT pack**: ~20 V fresh, ~15 V depleted, and it is the
+Source is a **Makita 18 V LXT pack**: **21 V fresh** (5S × 4.2 V off the charger, not the 18 V nameplate), 15 V depleted, and it is the
 *only* rail on the board. v1's 12 V buck is deleted (see DESIGN_V2 §6).
 
 That 20 V ceiling is the number that drives part selection, and it is where v1's
@@ -93,7 +93,7 @@ change that deletes the BTS7960.
   RUN_DUTY synthesises the pump's 12 V nameplate from whatever the pack is, so
   D = 12 / V<sub>pack</sub> and the diode carries the other (1 − D). A drained
   15 V pack runs D = 0.80 and the diode conducts **20 %** of the time; a fresh
-  20 V pack runs D = 0.60 and it conducts **40 %**. This line used to say "at
+  21 V pack runs D = 0.57 and it conducts **42.9 %**. This line used to say "at
   50 % duty it carries ~3.75 A average and dissipates ~1.5 W" — a round number
   from before the duty was derived. The real worst case is **3.00 A average**,
   and it is *lower* than the old guess because the firmware will not run the
@@ -113,7 +113,7 @@ change that deletes the BTS7960.
 - **Bulk electrolytic** close to each FET. Two pumps PWMing at 20 kHz pull real
   ripple current, and the loop that matters is battery → FET → pump → diode.
 
-**Duty is capped in firmware to synthesise 12 V from an 18–20 V pack.** PWM
+**Duty is capped in firmware to synthesise 12 V from a 15–21 V pack.** PWM
 already chops the supply, so the motor does not care — but the cap must track the
 pack voltage, which is what the divider below is for.
 
@@ -185,64 +185,67 @@ check in this repo would pass.
   source. ~1 kΩ + 100 nF (≈1.6 kHz corner — far above a hand, far below switching).
 - **Tank level** — **J5, a 4-way 5.08 mm screw terminal** like the other four. (This
   said "JST-PH" and the board has never had one.) Powered from **VBAT** behind F1,
-  and read on IO14 through **R23, a 10k pull-up to 3V3**.
-  ⚠ **THE PULL-UP IS NOT SUFFICIENT ON ITS OWN, and this entry used to claim it was.**
-  It read: *"output configured NPN open-collector … the GPIO sees a safe level with
-  no divider."* The argument is right and the premise is wrong — the XKC-Y25 family
-  specifies its HIGH output as **InVCC**, the supply rail, so at 18 V it would drive
-  18 V into IO14 and R23 would lose to its internal pull-up. **An NPN inverter goes
-  in the sensor lead** (10k base, emitter to GND, collector to J5's OUT, R23 as the
-  collector pull-up), which caps the pin at 3V3 whatever the sensor does. With the
-  sensor's MODE wire tied to **VBAT** rather than GND the inversion cancels and
-  `LEVEL_FULL_IS_LOW` still holds. Sizing, polarity and what to buy:
-  `WORK_V2_PUNCHLIST.md` finding 17.
+  and read on IO14 through an **on-board NPN inverter** — Q4 (MMBT3904, SOT-23) with
+  R29 100k in the base and R30 100k holding the base down — whose collector is pulled
+  up to 3V3 by the **300k string R23/R27/R28** and then filtered by R26/C19 into the
+  pin. IO14 is capped at 3V3 whatever the pack does.
 
-  **WHAT LANDS ON J5, wire by wire — it is NOT four-to-four.** The sensor has four
-  wires and J5 has four ways, which invites a straight-across assumption that is wrong
-  in two places:
+  ⚠ **THE PULL-UP IS NOT A PROTECTION MECHANISM, and this entry twice said it was.**
+  It first claimed the sensor's output could reach the pin directly because it is
+  "NPN open-collector"; the XKC-Y25 family specifies its HIGH output as **InVCC**, the
+  supply rail, so at a 21 V pack it drives 21 V out. It then prescribed an inverter
+  **spliced into the sensor lead** with R23 as a 10k collector pull-up. Neither is the
+  board. Q4 is a fitted part, R23 is **100k and does not touch LEVEL** — the pull is
+  three 100k in series, `+3V3 → R23 → LEVEL_PU1 → R27 → LEVEL_PU2 → R28 → LEVEL` — and
+  what keeps the pack off IO14 is **R29 and the b-e junction**, not any pull-up. The
+  300k only has to source the 11 µA Q4's collector sinks. Sizing and the forced-beta
+  arithmetic are in `elec/main.py` at Q4.
 
-  | sensor wire | goes to |
+  **WHAT LANDS ON J5, wire by wire: four-to-four, straight across, no splice.**
+
+  | sensor wire | J5 way |
   |---|---|
-  | **brown** (VCC) | **J5 VBAT** |
-  | **black** (MODE) | **J5 VBAT as well** — MODE must sit HIGH so the inversion cancels |
-  | **blue** (GND) | **J5 GND** |
-  | **yellow** (OUT) | **the inverter's 10k base resistor — NOT J5** |
-  | inverter collector | **J5 OUT** |
-  | inverter emitter | **J5 GND** |
-  | | **J5 MODE: left EMPTY** |
+  | **brown** (VCC) | **VBAT** |
+  | **yellow** (OUT) | **OUT** — lands on the board, at R29 |
+  | **blue** (GND) | **GND** |
+  | **black** (MODE) | **MODE** |
 
-  So three of the sensor's four wires reach a J5 terminal, the fourth stops at the
-  transistor, and the terminal actually named MODE is the one nothing lands on — it is
-  shorted to the GND plane on this board, which is the opposite of what this sensor
-  needs. Brown and black share the VBAT terminal; join them at the lead's splice
-  (finding 20 means there is one anyway) so only one conductor lands per screw.
+  *This table used to be the opposite of itself*: three wires to J5, yellow spliced to
+  an off-board base resistor, black moved to VBAT, and the way marked MODE left EMPTY.
+  Landing the MODE wire on the terminal marked MODE — the obvious action — silently
+  inverted the overfill alarm. That trap is retired; the labels are now the
+  instructions.
 
-  **Put the transistor at the BOARD end, not the sensor end.** Either works
-  electrically, but with the inverter at J5 the 700 mm run carries the sensor's raw
-  0 V / VBAT swing, which shrugs off pickup; with it at the sensor the run would carry
-  a high-impedance open-collector line held up by R23's 10k at the far end, on a lead
-  that climbs the outside of the case. The transistor also then lives in the sealed
-  bay rather than in the weather. Logic check, both directions: liquid → yellow HIGH →
-  transistor ON → **IO14 LOW**; dry → yellow 0 V → transistor OFF → R23 pulls **IO14
-  HIGH**. A disconnected sensor also reads HIGH, i.e. *not full*, which is the safe
-  failure and is what `tools/check_level_alarm.py` already assumes.
+  **MODE is tied to GND on the board** (`gnd += j_lvl["GND"], j_lvl["MODE"]`), which
+  selects the part's **normally-closed** mode: *no liquid → output HIGH, liquid →
+  output LOW*. Through Q4 that reads: no liquid → sensor HIGH → Q4 saturated → **IO14
+  pulled to ~0 V**; liquid → sensor LOW → Q4 off → **IO14 pulled HIGH by the 300k**. So
+  **FULL is HIGH** and `LEVEL_FULL_IS_LOW` in `firmware/src/main.cpp` is **false**.
 
-  **MODE sets the polarity, and with the inverter it goes to VBAT, not GND.** The
-  board ties J5's MODE terminal to GND (`gnd += j_lvl["GND"], j_lvl["MODE"]`),
-  which selects the part's normally-closed mode: *no liquid → output HIGH, liquid
-  → output LOW*. That was the right choice when the output was believed to reach
-  the pin directly. **It is the wrong one through an inverting stage**, which flips
-  it again. So the sensor's black wire lands on **VBAT** alongside brown, J5's MODE
-  terminal is left EMPTY, and the chain reads: liquid → yellow HIGH → NPN on →
-  **IO14 LOW**. `LEVEL_FULL_IS_LOW` in the firmware is then still correct and
-  nothing in `firmware/` changes.
-  *The board's MODE-to-GND tie is vestigial now and deliberately left alone:* it is
-  a terminal shorted to the GND plane, so an empty terminal costs nothing, and
-  removing it would mean re-routing an orderable board to delete a wire nobody
-  lands. The alternative — black on J5's MODE as originally drawn, and
-  `LEVEL_FULL_IS_LOW` flipped to false — is equally correct and is one boolean.
-  Either way the pin is capped at 3V3 by the inverter; this choice is only about
-  which of the two files does not change.
+  **The deciding case is a broken lead, not a working one.** A severed or unplugged
+  sensor leaves Q4's base at 0 V through R30: Q4 off, LEVEL floats up, and this
+  polarity calls that **FULL** — a dead sensor stops the pump. The MODE-to-VBAT
+  arrangement this entry used to prescribe, chosen so `LEVEL_FULL_IS_LOW` could stay
+  `true`, inverts exactly that case: a broken wire would read *not full* and keep
+  filling a tank on someone's back.
+  **A gate checks this now, and for most of this project none did.**
+  `tools/check_level_alarm.py` took `LEVEL_FULL_IS_LOW` as an *input* to all eight of
+  its properties — `HIT = full_low` — so the whole suite passed with the flag set
+  either way, and the flag is what decides whether the alarm fires on a full tank or
+  an empty one. **Check 9 derives it from `elec/out/main.net`** instead: J5's MODE way
+  picks the sensor's output sense, each grounded-emitter stage between J5's OUT way and
+  the module pin flips it again, and the result is compared with the firmware. It reads
+  the way labels out of `elec/main.py` and the module pin out of `check_pin_map.py`'s
+  own WROOM-32E table, so neither is retyped. Made to fail five ways: the flag flipped,
+  MODE moved to VBAT, Q4 deleted, Q4's emitter lifted off GND, and the MODE label
+  renamed — the last two report `?` and are counted as failures rather than guessed at.
+  Punchlist finding 47.
+
+  **The transistor is at the BOARD end, which is also where it belongs.** Either end
+  works electrically, but on the board the 700 mm run carries the sensor's raw
+  0 V / VBAT swing, which shrugs off pickup, instead of a 300k-impedance line climbing
+  the outside of the case; and the part lives in the sealed bay rather than in the
+  weather.
 
   The vendor warning not to "use the black wire as GND" is about not using MODE
   as the power *return* in place of the blue wire — shorting it to GND to pick

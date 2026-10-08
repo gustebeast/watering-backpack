@@ -8,6 +8,13 @@ readLevel() and updateBuzzer() from firmware/src/main.cpp, reads their constants
 out of that file rather than retyping them, and fails if the C++ text it claims
 to transcribe has changed.
 
+AND IT NOW CHECKS THE POLARITY IT USED TO ASSUME. Checks 1-8 take
+LEVEL_FULL_IS_LOW as an INPUT -- HIT = full_low -- so every one of them passed
+with the flag set either way, and the flag is what decides whether the alarm
+fires on a full tank or on an empty one. Check 9 DERIVES the expected value from
+elec/out/main.net and fails if the firmware disagrees. It was wrong in this repo
+until the inverter went on the board, and no gate said so.
+
 WHY IT EXISTS. This tank is carried on someone's back, so the water sloshes
 across the sensor's threshold constantly, and DESIGN_V2.md §7 puts the sensor
 BELOW the full line on purpose -- which means it is crossed early and often. The
@@ -90,6 +97,164 @@ def drive(c, pin_lows, ota=False):
     return [fw.step(p) for p in pin_lows]
 
 
+# ══ check 9: the polarity, derived from the board ════════════════════════════
+NET = ROOT / "elec" / "out" / "main.net"
+BOARD = ROOT / "elec" / "main.py"
+MCU = "U2"
+
+# Nets a signal cannot travel THROUGH. GND and the rails terminate a walk: R30 goes
+# from the base to GND and is a hold-off, not a path, and the 300k string ends at
+# +3V3. Without this the walk leaves the level circuit on the first resistor.
+RAILS = ("GND", "+3V3", "3V3", "VBAT", "VCC", "VDD")
+
+
+def _nets():
+    """{net name: [(ref, pin), ...]} out of the KiCad netlist."""
+    t = NET.read_text(encoding="utf-8")
+    out = {}
+    for b in re.split(r"\(net\s+\(code", t[t.index("(nets"):])[1:]:
+        m = re.search(r'\(name "([^"]*)"\)', b)
+        out[m.group(1)] = re.findall(r'\(ref "([^"]+)"\)\s*\(pin "([^"]+)"\)', b)
+    return out
+
+
+def _ways(ref):
+    """J5's way labels, read out of its gen.part() call rather than retyped."""
+    t = BOARD.read_text(encoding="utf-8")
+    m = re.search(r'gen\.part\(\s*"%s"\s*,[^,]*,[^,]*,\s*\[([^\]]*)\]' % ref, t,
+                  re.S)
+    if not m:
+        return {}
+    names = re.findall(r'"([^"]+)"', m.group(1))
+    return {str(i + 1): n for i, n in enumerate(names)}
+
+
+def _module_pin(fw):
+    """The module pin carrying LEVEL_PIN, via the same table check_pin_map.py uses."""
+    m = re.search(r"constexpr\s+int\s+LEVEL_PIN\s*=\s*(\d+)", fw)
+    if not m:
+        return None, None
+    gpio = "IO%s" % m.group(1)
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from check_pin_map import WROOM32E
+    for pin, sig in WROOM32E.items():
+        if sig == gpio:
+            return str(pin), gpio
+    return None, gpio
+
+
+def expected_full_is_low():
+    """(expected LEVEL_FULL_IS_LOW, [lines of working]) derived from the netlist.
+
+    Two independent facts decide it, and NEITHER is in the firmware:
+
+      1. the sensor's MODE way, which selects its output sense. Tied to GND the
+         XKC-Y25 is NORMALLY CLOSED -- no liquid -> output HIGH. Tied to the supply
+         it is normally open and that is inverted.
+      2. the number of INVERTING STAGES between the sensor's OUT way and the module
+         pin. Each common-emitter stage flips the sense again.
+
+    Returns None rather than guessing if the topology is not one it can read: a
+    check that cannot run has not passed, and run() prints "?" and fails.
+    """
+    why = []
+    try:
+        nets = _nets()
+    except Exception as e:                                   # noqa: BLE001
+        return None, ["could not read %s (%s)" % (NET.name, e)]
+    pins_h = ROOT / "firmware" / "src" / "pins.h"
+    pin, gpio = _module_pin(pins_h.read_text(encoding="utf-8"))
+    if pin is None:
+        return None, ["could not place %s on a module pin" % gpio]
+
+    of = {}                                                  # (ref, pin) -> net
+    for n, nodes in nets.items():
+        for node in nodes:
+            of[node] = n
+    start = of.get((MCU, pin))
+    if start is None:
+        return None, ["%s pin %s (%s) is on no net" % (MCU, pin, gpio)]
+
+    # ── walk from the module pin OUTWARD to a connector, counting inversions ──
+    # stages are counted ONCE: a transistor sits on both the net we came in on and
+    # the net we leave by, so without this Q4 is met twice and two inversions cancel
+    # -- which is a WRONG answer, not a missing one, and it read FULL IS LOW.
+    seen, inv, conn, used, odd = {start}, 0, None, set(), []
+    frontier = [start]
+    while frontier and conn is None:
+        nxt = []
+        for net in frontier:
+            for ref, p in nets[net]:
+                pins = [q for (r, q) in of if r == ref]
+                if ref.startswith("J"):
+                    conn = (ref, p)
+                    break
+                if ref.startswith(("R", "L")) and len(pins) == 2:
+                    other = next(of[(ref, q)] for q in pins if q != p)
+                    if other not in seen and other not in RAILS:
+                        seen.add(other)
+                        nxt.append(other)
+                elif ref.startswith("Q") and ref not in used:
+                    used.add(ref)
+                    if len(pins) != 3:
+                        # a three-terminal part reached on two nets is not a stage
+                        # this can read: say which part, because "no connector
+                        # reached" blames the walk for the board's problem.
+                        odd.append("%s is on %d net(s), not 3" % (ref, len(pins)))
+                        continue
+                    # the grounded pin is the emitter/source; of the other two, the
+                    # one we arrived on is the output and the third is the input.
+                    e = [q for q in pins if of[(ref, q)] == "GND"]
+                    if len(e) != 1:
+                        return None, ["%s is not a grounded-emitter stage" % ref]
+                    src = [q for q in pins if q != p and q not in e]
+                    if len(src) != 1:
+                        return None, ["cannot read %s's input pin" % ref]
+                    inv += 1
+                    why.append("%s: common-emitter stage, inverts" % ref)
+                    other = of[(ref, src[0])]
+                    if other not in seen and other not in RAILS:
+                        seen.add(other)
+                        nxt.append(other)
+            if conn:
+                break
+        frontier = nxt
+    if conn is None:
+        return None, (["no connector reached from %s pin %s" % (MCU, pin)] + odd)
+
+    ways = _ways(conn[0])
+    why.insert(0, "%s way %s (%s) -> %s pin %s (%s), %d inverting stage(s)"
+               % (conn[0], conn[1], ways.get(conn[1], "?"), MCU, pin, gpio, inv))
+
+    # ── the MODE way picks the sensor's own sense ─────────────────────────────
+    mode = [q for q, name in ways.items() if name.upper() == "MODE"]
+    if len(mode) != 1:
+        return None, ["%s has no single MODE way" % conn[0]]
+    mnet = of.get((conn[0], mode[0]))
+    if mnet == "GND":
+        sense_hi = True
+        why.append("%s MODE on GND: normally closed, no liquid -> sensor HIGH"
+                   % conn[0])
+    elif mnet and mnet.startswith(("VBAT", "+3V3", "3V3")):
+        sense_hi = False
+        why.append("%s MODE on %s: normally open, no liquid -> sensor LOW"
+                   % (conn[0], mnet))
+    else:
+        return None, ["%s MODE is on %r, which picks no documented mode"
+                      % (conn[0], mnet)]
+
+    # no liquid at the PIN, then FULL is the other one
+    pin_hi = sense_hi if inv % 2 == 0 else not sense_hi
+    why.append("no liquid -> pin %s, so FULL is %s"
+               % ("HIGH" if pin_hi else "LOW", "LOW" if pin_hi else "HIGH"))
+    # ⚠ AND THE SAFE SIDE IS THE ONE THIS PICKS. An open sensor lead leaves the
+    # stage held off, so the pin sits at its no-liquid level only if that level is
+    # the one the hold-off produces -- which is why the arrangement that reads FULL
+    # on a broken wire is the correct one: it stops the pump instead of filling a
+    # tank on someone's back. See elec/CIRCUIT.md, tank level.
+    return pin_hi, why
+
+
 def main():
     text = SRC.read_text(encoding="utf-8")
     if GUARD not in text:
@@ -104,7 +269,9 @@ def main():
     bad = 0
 
     # 1. idle: a pin held at the no-liquid level never alarms. This is also the
-    #    state of a DISCONNECTED sensor, since R23 pulls the pin up.
+    #    state of a DISCONNECTED sensor: its base held down by R30, Q4 is off and
+    #    the 300k string pulls LEVEL up. (This said "R23 pulls the pin up". R23 is
+    #    the FAR END of that string and does not touch LEVEL -- see check 9.)
     h = drive(c, [MISS] * 2000)
     ok = not any(f for f, _ in h)
     print("  idle / no sensor   -> never alarms            %s" % ("ok" if ok else "FAIL"))
@@ -166,6 +333,16 @@ def main():
     h = drive(c, [HIT] * 2000, ota=True)
     ok = not any(on for _, on in h)
     print("  mid-OTA            -> silent                  %s" % ("ok" if ok else "FAIL"))
+    bad += not ok
+
+    # 9. THE POLARITY ITSELF, derived from the board rather than assumed.
+    want, why = expected_full_is_low()
+    ok = want is not None and want == full_low
+    print("  polarity vs board  -> LEVEL_FULL_IS_LOW = %s, board wants %s   %s"
+          % (str(full_low).lower(),
+             "?" if want is None else str(want).lower(), "ok" if ok else "FAIL"))
+    for line in why:
+        print("        %s" % line)
     bad += not ok
 
     print("\n%s" % ("every level/alarm property holds" if not bad
