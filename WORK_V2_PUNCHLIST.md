@@ -2940,7 +2940,12 @@ there. Eight passages re-taken at 21.0 V: the rail table (15–20 → 15–21), 
 margin (20 → 19 V), the rejected-parts note, the buck's ripple (0.55 → **0.5563 A**,
 which `elec/main.py` derives), the catch diode's floor (1.25 × 20 = 25 → **26.25 V**),
 the ADC divider's scale and the TVS standoff. The rail table is the one line a regex can
-hold, so it is check 4 now.
+hold, so it is check 4 now — **and so is the sentence itself**: *"a fresh Makita pack is
+20 V and inductive spikes exceed that, so 24 V-max parts are rejected"* appeared in
+`CIRCUIT.md`, `DESIGN_V2.md` **and** `bom_consolidated.md`, and the BOM's level-sensor
+line sized a 5–24 V part against *"the pack's 18–20 V"*. The conclusion survives at 21 V;
+the margin each was advertising did not. Three prose claims checked against `VBAT_MAX`
+every run now.
 
 **The cap figures are new in `BRINGUP.md` and that is the point of them.** `cap=` is the
 only thing standing between a 21 V pack and a 12 V pump, and stage 2 — pack docked, no

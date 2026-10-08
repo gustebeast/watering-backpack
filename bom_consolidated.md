@@ -241,7 +241,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
 - [ ] 🎒 **XKC-Y25 non-contact capacitive liquid level sensor — qty 1.**
   ⚠ **THE VARIANT IS LOAD-BEARING AND THIS LINE USED TO NAME THE WRONG ONE.** It
   said "XKC-Y25-V (or similar)"; "or similar" is wrong three ways and -V may be wrong
-  too. The board feeds this sensor from **VBAT behind F1 (~15–20 V)** and reads it on
+  too. The board feeds this sensor from **VBAT behind F1 (15–21 V)** and reads it on
   **IO14 through the on-board inverter Q4** — R29 100k into the base, R30 100k holding
   it down, collector pulled up by the 300k string R23/R27/R28.
   ⚠ This line used to read **"R23, a 10k pull-up to 3V3"**, and claimed it "only keeps
@@ -278,7 +278,7 @@ bought and are on the shelf, and the reasoning is worth keeping.
     not on cutting it to length.
   - Clamps to the **outside** of the tank wall; nothing penetrates the tank and nothing
     touches the water, which sidesteps the 44 mm opening entirely.
-  - Power **directly from the battery rail** (5–24 V spec covers the pack's 18–20 V) —
+  - Power **directly from the battery rail** (5–24 V spec covers the pack's 15–21 V, with 3 V to spare at the top) —
     the v2 board only makes 3.3 V, so this matters.
   - Configure output **NPN open-collector**, pulled up to 3.3 V on the board. Push-pull
     mode would put 18 V into a GPIO.
@@ -353,7 +353,7 @@ Everything below is the functional list behind that zip.
 - 2× **Schottky freewheel diode**. Plain, not synchronous: it conducts only during
   off-time and usage is mostly full-on.
 - 1× **LMR14020SDDA buck, 18 V → 3.3 V**, 0.6 A drawn of a 2 A part, rated **≥36 V in**
-  — a fresh Makita pack is 20 V and inductive spikes exceed that, so 24 V-max parts
+  — a fresh Makita pack is 21 V and inductive spikes exceed that, so 24 V-max parts
   (MP2315, AP63203) are too close to the edge.
   ⚠ **It is NOT synchronous**, and this list said it was. A non-synchronous buck needs
   an external **catch diode** — **D6, SCHOTTKY-60V-3A in SMA** — and without it the SW
