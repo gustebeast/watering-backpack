@@ -158,12 +158,26 @@ Land J4. Only way 3 (VRY) is live; ways 2, 4 and 5 are tied to GND on the board.
 |---|---|
 | TP9 at rest | **≈1.65 V**, about half the rail |
 | `c` | recalibrates; leave the stick at rest while it runs |
-| `s` | `centre=` near 2048 of 4095, `dir=none` |
-| full deflection each way | `s` shows `dir=A(tank>pot)` one way, `dir=B(pot>tank)` the other — **while still disarmed**, so nothing moves |
+| `s` | `centre=` near 2048 of 4095, and `joy rawoff=` within the deadband (±300) |
+| push one way | `rawoff=` goes past **+300**; the telemetry line shows `offset=+...` |
+| push the other | `rawoff=` goes past **−300** |
 
-Confirm both directions here, disarmed, before anything can turn. Getting A and B
-swapped is a wiring error, not a firmware constant — `tools/check_pump_dirs.py` owns the
-firmware side.
+⚠ **`dir=` STAYS `none` THROUGHOUT THIS STAGE, AND THAT IS NOT A FAULT.** An earlier
+version of this file told you to watch `s` report `dir=A` and `dir=B` here. It never
+will while disarmed: the direction vote sits inside `if (armed && !otaActive)` in
+`loop()`, so nothing computes a direction when the motor is inhibited. Judge the stick
+by **`rawoff=`**, which is live either way — `+300` and `-300` are `DEADBAND_ON`, the
+same threshold the vote uses once armed. `s` says so in its own output now, and the
+periodic telemetry line carries `raw= filt= offset=` with a `[DISARMED]` marker.
+
+Recorded rather than quietly corrected, for the same reason as stage 2: a step that
+cannot be performed in the state it specifies is the defect a procedure exists to
+prevent, and this file shipped with two of them.
+
+Confirm both deflections here, disarmed, before anything can turn. **Which deflection
+drives which pump is only provable at stage 5**, with a pump landed — getting A and B
+swapped is a wiring error, not a firmware constant, and
+`tools/check_pump_dirs.py` owns the firmware side.
 
 ## Stage 5 — first pump motion
 

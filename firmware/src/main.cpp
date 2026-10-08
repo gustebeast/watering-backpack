@@ -369,6 +369,12 @@ constexpr uint32_t STATS_MS       = 1000;
 
 int  joyCentre = ADC_MAX / 2;                // re-measured at boot (see measureCentre)
 int  curDuty   = 0;                          // 0..DUTY_CAP (forward only)
+
+// The last joystick reading, kept at file scope ONLY so `s` can report it. The
+// periodic telemetry line already prints these, but `s` is the command you reach for
+// when a board boots and does nothing, and it could not show the stick at all.
+// rawOffset is the one the vote acts on; offset is the filtered diagnostic.
+int  lastRaw = 0, lastFilt = 0, lastRawOffset = 0, lastOffset = 0;
 // false = motor inhibited, telemetry live. A FRESH BOARD STAYS HERE until someone
 // arms it: see the prefs.getBool default in setup() for why, and finding 49 for the
 // floating-joystick hazard that makes it matter.
@@ -607,13 +613,21 @@ void handleCommand(char c) {
       measureCentre();
       break;
     case 's':
-      logf("state=%s dir=%s deadtime=%lums centre=%d duty=%d "
+      logf("state=%s dir=%s%s deadtime=%lums centre=%d duty=%d "
+           "| joy raw=%d filt=%d rawoff=%+d off=%+d "
            "| vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
            "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d | tank=%s(pin %s) "
            "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
            armed ? "ARMED" : "DISARMED",
            runDir == DIR_A ? "A(tank>pot)" : runDir == DIR_B ? "B(pot>tank)" : "none",
+           // ⚠ dir IS ALWAYS none WHILE DISARMED, BY DESIGN, AND THAT IS NOT A FAULT.
+           // The direction vote lives inside `if (armed && !otaActive)`, so nothing
+           // computes runDir when the motor is inhibited. Judge the stick by rawoff
+           // below, which is live either way: past +300 is A, past -300 is B
+           // (DEADBAND_ON). BRINGUP.md stage 4 does exactly that.
+           armed ? "" : "(none: disarmed, judge by rawoff)",
            (unsigned long)DIR_DEAD_MS, joyCentre, curDuty,
+           lastRaw, lastFilt, lastRawOffset, lastOffset,
            VOTE_K_ON, VOTE_N_ON, VOTE_K_OFF, VOTE_N_OFF,
            DEADBAND_ON, DEADBAND_OFF, RUN_DUTY,
            RAMP_MS, START_DUTY, (double)vbatV, vbatOK ? "" : "?", vbatCap,
@@ -801,6 +815,7 @@ void loop() {
 
   int rawOffset  = raw  - joyCentre;   // drives the on/off vote — the control path
   int offset     = filt - joyCentre;   // diagnostic only, reported but never acted on
+  lastRaw = raw; lastFilt = filt; lastRawOffset = rawOffset; lastOffset = offset;
 
   // ── Fast path: K-of-N majority vote, no smoothing, so no filter lag ───────
   // Three histories now, because both polarities are live. The release vote is
