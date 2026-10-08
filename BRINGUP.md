@@ -199,6 +199,33 @@ it opens when a person opens it. F2 is the fuse.
 With USB still attached, `s` prints `rssi=` and `ip=`. Once an IP appears,
 `pio run -e main-ota -t upload` works and the adapter is no longer needed.
 
+**If it flashes and runs but never gets an IP**, in the order worth trying:
+
+| check | meaning |
+|---|---|
+| no IP, and no usable `rssi=` | the radio never associated — credentials or band |
+| `s` shows a real `rssi=` but no IP | associated, no DHCP lease — a router or VLAN problem, not this board |
+| `rssi=` worse than about −80 dBm | it is a link-budget problem; see the antenna note below |
+| the console is silent after `Brownout detector was triggered` | not a network fault at all — stage 1's underpowered-adapter case |
+
+Two causes are specific to this board and worth knowing before you suspect the radio:
+
+* **The credentials are not in the repository.** `firmware/src/secrets.h` is gitignored,
+  so a fresh clone has no SSID or password and the board will come up, run, and never
+  associate. That is the expected behaviour of a clone, not a fault.
+* **The ESP32 is 2.4 GHz only.** A 5 GHz-only SSID, or a band-steering router that hands
+  out one name for both, looks exactly like wrong credentials.
+
+**The antenna has a measured keepout and it is the board outline, not a rule area.** The
+module's relief is the 4.6 × 4.6 mm cutout at x 140.70–145.30, y 47.70–52.30 in board
+coordinates (15.9 mm², which `finish.py` checks every run). There are **no copper rule
+areas on this board at all**, so nothing but that cutout keeps copper out from under the
+antenna — which is why finding 39 cut the board back rather than drawing a keepout.
+
+**Everything up to here works without a network.** Nothing in stages 0–5 needs WiFi, so
+a board that fails only this stage is a usable board with a network problem, and the
+pumps, the sensor and the alarm have all already been proven on the console.
+
 ⚠ **OTA authentication is OFF** (`OTA_PASSWORD` is empty in `src/secrets.h`), so anyone
 on the LAN can reflash the board. `platformio.ini` says how to turn it on.
 
