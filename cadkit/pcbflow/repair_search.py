@@ -460,22 +460,58 @@ class Board:
         self.keepouts = _keepouts(txt)
         self.zone_clear = _zone_clearance(stem)
 
+    def _via_near(self, x, y, r):
+        """The segments, vias and pads a via at (x, y) could be too close to.
+
+        ⚠ via_ok WAS 98.5 % OF close_last ON THE OPTICAL BOARD: 140 000 candidate vias,
+        each measured against every pad on the board with the exact pad distance -- twenty
+        minutes to close six nets, when the track test beside it (`_Index`) took fifteen
+        seconds. Same buckets as `_Index`, all layers at once because a via is on all of
+        them: an obstacle is filed under every 2 mm cell its box touches and one cell
+        further out each way, which is more than a via's reach, so the cell a point is in
+        holds everything that can refuse it (each box is grown by its own half-width first). Rebuilt if the lists or the net change."""
+        key = (self.net, len(self.segs), len(self.vias), len(self.pads))
+        if getattr(self, "_vn_key", None) != key:
+            c, g = _Index.CELL, {}
+
+            def put(x0, y0, x1, y1, kind, item):
+                for gx in range(int(math.floor(x0 / c)) - 1, int(math.floor(x1 / c)) + 2):
+                    for gy in range(int(math.floor(y0 / c)) - 1, int(math.floor(y1 / c)) + 2):
+                        g.setdefault((gx, gy), ([], [], []))[kind].append(item)
+            for s in self.segs:
+                h = s["half"]
+                put(min(s["x1"], s["x2"]) - h, min(s["y1"], s["y2"]) - h,
+                    max(s["x1"], s["x2"]) + h, max(s["y1"], s["y2"]) + h, 0, s)
+            for v in self.vias:
+                put(v["x"] - v["r"], v["y"] - v["r"], v["x"] + v["r"], v["y"] + v["r"], 1, v)
+            for pd in self.pads:
+                xs = [q[0] for q in pd["poly"]] if pd.get("poly") else [pd["x1"], pd["x2"]]
+                ys = [q[1] for q in pd["poly"]] if pd.get("poly") else [pd["y1"], pd["y2"]]
+                put(min(xs) - pd["r"], min(ys) - pd["r"], max(xs) + pd["r"], max(ys) + pd["r"],
+                    2, pd)
+            self._vn, self._vn_key = g, key
+        if r + MARGIN > _Index.CELL:                      # wider than a cell: no shortcut
+            return self.segs, self.vias, self.pads
+        return self._vn.get((int(math.floor(x / _Index.CELL)), int(math.floor(y / _Index.CELL))),
+                            ((), (), ()))
+
     def via_ok(self, x, y, r=VIA_D / 2.0):
         # the caller's own small soldered lands: a hole there takes the joint's paste
         for cx, cy, hx, hy in getattr(self, "own_lands", ()):
             if abs(x - cx) < hx + VIA_DRILL / 2.0 + 0.05 and abs(y - cy) < hy + VIA_DRILL / 2.0 + 0.05:
                 return False
-        for s in self.segs:
+        segs, vias, pads = self._via_near(x, y, r)
+        for s in segs:
             if s["net"] == self.net:
                 continue
             if _d_pt_seg(x, y, s["x1"], s["y1"], s["x2"], s["y2"]) < r + s["half"] + MARGIN:
                 return False
-        for v in self.vias:
+        for v in vias:
             if v["net"] == self.net:
                 continue
             if math.hypot(x - v["x"], y - v["y"]) < r + v["r"] + MARGIN:
                 return False
-        for p in self.pads:                       # pads: capsules, not circles
+        for p in pads:                            # pads: capsules, not circles
             if p["net"] == self.net:
                 continue
             if _d_seg_pad(x, y, x, y, p) < r + MARGIN:
