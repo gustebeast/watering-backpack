@@ -634,7 +634,10 @@ def start_hub(inbox_dir=None, initial_step=None):
     # tracked set, so a code reload never leaves an open tab unwatched.
     _adopt_from_status()
 
-    App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("AntiAliasing", 3)
+    # The hub does NOT touch View/AntiAliasing. It used to force MSAA 4x on every start,
+    # which silently undid the user's own choice in Preferences (user, 2026-10-07: set
+    # to None, came back as 4x each time a build opened the hub). Display quality is
+    # the user's setting; the hub only changes what a read-only viewer needs.
     # Read-only viewer: turn off FreeCAD's auto-recovery so an unclean exit
     # (force-kill, crash, reboot) never nags with the Document Recovery dialog.
     # The tabs are disposable STEP imports — there's nothing to recover.
