@@ -28,6 +28,7 @@ import re
 import sys
 
 import pcbnew
+import noassert                                      # noqa: F401,E402  (no GUI dialogs)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repair_search as RS   # noqa: E402

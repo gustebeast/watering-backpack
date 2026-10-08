@@ -17,6 +17,7 @@ import sys
 
 import layout
 import pcbnew
+import noassert                                      # noqa: F401,E402  (no GUI dialogs)
 
 
 def main(stem):
