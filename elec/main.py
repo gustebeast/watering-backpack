@@ -2665,6 +2665,28 @@ BOARD_NOTES = {
         # on the front, and neither is worth a re-spin for a programming header that
         # is used with a USB-serial adapter in hand and the board on a bench.
         "connector_labels": {
+            # ⚠ J1 IS DECLARED BECAUSE THE RESPIN TOOK ITS FRONT-FACE ROOM, and the
+            # declaration is the honest record of that rather than a way to quiet A17.
+            # Measured on the routed board: J1's full pinout block is on B.Silk beside
+            # the part -- "J1", "1 VBAT_RAW", "2 GND" -- and F.Silk carries its way-1
+            # mark and nothing else. That is the face every connector on this board is
+            # labelled on (M26), so it is the convention and not an exception; what
+            # changed is that kicad_silk can no longer fit a WORD AT EVERY WAY on the
+            # front, because the six parts this respin added (Q4/R29/R30, C23/C24, R31)
+            # took the space it used to use. The front face at J1 is the worst of them
+            # for room: F2's blade holder sits 15.05 mm above it at (-1.60, -31.95) and
+            # J1's own pads plus the VBAT_RAW and VBAT pours fill what is left.
+            # A person wiring the pack reads the block on the back, which is where this
+            # board's convention puts it, and the way-1 mark on the front tells them
+            # which end they are counting from.
+            "J1": {"back_only":
+                   "the full pinout block is on B.Silk beside the part (J1, 1 VBAT_RAW, "
+                   "2 GND), the same face every other connector on this board is "
+                   "labelled on (M26), and F.Silk carries its way-1 mark. A word at "
+                   "every way no longer fits on the front: F2's holder is 15.05 mm "
+                   "above J1 and the pack pads and the VBAT_RAW/VBAT pours take the "
+                   "rest. It is a 2-way pack terminal wired once, on a bench, with the "
+                   "pinout readable on the back and pin 1 marked on the front"},
             "J6": {"back_only":
                    "the full pinout block is on B.Silk beside the part, the same face "
                    "every other connector on this board is labelled on (M26). F.Silk "
