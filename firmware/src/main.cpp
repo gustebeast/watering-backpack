@@ -393,6 +393,19 @@ constexpr uint32_t LINE_MS        = 250;
 constexpr uint32_t STATS_MS       = 1000;
 
 int  joyCentre = ADC_MAX / 2;                // re-measured at boot (see measureCentre)
+// The band a resting KY-023 wiper can credibly sit in, either side of mid-scale. The
+// pot divides 3V3 and centres near ADC_MAX/2 = 2047; 1200..2900 is wide enough for a
+// cheap pot's offset and narrow enough that a floating node is unlikely to land in it.
+constexpr int JOY_CENTRE_LO = 1200;
+constexpr int JOY_CENTRE_HI = 2900;
+// ⚠ AND THIS NOW GATES THE ARM, where it used to produce a warning and nothing else.
+// Finding 49: JOY_RAW has no pull -- J4 way 3 and R22, nothing else -- so an unlanded
+// joystick leaves the ADC node FLOATING and measureCentre() calibrates against the
+// float. A later drift then reads as a deflection, which is a pump starting with no
+// hand on the stick. The copper fix (two 100k to mid-rail) is deliberately not being
+// made before the boards are ordered, so the free half is taken instead: a centre the
+// firmware already calls implausible must not be a centre it then acts on.
+bool centreOK  = false;                      // set by measureCentre(), read by setArmed
 int  curDuty   = 0;                          // 0..DUTY_CAP (forward only)
 
 // The last joystick reading, kept at file scope ONLY so `s` can report it. The
@@ -601,6 +614,24 @@ void drivePumps(Dir dir, int duty) {
 }
 
 void setArmed(bool on) {
+  // ⚠ REFUSED, NOT WARNED. See JOY_CENTRE_LO above: arming on a calibration that
+  // cannot be right is how an unlanded joystick starts a pump. The message says the
+  // measured value and the remedy, because a refusal with no reason reads as a dead
+  // board at bring-up -- which is its own kind of failure.
+  if (on && !centreOK) {
+    // ⚠ AND IF A REAL STICK HONESTLY RESTS OUTSIDE THE BAND, THIS BLOCKS IT, which
+    // is the cost of the trade and is why the message names the band rather than
+    // just failing: 'c' cannot help in that case, widening JOY_CENTRE_LO/HI can.
+    // TP9 at rest reads ~1.65 V on a good stick (BRINGUP stage 4), so bring-up sees
+    // that case before this message does.
+    logf("\n*** ARM REFUSED *** joystick centre %d is outside %d..%d, so it was not "
+         "measured on a resting stick.\n    Land J4 (3V3/GND/SIG), leave the stick "
+         "alone, press 'c' to recalibrate, then 'a'. Punchlist 49.\n"
+         "    (If a healthy stick really rests there -- check TP9 is ~1.65 V -- the "
+         "band is JOY_CENTRE_LO/HI in main.cpp.)\n",
+         joyCentre, JOY_CENTRE_LO, JOY_CENTRE_HI);
+    return;
+  }
   armed = on;
   prefs.putBool("armed", armed);       // survives reboot, including an OTA reflash
   if (!armed) allStop();
@@ -623,9 +654,13 @@ void measureCentre() {
   }
   joyCentre = buf[N / 2];
   seedFilters(joyCentre);
-  logf("Joystick centre = %d / %d  (median of %d)\n", joyCentre, ADC_MAX, N);
-  if (joyCentre < 1200 || joyCentre > 2900) {
-    logf("WARNING: centre is implausible — was the stick held at boot? Use 'c' to redo.\n");
+  centreOK = (joyCentre >= JOY_CENTRE_LO && joyCentre <= JOY_CENTRE_HI);
+  logf("Joystick centre = %d / %d  (median of %d)%s\n", joyCentre, ADC_MAX, N,
+       centreOK ? "" : "   <-- IMPLAUSIBLE");
+  if (!centreOK) {
+    logf("WARNING: centre is outside %d..%d — stick held at boot, or J4 not landed "
+         "(finding 49). ARMING IS REFUSED until 'c' succeeds.\n",
+         JOY_CENTRE_LO, JOY_CENTRE_HI);
   }
 }
 
@@ -643,7 +678,9 @@ void handleCommand(char c) {
            "| vote on=%d/%d off=%d/%d thr=%d/%d runduty=%d "
            "| ramp=%dms startduty=%d | pack=%.2fV%s cap=%d | tank=%s(pin %s) "
            "| on-lat~%dms off-lat~%dms | rssi=%d ip=%s up=%lus\n",
-           armed ? "ARMED" : "DISARMED",
+           // DISARMED/NO-CENTRE is the answer to "why did 'a' do nothing" -- see
+           // setArmed() and punchlist 49
+           armed ? "ARMED" : (centreOK ? "DISARMED" : "DISARMED/NO-CENTRE"),
            runDir == DIR_A ? "A(tank>pot)" : runDir == DIR_B ? "B(pot>tank)" : "none",
            // ⚠ dir IS ALWAYS none WHILE DISARMED, BY DESIGN, AND THAT IS NOT A FAULT.
            // The direction vote lives inside `if (armed && !otaActive)`, so nothing
@@ -830,6 +867,22 @@ void setup() {
                 armed ? "ARMED" : "DISARMED", vbatV, vbatCap,
                 vbatOK ? "" : " (SENSE IMPLAUSIBLE - assuming a fresh pack)");
   measureCentre();                     // also seeds the median + EMA state
+
+  // ⚠ THE SAME REFUSAL ON THE BOOT PATH, AND THIS IS THE CASE THAT ACTUALLY HAPPENS.
+  // The stored flag is read straight out of prefs above rather than through
+  // setArmed(), so a board the owner armed last session comes up ARMED without ever
+  // passing that guard -- and the field failure finding 49 describes is exactly
+  // that board with a joystick lead off: it boots armed, calibrates its centre
+  // against a floating node, and the first drift is a pump. Disarming here costs an
+  // 'a' after a real recalibration and nothing else.
+  if (armed && !centreOK) {
+    armed = false;
+    prefs.putBool("armed", false);
+    Serial.printf("*** DISARMED ON BOOT *** the stored state was ARMED, but the "
+                  "joystick centre (%d) is outside %d..%d. Land J4, leave the stick "
+                  "alone, 'c', then 'a'.\n",
+                  joyCentre, JOY_CENTRE_LO, JOY_CENTRE_HI);
+  }
 
   netSetup();
 }

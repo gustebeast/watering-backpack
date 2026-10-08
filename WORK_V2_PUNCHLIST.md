@@ -2666,6 +2666,27 @@ all gates pass, build #516.
 
 ### 49 — OPEN (copper): an unlanded or severed joystick lead can start a pump, and nothing holds JOY_RAW
 
+> **UPDATE 2026-10-08 — STILL OPEN, AND STILL COPPER. The free half is taken.** The
+> firmware already tested the measured centre against a 1200–2900 band and printed
+> *"WARNING: centre is implausible"* — and then armed on the next `a` anyway, which is a
+> warning scrolling past a console nobody is reading by the time the stick is touched.
+> It now **REFUSES** to arm on a centre it has already called implausible, says the
+> measured value and the remedy (land J4, let go, `c`, then `a`), and reports
+> `DISARMED/NO-CENTRE` on the status line so "why did `a` do nothing" has an answer.
+>
+> **And the same refusal is on the BOOT path, which is the case that actually happens.**
+> The stored armed flag is read straight out of `prefs` rather than through `setArmed()`,
+> so a board the owner armed last session came up ARMED without ever passing the guard
+> — and this finding's field failure is precisely that board with a lead off: boots
+> armed, calibrates against a float, first drift is a pump. It is disarmed on boot now,
+> with the reason printed.
+>
+> **This does not close the finding and must not be read as closing it.** The band is a
+> plausibility test, not a presence test: a floating node can settle inside 1200–2900 and
+> the guard then passes a calibration that is still wrong. Only the two 100k biasing
+> `JOY_RAW` to mid-rail make an unlanded lead read CENTRE rather than drift. That is the
+> fix, it is copper, and it is deliberately not in this revision.
+
 Found in the first-contact pass, which asked what happens with no joystick connected.
 
 **Measured on the netlist:** `JOY_RAW` is **`J4.3` and `R22.1`, and nothing else.** No
@@ -2903,8 +2924,34 @@ from `elec/out/main.net`:
 1. **firmware constants that copy board facts** — `RDIV_TOP_K`/`RDIV_BOT_K` against
    R20/R21, and the VBAT plausibility window against `elec/main.py`'s `VBAT_MIN`/`MAX`;
 2. **every component value claimed in prose** in the firmware and the live documents;
-3. **a slash pair must share a net** — `R26/C19` is not a filter if the two parts touch
+3. **the duty cap `BRINGUP.md` tells an operator to expect**, recomputed from `PWM_MAX`
+   (derived from `PWM_RES` in `pins.h`), `PUMP_V_NOM` and the pack range;
+4. **the pack range `CIRCUIT.md` publishes** in its rail table, against `VBAT_MIN`/`VBAT_MAX`;
+5. **a slash pair must share a net** — `R26/C19` is not a filter if the two parts touch
    nothing in common.
+
+**And `CIRCUIT.md` had kept the old pack ceiling, one line under the new one.** It opens
+*"**21 V fresh** (5S × 4.2 V off the charger)"* and then said *"That 20 V ceiling is the
+number that drives part selection … parts rated 24 V max sit **4 V** from the top of a
+fresh pack"*. The real margin is **3 V** — the sentence was advertising one a third
+larger than the board has, in the document that says of itself that this number drives
+part selection. Punchlist 48's sweep moved `elec/main.py` and the sign-off and stopped
+there. Eight passages re-taken at 21.0 V: the rail table (15–20 → 15–21), the FET
+margin (20 → 19 V), the rejected-parts note, the buck's ripple (0.55 → **0.5563 A**,
+which `elec/main.py` derives), the catch diode's floor (1.25 × 20 = 25 → **26.25 V**),
+the ADC divider's scale and the TVS standoff. The rail table is the one line a regex can
+hold, so it is check 4 now.
+
+**The cap figures are new in `BRINGUP.md` and that is the point of them.** `cap=` is the
+only thing standing between a 21 V pack and a 12 V pump, and stage 2 — pack docked, no
+pump wired — was the last stage at which it could be checked for free. It wasn't being
+checked at all: the first thing that would have demonstrated the cap was a motor turning.
+Stage 2 now says to work it out from the meter (`cap = 255 × 12 ÷ pack`: **146** at
+21.0 V, 170 at 18.0, 204 at 15.0), and names the two readings that mean the sense path
+has *failed* rather than drifted — a trailing `?` on `pack=` with `SENSE IMPLAUSIBLE`,
+and `cap=255` above 12 V. Three constants in two files produce those numbers, so a gate
+recomputes them rather than trusting the table, and it fails if the row stops naming the
+figure at `VBAT_MAX` — the end of the range the meter is actually on.
 
 | what it found | was | is |
 |---|---|---|
@@ -2941,8 +2988,9 @@ including the inverted one. Only the typographic pair counts in Python sources n
 That is the third harness this session that had to be rewritten for agreeing with itself.
 
 **Both were made to fail** against copied trees, so the gate runs unmodified and cannot be
-weakened to make a test pass: 8 cases and 7 cases respectively, including the R21 stale
-copy, a value changed on the *board* with the prose left behind, the `.py` quote trap,
+weakened to make a test pass: 15 cases and 7 cases respectively, including the R21 stale
+copy, a value changed on the *board* with the prose left behind, the pump's nameplate and
+the PWM resolution each moving without the printed caps following, the `.py` quote trap,
 and the netlist absent — which must **die**, not skip.
 
 **Residual, named:** `check_part_values`'s `unparsed` branch is a belt for a widened token

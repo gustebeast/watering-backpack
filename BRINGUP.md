@@ -124,6 +124,24 @@ Then fit the blade, and the rest of the board comes alive:
 | GATE_B | TP7 | **0 V** |
 | VBAT_SENSE | TP8 | **VBAT ÷ 11** — 1.91 V at a 21 V pack, 1.36 V at 15 V |
 | `s` | console | `pack=` within ~0.1 V of what the meter says at TP2 |
+| `s` | console | `cap=` **255 × 12 ÷ pack** — 146 at 21.0 V, 170 at 18.0 V, 204 at 15.0 V. Below ~12 V it pins at 255 |
+
+**⚠ READ `cap=` HERE, WITH NO PUMP ATTACHED.** It is the only thing standing between a
+21 V pack and a 12 V pump, and this is the last stage at which it can be checked for
+free — by stage 5 a pump is wired and a cap that is wrong is already turning a motor.
+Work it out from the meter: `cap = 255 × 12 ÷ pack`, rounded. If `pack=` is right and
+`cap=` is not, the divider constants and the board disagree, which is what
+`tools/check_part_values.py` exists to prevent and what put 12.60 V across a 12 V pump
+once already (punchlist 53).
+
+Two readings say the pack sense has **failed** rather than drifted, and both are worth
+knowing before they are mistaken for something else:
+
+* `pack=` carries a trailing `?` and the boot line says **`SENSE IMPLAUSIBLE - assuming
+  a fresh pack`** — the reading fell outside 10–22 V, so the firmware assumed the
+  *top* of the range (21.0 V, the worst case) and capped accordingly. That is the safe
+  direction: assuming a *lower* pack would RAISE the cap.
+* `cap=255` with a pack above 12 V — the cap is not capping. Suspect R20/R21 or TP8.
 
 **GATE_A and GATE_B at 0 V is the one to dwell on.** They are held there three
 independent ways — the UCC27517 holds its output low with its input floating (SLUSAY4D),
@@ -162,6 +180,17 @@ Land J4. Only way 3 (VRY) is live; ways 2, 4 and 5 are tied to GND on the board.
 | push one way | `rawoff=` goes past **+300**; the telemetry line shows `offset=+...` |
 | push the other | `rawoff=` goes past **−300** |
 
+⚠ **IF `a` IN THE NEXT STAGE PRINTS `*** ARM REFUSED ***`, THIS IS THE STAGE IT IS
+TALKING ABOUT.** A centre outside **1200–2900** is not a centre measured on a resting
+stick, and the firmware now refuses to arm on it rather than warning and arming anyway
+— the status line reads `DISARMED/NO-CENTRE` and a board whose *stored* state was armed
+is disarmed on boot with a message. The remedy is in the message: land J4, let go of the
+stick, `c`, then `a`. It exists because of punchlist 49, which is **open**: `JOY_RAW` has
+no pull of any kind, so an unlanded lead leaves the ADC node floating and the calibration
+lands on whatever it floats to. The copper fix is two 100k biasing it to mid-rail and is
+deliberately not in this revision; refusing to act on a calibration that cannot be right
+is the half that costs nothing.
+
 ⚠ **`dir=` STAYS `none` THROUGHOUT THIS STAGE, AND THAT IS NOT A FAULT.** An earlier
 version of this file told you to watch `s` report `dir=A` and `dir=B` here. It never
 will while disarmed: the direction vote sits inside `if (armed && !otaActive)` in
@@ -186,10 +215,21 @@ wrong direction spills into a bucket rather than into the electronics.
 
 | step | expect |
 |---|---|
-| `a` | `*** PUMP ARMED ***` |
+| `a` | `*** PUMP ARMED ***` — or `*** ARM REFUSED ***`, which is stage 4's centre, not a fault here |
 | brief deflection toward A | pump A runs; `s` shows `state=ARMED dir=A duty=` ramping |
 | release | stops within the off-latency `s` reports (~15 ms) |
+| **while it runs** | **J2's two screws, DC volts** ↔ each other: **≈ 12 V**, *not* the pack |
 | `d` | `*** PUMP DISARMED ***`, and it stays disarmed across a reboot |
+
+**⚠ THAT 12 V IS THE WHOLE PROTECTION, MEASURED AT THE MOMENT IT MATTERS.** The pumps
+are 12 V parts on a 15–21 V pack, and nothing drops the difference — the duty cap
+synthesises it, so the average across the motor is `duty ÷ 255 × pack`, which is 12 V by
+construction (stage 2's `cap=` row). A DC meter averages the 20 kHz chop, and the
+freewheel diode holds the off-time near 0 V, so an ordinary multimeter is the right
+instrument here. **If it reads the pack voltage instead, stop and disarm**: the cap is
+not being applied and the pump is at 1.75× its rating. That is `cap=255` from stage 2
+arriving at a motor, and it is the failure punchlist 53 found in the firmware's own
+fallback.
 
 Then land J3 and repeat for B. The killswitch at the dock is a **switch, not a fuse** —
 it opens when a person opens it. F2 is the fuse.

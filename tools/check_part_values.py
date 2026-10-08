@@ -306,7 +306,88 @@ if unparsed:
 # ---------------------------------------------------------------------------
 # 3. Slash pairs must share a net.
 # ---------------------------------------------------------------------------
-print("3. slash pairs name parts that share a net")
+print("3. the duty cap BRINGUP.md tells an operator to expect")
+
+# ⚠ THESE ARE THE NUMBERS A PERSON CHECKS THE PUMP PROTECTION BY, at the one stage
+# where it is still free to check -- stage 2, before a pump is wired. They are
+# derived from three constants in two files (PWM_MAX and PUMP_V_NOM in the firmware,
+# VBAT_MIN/MAX on the board), so written down they are exactly the kind of figure
+# that goes stale the next time one of them moves -- which is how VBAT_ASSUMED came
+# to sit below VBAT_MAX in the first place. Read back and recomputed here.
+CAPROW = re.compile(r"`cap=`[^|\n]*?255[^|\n]*?\|?([^|\n]*)")
+CAPPAIR = re.compile(r"(\d+)\s+at\s+(\d+(?:\.\d+)?)\s*V")
+
+def _pwm_max():
+    """PWM_MAX is DERIVED in the firmware -- (1 << PWM_RES) - 1, with PWM_RES in
+    pins.h, not main.cpp. Derive it the same way rather than writing 255 down here:
+    the whole subject of this gate is copies of other files' numbers."""
+    s = (ROOT / "firmware" / "src" / "pins.h").read_text(encoding="utf-8")
+    m = re.search(r"constexpr\s+int\s+PWM_RES\s*=\s*(\d+)", s)
+    if not m:
+        fail("firmware: no constexpr PWM_RES in pins.h, so PWM_MAX cannot be derived")
+        return None
+    return (1 << int(m.group(1))) - 1
+
+
+pwm_max = _pwm_max()
+v_nom = const(FW_MAIN, "PUMP_V_NOM")
+
+bring = (ROOT / "BRINGUP.md")
+pairs = []
+if bring.exists() and pwm_max and v_nom:
+    for line in io.open(bring, encoding="utf-8").read().splitlines():
+        if "`cap=`" not in line:
+            continue
+        pairs += [(float(v), int(c)) for c, v in CAPPAIR.findall(line)]
+if not pairs:
+    fail("BRINGUP.md states no `cap=` expectation that this could check -- the "
+         "operator has no way to tell a working duty cap from a broken one at the "
+         "stage where no pump is attached yet")
+else:
+    for volts, want in pairs:
+        got = int(pwm_max * v_nom / volts + 0.5)
+        got = max(1, min(pwm_max, got))
+        if got != want:
+            fail("BRINGUP.md says cap=%d at %.1f V; %d x %.0f / %.1f rounds to %d"
+                 % (want, volts, pwm_max, v_nom, volts, got))
+    ends = {p[0] for p in pairs}
+    for name, v in (("VBAT_MAX", VBAT_MAX), ("VBAT_MIN", VBAT_MIN)):
+        if v is not None and v not in ends:
+            fail("BRINGUP.md's cap= row does not give the figure at %s = %.1f V, "
+                 "which is the end of the range the operator is holding a meter to"
+                 % (name, v))
+    print("   %d cap figure(s) recomputed from PWM_MAX=%d, PUMP_V_NOM=%.0f: %s"
+          % (len(pairs), pwm_max, v_nom,
+             ", ".join("%d@%.1fV" % (c, v) for v, c in pairs)))
+
+print("4. the pack range CIRCUIT.md publishes in its rail table")
+
+# ⚠ CIRCUIT.md SAYS OF ITSELF that the pack ceiling "is the number that drives part
+# selection", and its rail table is where that number is published. The VBAT_MAX
+# sweep (punchlist 48) moved elec/main.py and the sign-off and left this document
+# behind: it opened "21 V fresh" and then, ONE LINE LATER, "that 20 V ceiling ...
+# parts rated 24 V max sit 4 V from the top", advertising a margin a third larger
+# than the real 3 V. One line, one regex, and that cannot happen again.
+RAIL = re.compile(r"\|\s*\*\*VBAT\*\*\s*(\d+(?:\.\d+)?)\s*[–—-]\s*"
+                  r"(\d+(?:\.\d+)?)\s*V\s*\|")
+circuit = ROOT / "elec" / "CIRCUIT.md"
+if not circuit.exists():
+    fail("elec/CIRCUIT.md is missing")
+else:
+    m = RAIL.search(io.open(circuit, encoding="utf-8").read())
+    if not m:
+        fail("elec/CIRCUIT.md's rail table no longer publishes a VBAT range this can "
+             "read -- the one line that states the pack ceiling the whole BOM is "
+             "chosen against")
+    else:
+        lo, hi = float(m.group(1)), float(m.group(2))
+        if (lo, hi) != (VBAT_MIN, VBAT_MAX):
+            fail("elec/CIRCUIT.md publishes VBAT as %g-%g V; elec/main.py says "
+                 "%g-%g V" % (lo, hi, VBAT_MIN, VBAT_MAX))
+        else:
+            print("   VBAT %g-%g V == elec/main.py's VBAT_MIN/VBAT_MAX" % (lo, hi))
+
+print("5. slash pairs name parts that share a net")
 
 # Connectors are excluded: "J1/J2/J3" enumerates three terminals that share a
 # FOOTPRINT, which is a different claim and a legitimate one.

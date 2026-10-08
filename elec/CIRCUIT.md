@@ -15,14 +15,18 @@ the requirement is stated first.
 Source is a **Makita 18 V LXT pack**: **21 V fresh** (5S × 4.2 V off the charger, not the 18 V nameplate), 15 V depleted, and it is the
 *only* rail on the board. v1's 12 V buck is deleted (see DESIGN_V2 §6).
 
-That 20 V ceiling is the number that drives part selection, and it is where v1's
-BOM came closest to an error: parts rated 24 V max sit 4 V from the top of a fresh
-pack before any switching spike. **Everything on the battery rail is specified
+That **21 V** ceiling is the number that drives part selection, and it is where
+v1's BOM came closest to an error: parts rated 24 V max sit **3 V** from the top of a
+fresh pack before any switching spike. (⚠ This paragraph said "that 20 V ceiling
+… 4 V from the top" one line under the sentence that gives 21 V fresh: the
+VBAT_MAX sweep of punchlist 48 moved elec/main.py and the sign-off and left this
+document's own figures behind. The margin it was advertising was 33 % larger than the
+real one.) **Everything on the battery rail is specified
 ≥40 V.**
 
 | rail | source | feeds |
 |---|---|---|
-| **VBAT** 15–20 V | pack, after **F2** (the on-board ATC blade fuse) + TVS. Reverse polarity is held by D1 as a **crowbar**, not by a series FET — see §6 | pump FETs, level sensor (fused), VGATE |
+| **VBAT** 15–21 V | pack, after **F2** (the on-board ATC blade fuse) + TVS. Reverse polarity is held by D1 as a **crowbar**, not by a series FET — see §6 | pump FETs, level sensor (fused), VGATE |
 | **3V3** | **non-synchronous** buck from VBAT (LMR14020, catch diode D6) | ESP32, joystick, buzzer, logic |
 | **VGATE** 10 V | 1k5 dropper + Zener shunt off VBAT | the two gate drivers, and nothing else |
 
@@ -48,8 +52,8 @@ change that deletes the BTS7960.
   4.5 V V<sub>GS</sub>, DPAK/TO-263 on a copper pour.
   *Why 60 V and not 40:* a brushed motor is an inductive load, and the freewheel
   path clamps the spike to roughly V<sub>BAT</sub> + V<sub>f</sub>, but only while
-  the diode is conducting. 40 V leaves ~20 V of margin over a fresh pack; 60 V
-  leaves 40. The part costs the same.
+  the diode is conducting. 40 V leaves ~19 V of margin over a fresh pack; 60 V
+  leaves 39. The part costs the same.
   At 7.5 A and 5 mΩ this dissipates **~0.28 W** — against ~0.9 W for a BTS7960
   half. Both of v1's hot parts are gone.
   **Both power parts were previously specified by part numbers that did not meet
@@ -129,7 +133,7 @@ pack voltage, which is what the divider below is for.
   one place a reader could pick up the wrong topology.
   Candidates: LMR14020 / LMR14030 (40 V), TPS54360 (60 V), MP4560 (55 V).
   **Explicitly rejected:** MP2315, AP63203 and the other 24 V-max parts — a fresh
-  pack is 20 V and inductive spikes exceed that.
+  pack is 21 V and inductive spikes exceed that, with 3 V to spare before one.
   1 A covers the ESP32's ~500 mA WiFi TX bursts with margin; average draw is
   ~100 mA.
 
@@ -177,7 +181,7 @@ check in this repo would pass.
   constant as the pack sags, and expose sag in telemetry. *This would have
   diagnosed v1's mid-run slowdown in thirty seconds* — instead it cost a session
   and the leading theory (buck thermal foldback) was disproved only by touching
-  the part. Scale 20 V → <3.3 V with margin; ~100 kΩ top leg so it costs no
+  the part. Scale 21 V → <3.3 V with margin (100k/10k puts a fresh pack at 1.91 V); ~100 kΩ top leg so it costs no
   meaningful idle current.
 - **Joystick** — 5-pin JST-PH to the existing KY-023, powered from **3V3, not 5 V**,
   so the output stays inside ADC range. **RC filter at the ADC pin**: this is the
@@ -352,7 +356,7 @@ check in this repo would pass.
 - **F1**, a 30 V
   200 mA resettable PTC, in series with J5.1 so the level sensor's cable cannot take the
   rail down or glow when it chafes (M36).
-- **TVS on VBAT** — standoff above 20 V, clamping well below the FETs' 60 V. D1 is an
+- **TVS on VBAT** — standoff above 21 V, clamping well below the FETs' 60 V. D1 is an
   **SMCJ24A**: 24 V standoff, 26.7 V minimum breakdown, **VC = 38.9 V max** at 38.6 A,
   1500 W — read off the table rather than rounded, because it is the single number every
   part on the rail is judged against (M5). The clamp is **the same 38.9 V** as the
@@ -585,7 +589,8 @@ heat source. As netted it would have dissipated nothing, which is the tell.
 
 SNVSAA5B §6.3.8: *"The RT/SYNC pin can't be left floating or shorted to ground."*
 It sets the switching frequency. **R8 = 49k9**, the datasheet's own table value
-for 500 kHz, which with the 10 µH inductor gives 0.55 A of ripple at 20 V in.
+for 500 kHz, which with the 10 µH inductor gives **0.56 A** of ripple at 21 V in (elec/main.py
+derives it: BUCK_RIPPLE_A = 0.5563 at VBAT_MAX; it read 0.55 at the retired 20 V).
 
 ### 4a. The buck had no catch diode, and it is not a synchronous part
 
@@ -617,7 +622,7 @@ the requirement rather than a part number, as Q1/Q2 and D2/D3 do, and §7.2.2.5
 sets both halves of it:
 
 - *"The breakdown voltage rating of the diode is preferred to be 25% higher than
-  the maximum input voltage"* — 1.25 × 20 V = 25 V is the floor. 60 V is used
+  the maximum input voltage"* — 1.25 × 21 V = 26.25 V is the floor. 60 V is used
   instead, for the reason the whole board is built on: everything on this node is
   rated past a fresh pack **and** past the TVS's 38.9 V clamp, SW's own absolute
   maximum is 44 V, and 60 V makes this the same requirement as the pump
