@@ -2664,6 +2664,57 @@ that **quote the retired text** in order to name what was wrong.
 Board after the sweep: **0 unconnected, 0 violations, 0 FAIL, 0 OPEN**, 70 placements,
 all gates pass, build #516.
 
+### 49 — OPEN (copper): an unlanded or severed joystick lead can start a pump, and nothing holds JOY_RAW
+
+Found in the first-contact pass, which asked what happens with no joystick connected.
+
+**Measured on the netlist:** `JOY_RAW` is **`J4.3` and `R22.1`, and nothing else.** No
+pull-up, no pull-down, no bias. J4's other live candidates are not available either —
+ways 2, 4 and 5 (GND, VRX, SW) are all tied to GND on the board, so there is no second
+axis and no switch to use as presence detection.
+
+**The failure, step by step.** With the lead off, the node behind R22/C12 floats at an
+ADC input. `measureCentre()` takes a 129-sample median *of the float* and adopts it as
+centre. Leakage and temperature then move a floating 100 nF node by far more than
+`DEADBAND_ON`, which is **300 counts of 4095 ≈ 0.24 V**, and 6 of 10 samples over that
+threshold is an engage vote. So: **a pump starts with no hand anywhere near the stick.**
+
+**It is not only a bench condition.** A severed or pulled-off joystick lead does exactly
+the same thing, and [finding 27](#27) says that lead is one of **three** that land on a
+screw clamp with no strain relief, on a machine carried on someone's back. The bench case
+is the one that bites first; the field case is the one that matters.
+
+**Why a simple pull is the wrong fix, which is the interesting part.** The obvious
+remedy — 100 k to GND — pins an unlanded `JOY_RAW` to **0 V**, and 0 V is not "no
+command", it is **full deflection one way**. A pull-up to 3V3 is full deflection the
+other way. Either one converts an undefined input into a confident wrong one, which is
+worse than the float.
+
+**The fix is a mid-rail bias:** two resistors from 3V3 and GND to `JOY_RAW`, so an
+unlanded stick reads **centre** and commands nothing. At 100 k each — **a value already
+on this board, so no new BOM line and no new feeder fee** — the Thévenin source is
+50 k against the KY-023's ≈ 10 k pot, which pulls a real reading toward mid-rail by
+roughly 5 % of its offset from centre: well inside a deadband that is calibrated at boot
+anyway. Cost: two 0603 placements and a short route into an existing analog node.
+
+**DELIBERATELY NOT DONE, and said rather than smuggled.** The board is being ordered and
+this is copper: two parts, two placements, a route into the quietest net on the board
+(M21 — C12 sits 3.117 mm from U2.6 on purpose, and the ADC's quiet reference is a signed
+item). It wants its own pass with the overlap gate, A2, A16 and M21 re-read, not a
+last-minute insertion.
+
+**What was done instead, at zero copper:** a board with **no stored preference now boots
+DISARMED** (`prefs.getBool("armed", false)`, was `true`). `setArmed()` writes that key,
+so it is a **first-boot default only** — arming once sticks across reboots and across an
+OTA reflash, and nothing about normal use changes. A factory-fresh board therefore will
+not drive a pump until someone sends `a`, which removes the bench case entirely and
+leaves the field case (a lead pulled off a board that has been armed) open and named.
+
+**Bring-up stages around it**: `BRINGUP.md` lands the joystick at stage 4 and confirms
+both directions **while still disarmed**, and does not fit F2's blade or land a pump
+until stage 5. The staging is not advisory — it is what makes this finding harmless on
+the bench.
+
 **⚠ THE PLACEMENT FILE UPLOADED TO JLCPCB ON 2026-10-06 IS STALE** — it is the
 uncorrected one. The quote's prices still stand (same parts, same board), but the CPL
 must be re-uploaded before ordering.

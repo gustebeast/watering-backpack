@@ -369,7 +369,10 @@ constexpr uint32_t STATS_MS       = 1000;
 
 int  joyCentre = ADC_MAX / 2;                // re-measured at boot (see measureCentre)
 int  curDuty   = 0;                          // 0..DUTY_CAP (forward only)
-bool armed     = true;                       // false = motor inhibited, telemetry live
+// false = motor inhibited, telemetry live. A FRESH BOARD STAYS HERE until someone
+// arms it: see the prefs.getBool default in setup() for why, and finding 49 for the
+// floating-joystick hazard that makes it matter.
+bool armed     = false;
 bool otaActive = false;
 
 int32_t dutyQ8 = 0;                          // current duty, Q8 fixed point
@@ -622,9 +625,29 @@ void handleCommand(char c) {
       // Bench bring-up for the two things that cannot be verified anywhere but
       // on the hardware: that the buzzer is wired and audible, and that the
       // level sensor's polarity really is the NC mode the schematic selects.
-      // Wet the sensor and watch pin= flip; if "full" reads backwards, flip
-      // LEVEL_FULL_IS_LOW -- it is one constant.
-      logf("buzzer 1 s | level pin=%s -> %s (LEVEL_FULL_IS_LOW=%d)\n",
+      // Wet the sensor and watch pin= flip. DRY must read HIGH and WET must read
+      // LOW: the sensor is normally-closed (J5 MODE on GND) and Q4 inverts it, so
+      // dry -> sensor HIGH -> Q4 saturated -> LEVEL ~0 V... which is why the pin
+      // reads LOW when WET, not when dry. Expected here: dry pin=HIGH "not full".
+      //
+      // DO NOT FLIP LEVEL_FULL_IS_LOW IF IT READS BACKWARDS. This comment used to
+      // say to -- "it is one constant" -- and that advice is now both wrong and
+      // unbuildable. tools/check_level_alarm.py check 9 DERIVES this constant from
+      // the netlist (J5's MODE way, plus one inverting stage at Q4) and fails if
+      // the firmware disagrees, so a flip does not compile past the gates. It was
+      // never the remedy either: the constant describes the BOARD, so a backwards
+      // reading means the board is not wired the way it is drawn. Look, in order,
+      // at the sensor's black MODE wire (it belongs on J5 way 4, with the way
+      // labels as the instructions -- see elec/CIRCUIT.md, tank level), then at
+      // Q4/R29/R30, then at the 300k string R23/R27/R28. Punchlist finding 47.
+      //
+      // A DISCONNECTED SENSOR READS "FULL" ON PURPOSE, so an unplugged lead here
+      // looks like a tank alarm rather than like a working empty tank: R30 holds
+      // Q4's base down, Q4 is off, and the 300k pulls LEVEL up. That is the safe
+      // direction -- a dead sensor stops the pump -- and it means J5 must be
+      // landed before this test tells you anything.
+      logf("buzzer 1 s | level pin=%s -> %s (LEVEL_FULL_IS_LOW=%d, derived by "
+           "check_level_alarm.py check 9 -- do not flip it, fix the wiring)\n",
            digitalRead(LEVEL_PIN) ? "HIGH" : "LOW",
            tankFull ? "FULL" : "not full", (int)LEVEL_FULL_IS_LOW);
       digitalWrite(BUZZ_PIN, HIGH); delay(1000); digitalWrite(BUZZ_PIN, LOW);
@@ -636,7 +659,8 @@ void handleCommand(char c) {
       ESP.restart();
       break;
     case '?':
-      logf("cmds: a=arm  d=disarm  c=recalibrate centre  s=status  R=reboot\n");
+      logf("cmds: a=arm  d=disarm  c=recalibrate centre  s=status  "
+           "b=bench (buzzer + level)  R=reboot\n");
       break;
     default: break;
   }
@@ -735,7 +759,20 @@ void setup() {
   allStop();
 
   prefs.begin("pump", false);
-  armed = prefs.getBool("armed", true);
+  // ⚠ DISARMED IS THE DEFAULT ONLY ON A BOARD THAT HAS NEVER BEEN ARMED. This said
+  // `true`, so a factory-fresh board armed itself on first power-up -- and JOY_FILT
+  // has no pull of any kind (JOY_RAW is J4 way 3 and R22, nothing else), so with the
+  // joystick unlanded the ADC node floats, measureCentre() calibrates against the
+  // float, and drift past DEADBAND_ON for 6 of 10 samples starts a pump. That is the
+  // state of every board in the first minutes of bring-up, and the state of any board
+  // whose joystick lead has been pulled off the screw clamp in the field (punchlist
+  // 27: three unrelieved cables, this among them).
+  // setArmed() writes this key, so arming once makes it stick across reboots and
+  // across an OTA reflash. Nothing about normal use changes; only the very first boot
+  // of a new board, and an NVS erase, land here.
+  // The copper fix -- biasing JOY_RAW to mid-rail so an unlanded joystick reads CENTRE
+  // rather than drifting -- is finding 49 and is deliberately not smuggled in here.
+  armed = prefs.getBool("armed", false);
 
   // ADC width and per-pin attenuation are set by pinsInit(), above.
   readVbat();                          // seed before any engage is possible
