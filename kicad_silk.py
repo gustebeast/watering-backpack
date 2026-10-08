@@ -135,7 +135,10 @@ REF_SKIP = ("TP", "H", "MH", "FID", "REF", "G", "LOGO")   # no part there to nam
 # ⚠ KICAD FALLS BACK SILENTLY. A family it cannot find (not installed for this user) is
 # drawn in a substitute face with no error and no warning, so _set_face proves the family
 # resolved before any label is placed, by drawing in it and in a name that cannot exist.
+# A missing family STOPS the run, unless the face says `"fallback": true`: then the board
+# is lettered in the stroke font at the stroke font's sizes, and the run says so loudly.
 FACE = None
+FACE_MISSING = None        # the family a `fallback` face asked for and KiCad did not have
 
 
 def _apply_face(t, board):
@@ -148,33 +151,173 @@ def _apply_face(t, board):
 
 def _set_face(face, board):
     """Take `face` for this run: the sizes, and proof that KiCad found the family."""
-    global FACE, SIZE_TP, SIZE_J, SIZE_SMALL, SIZE_REF, SIZES_ID
+    global FACE, FACE_MISSING, SIZE_TP, SIZE_J, SIZE_SMALL, SIZE_REF, SIZES_ID
     if not face:
         return
     size = float(face["size"])
 
-    def width(family):
+    def width(family, s="HIJ+-_024"):
         t = pcbnew.PCB_TEXT(board)
-        t.SetText("HIJ+-_024")
+        t.SetText(s)
         t.SetTextSize(pcbnew.VECTOR2I(MM(size), MM(size)))
         t.SetBold(bool(face.get("bold")))
         t.SetUnresolvedFontName(family)
         t.ResolveFont(board.GetEmbeddedFonts())
         return t.GetBoundingBox().GetWidth()
     if width(face["family"]) == width("no such family \x7f%s" % face["family"]):
+        if face.get("fallback"):
+            # the project would rather have a board in KiCad's own stroke font than no
+            # board (someone who cloned it and cannot have the face). Said, never silent;
+            # FACE stays None, so every size above is the stroke font's own again.
+            FACE_MISSING = face["family"]
+            print("  !! kicad_silk: the font family %r is NOT INSTALLED for this user. "
+                  "Lettering this board in KiCad's stroke font instead (silk_font "
+                  "fallback): it is a correct board, but NOT the one the project orders "
+                  "-- labels sit and size differently. Install the family and re-run "
+                  "for the project's own silk." % face["family"])
+            return
         raise SystemExit("kicad_silk: the font family %r is not installed for this user -- "
                          "KiCad would draw a substitute face without saying so. Install "
                          "it (per-user is enough) and re-run" % face["family"])
+    if not face.get("glyphs"):
+        raise SystemExit("kicad_silk: the face %r declares no `glyphs` -- the characters "
+                         "someone has looked at, drawn, in this font. A display face puts "
+                         "ornaments on ordinary code points ('+' drawn as a TH ligature "
+                         "has been printed); list what was checked" % face["family"])
+    # ...and the INSTALLED file is the one that was looked at. A face that had a glyph
+    # redrawn keeps its family name, so a machine with the older file still resolves it
+    # and still prints the ornament: `widths` gives, for a redrawn character, its advance
+    # as a fraction of another's ({"+/H": 0.97}), measured off the file that was checked.
+    for pair, want in (face.get("widths") or {}).items():
+        a, b = pair.split("/")
+        got = width(face["family"], a * 20) / float(width(face["family"], b * 20))
+        if abs(got - want) > 0.05 * want:
+            raise SystemExit("kicad_silk: the installed %r is not the file its `glyphs` "
+                             "were verified in: %r is %.2f of %r wide, and %.2f in the "
+                             "checked file. Install the current font file and re-run"
+                             % (face["family"], a, got, b, want))
     FACE = dict(face)
     SIZE_TP = SIZE_J = SIZE_SMALL = SIZE_REF = size
     SIZES_ID = tuple(z for z in SIZES_ID if z >= size) or (size,)
 
 
+def _outline(t):
+    return bool(t.GetFontName())          # the stroke font has no name
+
+
+# ── WHAT A FACE MAY PRINT (`glyphs`) ─────────────────────────────────────────
+# ⚠ A GLYPH BEING IN THE FONT DOES NOT MEAN IT DRAWS THE CHARACTER. A display face fills
+# ordinary code points with ornaments: the one this was written for draws "+" as a TH
+# ligature, so "+5V" plotted, legibly and at full size, as "TH5V" on five boards, and
+# every check passed -- the text object still said "+5V". A character table cannot see
+# that; only someone looking at the drawn glyph can. So a face carries `glyphs`, the
+# characters its owner has LOOKED AT, and a text that needs any other stops the run.
+def unverified_glyphs(board, glyphs):
+    """[(text, characters)] for every printed silk text in an outline font that uses a
+    character outside `glyphs`. Space and newline are never ink."""
+    ok = set(glyphs or "") | {" ", chr(10)}
+    out = []
+    texts = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT"]
+    texts += [f for fp in board.GetFootprints() for f in fp.GetFields() if f.IsVisible()]
+    for t in texts:
+        if t.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS) and _outline(t):
+            bad = sorted(set(t.GetText()) - ok)
+            if bad:
+                out.append((t.GetText().split(chr(10))[0], "".join(bad)))
+    return out
+
+
+# ── A LIST BESIDE A ROW OF PINS IS READ AS LABELS FOR THOSE PINS ─────────────
+# ⚠ A pinout block is a LIST: its head names the connector and its lines are numbered.
+# Laid with its lines stepping ALONG a connector's pad row and close to it, it stops
+# being read as a list: each line sits under a pin and is taken for that pin's label,
+# and at a line pitch near the connector's every one of them is the WRONG pin ("1 GND"
+# under the 24 V way of a power connector). So within REGISTER_NEAR of any connector's
+# pads a block may only lie ACROSS the row -- lines stepping away from it -- which nobody
+# reads pin by pin. A word per way (_ways) is the registered form and is laid elsewhere.
+REGISTER_NEAR = 3.0
+REGISTER_UNDER = 8.0       # ...and this far, for a block stepping along the row beneath it
+
+
+def _rows(board, back):
+    """(ref, pad box, 'x' or 'y', body) for each connector's pads present on this side;
+    `body` is its courtyard where the part itself is on this side, else None."""
+    cu = pcbnew.B_Cu if back else pcbnew.F_Cu
+    out = []
+    for fp in board.GetFootprints():
+        ref = fp.GetReference()
+        if not (ref.startswith("J") and ref[1:].isdigit()):
+            continue
+        bs = [_box(q) for q in fp.Pads() if q.GetNumber().isdigit() and q.IsOnLayer(cu)]
+        if len(bs) < 2:
+            continue
+        b = [min(q[0] for q in bs), min(q[1] for q in bs),
+             max(q[2] for q in bs), max(q[3] for q in bs)]
+        body = None
+        if fp.IsFlipped() == back:
+            c = _rect(fp.GetCourtyard(pcbnew.B_CrtYd if back else pcbnew.F_CrtYd).BBox())
+            if c[2] > c[0] and c[3] > c[1]:
+                body = c
+        out.append((ref, b, "x" if b[2] - b[0] >= b[3] - b[1] else "y", body))
+    return out
+
+
+def _misread(r, ang, rows, own=None):
+    """The connector whose pins a block at `r`, reading at `ang`, would be read against,
+    or None. `own` is the block's connector: ANOTHER connector's pads or body that close
+    are refused outright -- a list hard against J3 is J3's to the eye, whatever its head
+    says (J4's went down in the corner beside J3's mounting pad)."""
+    steps = "y" if round(ang) % 180 == 0 else "x"       # the way its lines step
+    for ref, b, axis, body in rows:
+        g = _gap(r, b)
+        if g < MM(REGISTER_NEAR) and (axis == steps or (own and ref != own)):
+            return ref
+        if own and ref != own and body and _gap(r, body) < MM(REGISTER_NEAR):
+            return ref
+        # ...and further off than that while it is still UNDER the row: lines stepping
+        # along the pins, across the pins' own span, are matched to them by eye from a
+        # good deal more than 3 mm (off the END of the row they are not)
+        k = 0 if axis == "x" else 1
+        if axis == steps and g < MM(REGISTER_UNDER) and min(r[k + 2], b[k + 2]) > max(r[k], b[k]):
+            return ref
+    return None
+
+
+def misregistered(board):
+    """[(block's connector, the connector it reads against)] over the printed pinout
+    blocks of a board: the check a quality pass makes of what the labeller laid."""
+    out = []
+    rows = {False: _rows(board, False), True: _rows(board, True)}
+    for d in board.GetDrawings():
+        if d.GetClass() != "PCB_TEXT" or d.GetLayer() not in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            continue
+        lines = d.GetText().split(chr(10))
+        if len(lines) < 3 or not (lines[0].startswith("J") and lines[0][1:].isdigit()):
+            continue
+        hit = _misread(_box(d), d.GetTextAngleDegrees(),
+                       rows[d.GetLayer() == pcbnew.B_SilkS], lines[0])
+        if hit:
+            out.append((lines[0], hit))
+    return out
+
+
 def _face_refs(board):
     """The footprints' own designators, where they print, in the face and at its size."""
+    n = 0
+    if FACE_MISSING:
+        # a board lettered in the face on another machine still NAMES it on every
+        # designator, and KiCad would substitute for each one silently: back to stroke
+        for fp in board.GetFootprints():
+            for f in fp.GetFields():
+                if f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS) and _outline(f):
+                    f.SetFont(None)
+                    f.SetBold(False)
+                    f.SetTextSize(pcbnew.VECTOR2I(MM(SIZE_REF), MM(SIZE_REF)))
+                    f.SetTextThickness(MM(STROKE))
+                    n += 1
+        return n
     if not FACE:
         return 0
-    n = 0
     for fp in board.GetFootprints():
         for f in fp.GetFields():
             if f.IsVisible() and f.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
@@ -183,6 +326,7 @@ def _face_refs(board):
                 _apply_face(f, board)
                 n += 1
     return n
+LINE_GAP = 0.8             # mm kept clear before and after a label, along its line
 WIDER = 1.6                # the second ring: this much further out, before any turn
 MARK_D = 0.6               # a way-1 DOT, where not even a "1" fits: four fab line widths
 REF_SLIDE = 2.5            # mm a footprint's own designator may move to lie flat
@@ -193,8 +337,37 @@ def _box(item):
     return [b.GetLeft(), b.GetTop(), b.GetRight(), b.GetBottom()]
 
 
+def _ink(t):
+    """The box of a text's INK, where _box is the box of its line: an outline face
+    reserves room over and under the capitals for accents and descenders (2.31 mm of
+    line for 1.45 mm of ink at size 1.5), and a row of words a pitch apart is judged on
+    what prints."""
+    if not _outline(t):
+        return _box(t)
+    try:
+        ps = pcbnew.SHAPE_POLY_SET()
+        t.TransformTextToPolySet(ps, 0, MM(0.005), pcbnew.ERROR_INSIDE)
+        b = ps.BBox()
+        if b.GetWidth() > 0 and b.GetHeight() > 0:
+            return [b.GetLeft(), b.GetTop(), b.GetRight(), b.GetBottom()]
+    except Exception:                                       # noqa: BLE001
+        pass
+    return _box(t)
+
+
 def _grow(r, d):
     return [r[0] - d, r[1] - d, r[2] + d, r[3] + d]
+
+
+def _rect(b):
+    return [b.GetLeft(), b.GetTop(), b.GetRight(), b.GetBottom()]
+
+
+def _gap(a, b):
+    """Distance between two rects (0 if they touch or overlap)."""
+    dx = max(a[0] - b[2], b[0] - a[2], 0)
+    dy = max(a[1] - b[3], b[1] - a[3], 0)
+    return (dx * dx + dy * dy) ** 0.5
 
 
 def _hit(a, b):
@@ -342,7 +515,8 @@ class Side:
                 return z
         return 0
 
-    def _nearest(self, s, size, ang, near, reach, step, optics, rivals=None, inner=0.0):
+    def _nearest(self, s, size, ang, near, reach, step, optics, rivals=None, inner=0.0,
+                 ok=None, okang=None):
         """The free site nearest `near` for `s` at `ang`, within `reach` mm (and outside
         `inner`): (d2, x, y, box) or None. With `rivals` (points), only a site nearer to
         `near` than to any of them counts -- a label out there is read as belonging to
@@ -362,12 +536,16 @@ class Side:
                                   < (x - near.x) ** 2 + (y - near.y) ** 2 for q in rivals):
                     continue
                 r = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+                if ok is not None and not ok(r):
+                    continue
+                if okang is not None and not okang(r, ang):
+                    continue
                 if self.free(r, optics):
                     best = (d2, x, y, r)
         return best
 
     def place(self, s, size, near, reach, step=0.25, optics=None, turn=None,
-              rivals=None, wider=True, own=False):
+              rivals=None, wider=True, own=False, ok=None, okang=None):
         """Lay `s` at the free site nearest `near` (a VECTOR2I), no further than `reach`
         mm, at the board's reading direction. Returns True if it went down.
 
@@ -380,13 +558,15 @@ class Side:
         means nothing unless it is nearest its own pad (a way-1 mark)."""
         ang = self.read
         close = rivals if own else None
-        best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close)
+        best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close, ok=ok,
+                             okang=okang)
         if best is None and wider:
             best = self._nearest(s, size, ang, near, reach * WIDER, step, optics,
-                                 rivals=rivals, inner=reach)
+                                 rivals=rivals, inner=reach, ok=ok, okang=okang)
         if best is None and turn:
             ang = (self.read + 90.0) % 360.0
-            best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close)
+            best = self._nearest(s, size, ang, near, reach, step, optics, rivals=close,
+                                 ok=ok, okang=okang)
             if best is not None:
                 self.turned.append((s.split(chr(10))[0], turn))
         if best is None:
@@ -394,7 +574,13 @@ class Side:
         t = self.text(s, size, ang)
         t.SetPosition(pcbnew.VECTOR2I(int(best[1]), int(best[2])))
         self.board.Add(t)
-        self.rects.append(_grow(best[3], MM(0.15)))
+        # ...and a WORD SPACE kept clear along its line: two labels end to end at 0.15
+        # are one phrase ("NRST" ran straight into the board's name)
+        r = _grow(best[3], MM(0.15))
+        k = 0 if round(ang) % 180 == 0 else 1
+        r[k] -= MM(LINE_GAP)
+        r[k + 2] += MM(LINE_GAP)
+        self.rects.append(r)
         return True
 
 
@@ -458,7 +644,7 @@ def _ways(side, fp, pins, forms):
 
     def lay(words, ang):
         texts = [side.text(words[k], SIZE_J, ang) for k in nums]
-        boxes = [_box(x) for x in texts]      # about the origin
+        boxes = [_ink(x) for x in texts]      # about the origin
         # across the pitch each word needs its own width and a gap to the next
         if max((b[2] - b[0]) if along_x else (b[3] - b[1]) for b in boxes) > pitch - MM(0.2):
             return None
@@ -718,15 +904,19 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         why = "beside its own pad (%s)" % ref
         # the net's name flat, then the pad's own (shorter) name flat, and only then
         # either of them turned
-        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
+        # own=True: NEARER ITS OWN PAD THAN ANY OTHER TEST PAD, at every distance. Inside
+        # the first ring that used not to be asked, and "SWCLK" went down 2.4 mm from the
+        # +3V3 pad and 4.5 mm from its own: a probe is put where the nearest word says.
+        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others, own=True):
             done.append("%s=%s" % (ref, label))
-        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
+        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0, rivals=others,
+                                      own=True):
             done.append("%s=%s" % (ref, ref))
         elif s.place_legible(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others,
-                             turn=why):
+                             own=True, turn=why):
             done.append("%s=%s" % (ref, label))
         elif label != ref and s.place_legible(ref, SIZE_TP, fp.GetPosition(), 5.0,
-                                              rivals=others, turn=why):
+                                              rivals=others, own=True, turn=why):
             done.append("%s=%s" % (ref, ref))
         else:
             missed.append(ref)
@@ -760,6 +950,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
     #     Before the name and the blocks: a way's word has one place it can be, and the
     #     name can go anywhere. The net's own name first, then the short words.
     wayless, united = [], set()          # united: named in the same label as its word
+    far_worded = set()                   # a numbered word at each tail on the far side
     for fp in fps:
         ref = fp.GetReference()
         if not (ref.startswith("J") and ref[1:].isdigit()):
@@ -816,11 +1007,25 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         if last != 1 and (ref in ends or (len(ways) > LEGEND_MAX_PINS
                                           and _one_row(list(ways.values())))):
             marks.append(last)            # a long row: the far end gets its number too
+        # ⚠ AND NEARER ITS OWN CONNECTOR'S BODY THAN ANY OTHER CONNECTOR'S. A mark in the
+        # gap between two connectors is read as belonging to whichever body it is closer
+        # to (quality A17 attributes it the same way), and "nearest its own pad" does not
+        # settle that: a '1' under one header's pin 1 landed 0.05 mm nearer the jack below.
+        mine = _rect(cyb)
+        theirs = [_rect(o.GetCourtyard(pcbnew.B_CrtYd if o.IsFlipped()
+                                       else pcbnew.F_CrtYd).BBox())
+                  for o in fps if o is not fp and o.IsFlipped() == fp.IsFlipped()
+                  and o.GetReference().startswith("J")]
+        theirs = [q for q in theirs if q[2] > q[0] and q[3] > q[1]]
+
+        def own_side(r, mine=mine, theirs=theirs):
+            g = _gap(r, mine)
+            return all(g + MM(0.3) <= _gap(r, q) for q in theirs)
         for k in marks:
             what = "way-1" if k == 1 else "way-%d" % k
             others = [q.GetPosition() for n, q in ways.items() if n != k]
             if s.place(str(k), SIZE_J, ways[k].GetPosition(), far, rivals=others,
-                       wider=False, own=True,
+                       wider=False, own=True, ok=own_side,
                        turn="way %d's mark against its own pin (%s)" % (k, ref)):
                 done.append("%s %s mark" % (ref, what))
             elif k == 1 and s.dot(ways[k].GetPosition(), far, others):
@@ -899,13 +1104,21 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         rivals = [o.GetPosition() for o in fps if o is not fp and o.GetReference() != ref
                   and o.GetReference().startswith("J")]
         why = "the pinout beside its own connector (%s)" % ref
+        # never where it would be read against a row of pins (_misread); and beside its
+        # OWN connector before beside anybody else's
+        rows = {b: _rows(board, b) for b in (False, True)}
+
+        def clear(back, strict, ref=ref, rows=rows):
+            return lambda r, ang: not _misread(r, ang, rows[back], ref)
         if ref in wayless:
             # no room for a word per way: the block on the connector's own side is the
             # next best thing to read while plugging, at the legible size or not at all.
             # The full names flat, the short words flat, and only then either turned.
-            for text, turn in ((legend, None), (brief, None), (legend, why), (brief, why)):
+            for strict, text, turn in [(q, x, w) for q in (True, False)
+                                       for x, w in ((legend, None), (brief, None),
+                                                    (legend, why), (brief, why))]:
                 if sides[own].place(text, SIZE_J, fp.GetPosition(), PINOUT_REACH, step=0.5,
-                                    rivals=rivals, turn=turn):
+                                    rivals=rivals, turn=turn, okang=clear(own, strict)):
                     done.append("%s pinout (%s, in place of its ways)"
                                 % (ref, "back" if own else "front"))
                     break
@@ -913,15 +1126,40 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                 missed.append(ref + " ways")
             if own and (ref + " ways") not in missed:
                 continue                  # that IS the back: no second copy beside it
+        # ON THE FAR SIDE OF A THROUGH-HOLE ROW, A NUMBERED WORD AT EACH TAIL BEFORE ANY
+        # BLOCK. That side is where a probe goes, and there a label is read by POSITION:
+        # "2 24V" in line with tail 2 is right however it is read, where a list beside
+        # the row is right only to someone who reads it as a list (_misread). Every
+        # word carries its number -- seen from the back the row runs the other way.
+        far = not own
+        cu = pcbnew.B_Cu if far else pcbnew.F_Cu
+        tails = {int(q.GetNumber()): q for q in fp.Pads()
+                 if q.GetNumber().isdigit() and _net(q) and q.IsOnLayer(cu)}
+        if not two and len(tails) > 1 and sorted(tails) == sorted(pins):
+            forms = []
+            for word in (lambda v: (labels or {}).get(v, v), lambda v: _short(v, way_words)):
+                f = {k: "%d %s" % (k, word(_net(q))) for k, q in tails.items()}
+                if f not in forms:
+                    forms.append(f)
+            if _ways(sides[far], fp, tails, forms):
+                far_worded.add(ref)
+                done.append("%s pinout (%s, a word at each pin)"
+                            % (ref, "back" if far else "front"))
+                if not sides[far].place_legible(ref, SIZE_J, fp.GetPosition(), 12.0,
+                                                rivals=rivals,
+                                                turn="beside its own connector (%s)" % ref):
+                    missed.append("%s (%s)" % (ref, "back" if far else "front"))
+                continue
         # THE SHORT WORDS AT THE LEGIBLE SIZE BEFORE THE FULL NAMES UNDER IT: a block is
         # as wide as its longest net name, and "GND 24V H L" read at 1.0 mm serves the
         # person plugging the lead better than PWR_GND / CAN_A_H at 0.8.
         texts = [legend] + ([brief] if brief != legend else [])
-        for size, text, back, turn in [(z, x, b, w) for z in (SIZE_J, SIZE_SMALL)
-                                       for x in texts for w in (None, why)
-                                       for b in (True, False)]:
+        for strict, size, text, back, turn in [(q, z, x, b, w) for q in (True, False)
+                                               for z in (SIZE_J, SIZE_SMALL)
+                                               for x in texts for w in (None, why)
+                                               for b in (True, False)]:
             if sides[back].place(text, size, fp.GetPosition(), PINOUT_REACH, step=0.5,
-                                 rivals=rivals, turn=turn):
+                                 rivals=rivals, turn=turn, okang=clear(back, strict)):
                 done.append("%s pinout (%s%s)" % (ref, "back" if back else "front",
                                                   ", short words" if text is not legend else ""))
                 if size < SIZE_J:
@@ -929,6 +1167,37 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                 break
         else:
             missed.append(ref + " pinout")
+
+    # 3b. WHICH TAIL IS WAY 1, ON THE FAR SIDE OF A THROUGH-HOLE CONNECTOR TOO. That face
+    #     is the one in view when a board hangs under what it plugs into (a 2x20 socket
+    #     put on a row late is 5 V on a ground pin), and the one a probe is put to. A
+    #     numbered word at each tail already says it; a block, or nothing, does not.
+    for back in (False, True):
+        rws = {r_: b_ for r_, b_, _a, _c in _rows(board, back)}
+        for fp in fps:
+            ref = fp.GetReference()
+            if ref not in rws or fp.IsFlipped() == back or ref in far_worded:
+                continue
+            cu = pcbnew.B_Cu if back else pcbnew.F_Cu
+            tails = {int(q.GetNumber()): q for q in fp.Pads()
+                     if q.GetNumber().isdigit() and q.IsOnLayer(cu)}
+            if 1 not in tails or len(tails) < 2:
+                continue
+            theirs = [b_ for r_, b_ in rws.items() if r_ != ref]
+
+            def own_row(r, mine=rws[ref], theirs=theirs):
+                g = _gap(r, mine)
+                return all(g + MM(0.3) <= _gap(r, q) for q in theirs)
+            others = [q.GetPosition() for n, q in tails.items() if n != 1]
+            face_ = "back" if back else "front"
+            if sides[back].place("1", SIZE_J, tails[1].GetPosition(), 4.0, rivals=others,
+                                 wider=False, own=True, ok=own_row,
+                                 turn="way 1's mark against its own tail (%s)" % ref):
+                done.append("%s way-1 mark (%s)" % (ref, face_))
+            elif sides[back].dot(tails[1].GetPosition(), 4.0, others):
+                done.append("%s way-1 dot (%s)" % (ref, face_))
+            else:
+                missed.append("%s way-1 mark (%s)" % (ref, face_))
 
     # 4. a designator beside each part, where the board asked for them (`silk_refs`).
     #    LAST, so no designator takes a site a test pad's net or a pinout needed, and
@@ -954,7 +1223,23 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
 
     for d in old:                           # after every read; the save is next
         board.Remove(d)
+    if FACE:
+        bad = unverified_glyphs(board, FACE["glyphs"])
+        if bad:
+            raise SystemExit("kicad_silk: %s -- %d text(s) need a character nobody has "
+                             "verified in %r: %s. Look at each one DRAWN in the face; "
+                             "add it to the face's `glyphs` if it is the character, and "
+                             "if it is an ornament redraw it in the font or reword the "
+                             "label. The board on disk is as it was."
+                             % (name, len(bad), FACE["family"],
+                                ", ".join("%r in %r" % (c, s) for s, c in bad[:8])))
     board.Save(stem + ".kicad_pcb")
+    # what this run lettered in, for the quality pass (which has the board's notes but
+    # not a project's face): the family, and the characters verified in it
+    import json
+    with open(stem + ".silk.json", "w", encoding="utf-8") as fh:
+        json.dump({"family": FACE["family"] if FACE else None, "missing": FACE_MISSING,
+                   "glyphs": FACE["glyphs"] if FACE else None}, fh)
     print("%s: %d label(s) -- %s" % (name, len(done), ", ".join(done)))
     if ref_done or ref_missed:
         print("  designators: %d of %d placed%s" % (

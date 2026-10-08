@@ -708,6 +708,74 @@ designator deleted, a pinout block moved to the other face, one way's word delet
 way-1 mark deleted, a `back_only` declared with and without a reason — and checks that
 each produces its own answer, alongside the unbroken board.
 
+### A19 — The silkscreen spells what the design says
+
+**Rule.** Every character printed in an outline font (`silk_font`) is one somebody has
+looked at, drawn in that font file. The face declares them (`"glyphs": "ABC...+_"`); the
+labeller stops on any text that needs another and records the family and the list in
+`<board>.silk.json`; this rule holds the finished board to that record.
+
+**Why.** A display face puts ornaments on ordinary code points. The one this project
+letters in draws `+` as a "TH" ligature, so `+5V`, `+3V3D` and `+24V` plotted as
+"TH5V", "TH3V3D" and "TH24V" on five boards about to be ordered. The text object, the
+net name and every scripted check still said `+5V`; a reviewer reading the gerber found
+it. A character table cannot catch this (the glyph exists); only the drawn shape can.
+
+**Also.** A redrawn glyph keeps the family name, so a machine with the older file still
+resolves the face and prints the ornament. The face's `widths` (`{"+/H": 0.97}`: one
+character's advance as a fraction of another's, off the checked file) makes the labeller
+refuse the wrong file. A face with `"fallback": true` and no font installed letters in
+the stroke font, which draws every character as itself, and passes.
+
+**No declaration.** Look at it and list it, redraw it, or reword the label.
+
+### A20 — A pinout list is not laid where it reads as pin labels
+
+**Rule.** Within 3 mm of any connector's pads, a pinout block's lines step AWAY from the
+pad row, never along it. Checked against every connector, not only the block's own.
+
+**Why.** motor_ctrl's back silk carried J7's and J3's numbered lists turned along their
+tails, 0.5 mm off, at a 2.48 mm line pitch against the connector's 2.50: "1 GND" sat
+under the +24 V way and J3's list ran opposite to its pins. can_tee's J2 list lay along
+J1's pins. Each was correct as a list and wrong read by position, on 24 V connectors.
+
+**No declaration.** The labeller refuses those sites; a block with nowhere else to go is
+not laid, and A17 then reports what the connector is missing.
+
+### A21 — No signal via under a part's exposed slug
+
+**Rule.** No via of another net stands within the LARGEST exposed slug a part may arrive
+with. The board states that size per part in `slug_max` (`{"U4": [6.5, "WCH QFN68
+outline: 6.2 +0.3 / -1.2"]}`); `layout.py` then fences the band between the land and that
+size with a vias-only rule area, which the router is handed as a via keepout. Undeclared,
+the land itself is taken, and the pass line says so.
+
+**Why.** A belly land is drawn to the slug's nominal size, and the millimetre between it
+and the pin row is where a QFN's inward-facing pins most want to drop a via. Two boards
+had six signal vias there, 0.16 mm off the land. The same part's datasheet lets the slug
+be half a millimetre larger a side than the land: bare metal at ground, lying on those
+annuli with solder mask between. It is the kind of short that depends on which reel the
+part came off.
+
+**Declaration.** A waiver names what insulates the via from the slug (vias plugged and
+capped by the fab, on an order that says so). "The mask covers it" is not one.
+
+### A22 — No data way beside a power way on a lead
+
+**Rule.** On a wire-to-board connector (JST, Molex and their like), no way carrying a
+signal is next to a way carrying a supply rail. Ground, another supply, an unused way or
+nothing may be.
+
+**Why.** Two assembly faults make neighbours touch: a strand between two crimps, and a
+contact seated one cavity over. With ground between power and data the first is a blown
+fuse and the second moves ground, not 24 V, onto a 3.3 V pin. The order that satisfies
+this on every width is power, ground, data ... and its mirror (a 6-way: power, ground,
+data, data, ground, power), and it is worth holding across every lead of a family so that
+the wrong plug in the right header finds power on power and ground on ground.
+
+**Declaration.** A waiver states the signal's own tolerance of that rail (a switch line
+that IS the rail when closed), never "the crimps are good".
+
 ### A18 — The silkscreen that is drawn is the silkscreen that prints
 
 **Rule.** No object on `F.Silkscreen` or `B.Silkscreen` overlaps a solder-mask opening on
