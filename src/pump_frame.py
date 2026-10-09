@@ -91,7 +91,7 @@ import cadquery as cq
 
 from cadkit.cq_colors import color
 from cadkit.fasteners import M4, ScrewJoint
-from cadkit.freecad import show
+from cadkit.web import show
 from cadkit.joinery import PrintSpec, joint
 from cadkit.step_export import export_step, print_pose
 

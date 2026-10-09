@@ -1,4 +1,4 @@
 @echo off
-REM Double-click to open this project's assembly.step in the FreeCAD viewer hub.
-REM All logic lives in the shared launcher; this just forwards our own folder.
-call "%~dp0cadkit\freecad\view_assembly.cmd" "%~dp0"
+REM Double-click to open this project's last-built model in the web viewer.
+cd /d "%~dp0"
+py -3.12 -m cadkit.web.view

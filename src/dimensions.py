@@ -81,7 +81,7 @@ MAKITA_TERMINAL_STEP  = REFERENCES_DIR / "makita_643852_2.step"
 # region: centred in X, body toward the closed (-Y) end, lifted so the
 # full-width flange lands in the channel with blades poking below toward the
 # battery and the wire housing rising out the top. Best-guess seating, tuned
-# from the FreeCAD view; both the dock (pocket cut) and viz (fit check) use it.
+# from the viewer; both the dock (pocket cut) and viz (fit check) use it.
 # Rotated 90° about +X so the terminal's 22.3 mm dimension runs through the
 # plate thickness (≈22 mm), its 51.8 mm axis lies along the slide (Y), and the
 # blade contacts engage in the slide direction — how the Makita terminal mates.

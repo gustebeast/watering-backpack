@@ -1290,7 +1290,7 @@ assert _axis(PRINT_ORIENTATION["v2_housing_lid"].build_dir) == LID_UP,     "the 
 
 def _build() -> None:
     from cadkit.cq_colors import color
-    from cadkit.freecad import show
+    from cadkit.web import show
     from cadkit.step_export import export_print
     from . import plumbing as P
     asm = cq.Assembly()

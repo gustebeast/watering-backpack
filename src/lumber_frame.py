@@ -222,7 +222,7 @@ def clearance_report():
 
 def _build() -> None:
     from cadkit.cq_colors import color
-    from cadkit.freecad import show
+    from cadkit.web import show
     from . import plumbing as P
     print("=== cut list (38x38 beam, 137x20 plank) ===")
     for (nm, L), n in cut_list():

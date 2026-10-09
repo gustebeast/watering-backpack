@@ -16,7 +16,7 @@ _BUILD_COUNTER_FILE = (pathlib.Path(__file__).resolve().parents[1]
 
 def bump_build_counter() -> int:
     """Increment + persist the shared build counter (floated as 3D text
-    above each assembly so a stale FreeCAD tab is obvious)."""
+    above each assembly so a stale viewer page is obvious)."""
     try:
         n = int(_BUILD_COUNTER_FILE.read_text().strip()) + 1
     except (OSError, ValueError):

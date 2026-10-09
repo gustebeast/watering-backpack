@@ -240,7 +240,7 @@ TOP_RECESS_X         = 54.0     # = 72 - 2*9 inset
 # Start 2 mm earlier than the recess proper (was 72.0) so the recess floor
 # merges into the lightening pocket back wall instead of leaving a thin
 # 1 mm wall at Y≈71-72 / Z=19-22 (X=±27). That wall isn't in V4 — flagged
-# from the FreeCAD view by its corner verts (±27, 72, 19..22).
+# from the viewer by its corner verts (±27, 72, 19..22).
 TOP_RECESS_Y_START   = 70.0
 TOP_RECESS_Y_LENGTH  = 16.0     # 70..86 (end unchanged)
 TOP_RECESS_Z_FLOOR   = 19.0

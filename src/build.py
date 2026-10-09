@@ -1,7 +1,7 @@
 """Watering Backpack — build entry point.
 
   py -3.12 -m src.build     # export every printed STEP, build the assembly,
-                            # run the gates, refresh the FreeCAD viewer
+                            # run the gates, refresh the web viewer
 
 This builds **v2**. It used to build v1 and overwrite `assembly.step` with it,
 which meant the project's own documented command produced the wrong design and
@@ -32,7 +32,7 @@ import sys
 import cadquery as cq
 
 from cadkit.cq_colors import color
-from cadkit.freecad import show
+from cadkit.web import show
 from cadkit.step_export import export_step, export_print, print_pose
 from cadkit.orientation import (PrintOrientation as PO,
                                 require_declared, unconfirmed)
@@ -455,7 +455,7 @@ def main() -> int:
     # reused as a scratch Workplane by the board-retention gate above, which
     # cost nothing on disk -- asm.save() already ran -- but handed show() an
     # object. show() never raises by design, so it printed ONE stderr line
-    # and returned False, and the FreeCAD tab silently stopped refreshing on
+    # and returned False, and the viewer silently stopped refreshing on
     # every build. The "Wrote <cadquery.cq.Workplane object>" line was the
     # only tell and it reads like success. Assert instead of trusting it.
     assert isinstance(out, str), (
@@ -463,7 +463,7 @@ def main() -> int:
         "reused the name `out` as a scratch solid." % (out,))
     print("Wrote %s  [build #%d]" % (out, build_n))
     if not show(out):
-        print("*** THE FREECAD TAB DID NOT REFRESH *** see the [freecad] line above")
+        print("*** THE VIEWER DID NOT REFRESH *** see the [web view] line above")
     return bad + oversize + blocked + board_bad
 
 
