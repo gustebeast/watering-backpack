@@ -113,6 +113,35 @@ class PrintOrientation:
             raise ValueError("a PrintOrientation needs a reason (`why`)")
         self.rot, self.why, self.confirmed = rot, str(why), bool(confirmed)
 
+    @classmethod
+    def from_build_dir(cls, build_dir, why, confirmed=True):
+        """Declare the BUILD DIRECTION and let the rotation follow.
+
+        Some projects think in directions, not rotations, and rightly: the
+        build direction is what the geometry cares about, so it ends up read
+        by hole cutters and overhang relief and written into comments ("this
+        face is the bed and the part builds toward -Y"). Stating the rotation
+        as well then duplicates it. The guitar project kept BOTH, plus a
+        hand-rolled Rodrigues assert to stop them drifting — this makes the
+        duplicate derived instead, so there is nothing left to drift.
+
+        The rotation is the MINIMAL one taking `build_dir` to +Z. It is not
+        unique — any spin about Z afterwards also lands the same face on the
+        bed — but the spin only moves the part around on the plate, which
+        `print_pose` then re-centres anyway. All six of the guitar's
+        hand-written rotations come back out of this exactly.
+        """
+        v = _unit(build_dir)
+        d = _dot(v, (0.0, 0.0, 1.0))
+        if d > _PARALLEL:
+            return cls(None, why, confirmed)
+        if d < -_PARALLEL:
+            return cls("flip", why, confirmed)
+        axis = _cross(v, (0.0, 0.0, 1.0))
+        return cls((_unit(axis), math.degrees(math.acos(max(-1.0,
+                                                            min(1.0, d))))),
+                   why, confirmed)
+
     # the rotation print_pose applies, as (axis, degrees) or None
     def _as_axis_deg(self):
         if self.rot is None:
@@ -261,6 +290,24 @@ def _self_test():
     assert abs(bd[1] + 1.0) < 1e-9, bd             # so it builds along −Y
     bd = po(((0, 1, 0), -90), "x").build_dir
     assert abs(bd[0] - 1.0) < 1e-9, bd             # builds along part +X
+
+    # from_build_dir is the inverse of build_dir, for every axis and diagonal
+    _S2 = 1.0 / math.sqrt(2.0)
+    for v in ((0, 0, 1), (0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0),
+              (0, -1, 0), (-_S2, -_S2, 0.0), (_S2, 0.0, _S2)):
+        got = po.from_build_dir(v, "round trip").build_dir
+        assert all(abs(got[i] - _unit(v)[i]) < 1e-9 for i in range(3)),             "from_build_dir(%r).build_dir came back %r" % (v, got)
+    # and it reproduces the guitar's own hand-written rotations, which are
+    # print-proven — this is the check that let that project delete its
+    # duplicate table rather than keep asserting against it
+    for v, want in (((0, -1, 0), ((1, 0, 0), -90)),
+                    ((-_S2, -_S2, 0.0), ((-1, 1, 0), 90)),
+                    ((1, 0, 0), ((0, 1, 0), -90)),
+                    ((0, 0, 1), None),
+                    ((0, 1, 0), ((1, 0, 0), 90))):
+        got = po.from_build_dir(v, "guitar").build_dir
+        ref = po(want, "guitar").build_dir
+        assert all(abs(got[i] - ref[i]) < 1e-9 for i in range(3)), (v, want)
 
     # facing, x-family: install −y, mating normal +z (the spool's horn rail)
     site = JointSite(install_dir=(0, -1, 0), normal=(0, 0, 1))

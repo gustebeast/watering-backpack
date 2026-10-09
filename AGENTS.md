@@ -222,6 +222,17 @@ from the project folder instead.)
   MEASUREMENT rather than a coin flip. It still cannot know which faces must
   be cosmetic, which way the part is loaded (layer adhesion is the weak axis),
   or what mates with what — which is precisely why its output is unconfirmed.
+- **Migrating a project does not change how anything prints.** A part that never
+  declared a bed face was still being exported SOME way — as-modelled — and
+  that is the orientation its STEPs have always had and its prints have always
+  used. So declare THAT, `confirmed=False`, and put what the measurement
+  suggests in the `why` for whoever settles it. Silently re-posing a part
+  because a tool scored another face higher changes a print the user did not
+  ask to change, and on a load-bearing part it changes which direction the
+  layers are pulled apart in. The exception is a part whose orientation the
+  project ALREADY documents in prose: encode that (`confirmed=True`), even
+  where it re-poses the STEP, because the file then matches the print the
+  project says to make instead of needing a flip by hand in the slicer.
 - **Name every product to match its filename.** A bare
   `cq.exporters.export(part, "housing.step")` names the STEP product *"Open
   CASCADE STEP translator 7.8 …"*, which is what Bambu/FreeCAD then display. Use
