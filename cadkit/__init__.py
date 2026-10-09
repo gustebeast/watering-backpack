@@ -17,6 +17,7 @@ only on CadQuery/OCP: import them directly, e.g.
     from cadkit.pcbflow import gen              # MAKE a board from code (PCB_README.md §0)
     from cadkit.agents import current_agent, get_scope   # multi-agent: who owns what
     from cadkit.scratch import ScratchView               # fast per-part iteration loop
+    from cadkit.lazy import lazy                         # a module's solids, built on first use
 
 The assembly viewer is a web page, `cadkit.web`:
 
