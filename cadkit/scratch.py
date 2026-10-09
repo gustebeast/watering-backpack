@@ -228,7 +228,7 @@ class ScratchView:
     """Config for a project's scratch loop. See the module docstring."""
 
     def __init__(self, root, context, live, replaced=(), cache_dir=".scratch_cache",
-                 pose=None, colors=None, gates=(), web=None, shared=None, crop=None):
+                 pose=None, colors=None, gates=(), web=None, shared=None):
         self.root = pathlib.Path(root)
         self.context = context          # () -> iterable of (name, Workplane): EVERYTHING
         self.live = live                # () -> iterable of (name, Workplane): yours
