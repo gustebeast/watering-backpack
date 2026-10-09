@@ -255,9 +255,10 @@ def render(q):
     hidden, poses, printed = set(q.get("hidden", ())), q.get("poses", {}), bool(q.get("printed"))
     # ONLY WHAT CHANGED IS TOUCHED: whatever is touched is rebuilt on the card
     for name, (ob, plain, filament) in parts.items():
-        hide = name in hidden
-        if ob.hide_render != hide:
-            ob.hide_render = hide
+        hide = name in hidden                      # hidden from every kind of ray
+        if ob.visible_camera == hide:
+            for ray in ("camera", "diffuse", "glossy", "transmission", "volume_scatter", "shadow"):
+                setattr(ob, "visible_" + ray, not hide)
         p = poses.get(name)
         key = tuple(round(x, 4) for x in p) if p else None
         if posed.get(name) != key:
