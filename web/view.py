@@ -153,12 +153,16 @@ def _open(url, started, open_browser):
 # ── show(): a build's parts, or its assembly file ─────────────────────────────────
 def show(source, root=None, title=None, open_browser=True, port=PORT, **export_kw):
     """Put `source` in the viewer: [(name, solid, colour)] or the path of an assembly
-    STEP. `root` is the project folder (default: the working directory). Further
+    STEP. `root` is the project folder (default: the folder the STEP is in, else the
+    working directory). Further
     keywords go to cadkit.web.export (boards=, materials=, extras= ...). Returns True
     when the page has the new model; never raises."""
     try:
+        is_file = isinstance(source, (str, os.PathLike))
+        if root is None and is_file:
+            root = pathlib.Path(source).resolve().parent
         out = _model_dir(root)
-        parts = step_parts(source) if isinstance(source, (str, os.PathLike)) else list(source)
+        parts = step_parts(source) if is_file else list(source)
         extras = dict(export_kw.pop("extras", None) or {})
         if title:
             extras.setdefault("title", title)

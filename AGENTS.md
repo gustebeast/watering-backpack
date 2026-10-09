@@ -127,8 +127,13 @@ py -3.12 -m cadkit.web.view
 ctrl+z / ctrl+y undo and redo those; `p` the parts list, `c` a section cut, `m` MEASURE.
 Measure reads the CAD kernel's own numbers — distance, angle, radius, between corners,
 edges, axes and faces — not triangles, so what it says is the model's figure. `l` steps
-the lighting (plain / shadows / shadows + occlusion), which also steps itself down on a
-device that cannot hold 60 fps. `k` shows the parts as printed, if the project names its
+the lighting (plain / shadows / shadows + occlusion / ray traced). The first three are
+drawn every frame, and the page steps down by itself on a device that cannot hold
+60 fps. RAY TRACED is never chosen for you: the drawn picture stays on screen, quick
+and live, and once the view is still a path tracer works behind it (bounced light, soft
+shadows, reflections). Its picture is swapped in only when it is whole -- about a
+second on a strong graphics card -- and any movement puts the drawn one straight back.
+It prepares each model once, in the background, and pauses while a section cut is on. `k` shows the parts as printed, if the project names its
 filaments.
 
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):

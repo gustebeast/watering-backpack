@@ -88,6 +88,8 @@
   { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three-gpu-pathtracer": "https://cdn.jsdelivr.net/npm/three-gpu-pathtracer@0.0.23/build/index.module.js",
       "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/build/index.module.js"
   } }
   </script>
@@ -149,7 +151,8 @@
   import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
   import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
   import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-  import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+  import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+  import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
 
   THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
   THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -537,7 +540,7 @@
   }
   function disposeModel() {
     if (!M.root) return;
-    clearSelection(); clearMeasure();
+    clearSelection(); clearMeasure(); rtDrop();
     scene.remove(M.root);
     for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose(); }
     for (const p of M.list) if (p.mesh) { p.mesh.geometry.disposeBoundsTree(); p.mesh.geometry.dispose(); }
@@ -1112,7 +1115,7 @@
       case 'z': selAction('zoom'); return;
       case 'u': showAll(); return;
       case 'c': $('bSection').onclick(); return;
-      case 'l': setQuality(quality - 1, true); return;
+      case 'l': setQuality(quality + 1, true); return;
       case 'k': setPrinted(!asPrinted); return;
     }
     const p = keyToPedal[e.key]; if (!p || e.repeat) return;
@@ -1185,9 +1188,9 @@
   // the deck lets light into the mechanism and an isolated part gets the whole map to
   // itself. Occlusion is screen-space, so it follows by nature. Both cost frame time,
   // and the page gives them up, one level at a time, if it cannot hold 60 fps.
-  const LIGHT = ['plain', 'shadows', 'shadows + occlusion'];
+  const LIGHT = ['plain', 'shadows', 'shadows + occlusion', 'ray traced'];
   let quality = 2, autoQuality = true, composer = null, gtao = null;
-  let lightDirty = true, lastSig = 0, slowFor = 0, settledAt = Infinity;
+  let lightDirty = true, lastSig = 0, slowFor = 0, settledAt = Infinity, traced = false;
   function setQuality(q, manual = false) {
     quality = (q + LIGHT.length) % LIGHT.length;
     if (manual) autoQuality = false;
@@ -1214,7 +1217,227 @@
       composer.addPass(new OutputPass());
     }
     lightDirty = true; slowFor = 0;
+    if (quality === 3) rtLoad();
     $('bLight').title = 'lighting: ' + LIGHT[quality] + (autoQuality ? ' (drops by itself under 60 fps)' : '');
+  }
+
+  // ── ray tracing ──────────────────────────────────────────────────────────────────
+  // The top level, and never chosen for you. THE DRAWN PICTURE STAYS ON SCREEN, quick
+  // and live, exactly as 'shadows + occlusion' draws it (user, 2026-10-09). Once the view
+  // is still, a path tracer works BEHIND it, out of sight: light that bounces between
+  // parts, soft shadows, reflections of the model in its own glossy parts. Only when it
+  // has a whole picture worth showing is that swapped in, and it goes on sharpening
+  // there. Any movement puts the drawn picture straight back. It traces what is SHOWN
+  // (hide a part and its shadow goes), not a section cut: with a cut on, the page stays
+  // with the drawn picture.
+  //
+  // The browser has no access to a card's ray-tracing hardware, so the tracer walks its
+  // own tree of the model's triangles in a shader. BUILDING that tree is the slow part
+  // (seconds, once per model), so it is done in a worker while the page carries on.
+  // Everything after is a REFIT of it: a hidden part is not removed, it is shrunk to a
+  // point, and a part the rig moves is moved.
+  const RT_SAMPLES = 256, RT_STILL = 3;            // frames of stillness before it starts
+  const RT_SHOW = 64;                              // samples before the traced picture is shown
+  const RT_DENOISE = 160;                          // samples by which the denoiser has faded out
+  const rt = { lib: null, loading: false, failed: false, tracer: null, scene: null, items: [],
+               made: [], dn: null, dirty: true, still: 0, reset: true, cam: new THREE.Matrix4(),
+               size: '', ms: 0, per: 1, last: 0, note: '', built: 0, ready: false, preparing: false,
+               gen: 0 };
+  async function rtLoad() {
+    if (rt.lib || rt.loading || rt.failed) return;
+    rt.loading = true;
+    try { rt.lib = await import('three-gpu-pathtracer'); }
+    catch (e) { console.error(e); rt.failed = true; if (quality === 3) setQuality(2); }
+    rt.loading = false;
+  }
+  function rtDrop() {                              // the model is going: its tree goes too
+    for (const g of rt.made) g.dispose();
+    rt.made = []; rt.items = []; rt.scene = null; rt.dirty = true; rt.ready = false; rt.gen++;
+  }
+  // The tree builder, in a worker. The library's own worker class starts its script by
+  // URL, which a page may not do across origins; a module worker that IMPORTS that
+  // script may. What comes back is the tree as plain arrays.
+  function rtWorker() {
+    const src = "import 'https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/src/workers/generateMeshBVH.worker.js/+esm';";
+    const worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })), { type: 'module' });
+    return { generate(geometry, options = {}) {
+      return new Promise((resolve, reject) => {
+        worker.onerror = e => { worker.terminate(); reject(new Error('tree worker: ' + (e.message || 'could not start'))); };
+        worker.onmessage = ({ data }) => {
+          if (data.error) { worker.terminate(); return reject(new Error(String(data.error))); }
+          if (!data.serialized) return;
+          const { serialized, position } = data;
+          const bvh = MeshBVH.deserialize(serialized, geometry, { setIndex: false });
+          geometry.attributes.position.array = position;      // handed to the worker and back
+          if (serialized.index) {
+            if (geometry.index) geometry.index.array = serialized.index;
+            else geometry.setIndex(new THREE.BufferAttribute(serialized.index, 1, false));
+          }
+          geometry.boundingBox = bvh.getBoundingBox(new THREE.Box3());
+          worker.terminate();
+          resolve(bvh);
+        };
+        const index = geometry.index ? geometry.index.array : null, position = geometry.attributes.position.array;
+        worker.postMessage({ index, position, options: { ...options, onProgress: null,
+          includedProgressCallback: false, groups: [...geometry.groups] } },
+          index ? [position.buffer, index.buffer] : [position.buffer]);
+      });
+    } };
+  }
+  function rtTracer() {
+    const L = rt.lib;
+    // the tracer reads three scene properties that came after the three.js this page
+    // is built on; given their neutral values, it is content
+    const SP = THREE.Scene.prototype;
+    if (!('environmentRotation' in SP)) SP.environmentRotation = new THREE.Euler();
+    if (!('backgroundRotation' in SP)) SP.backgroundRotation = new THREE.Euler();
+    if (!('environmentIntensity' in SP)) SP.environmentIntensity = 1;
+    const t = rt.tracer = new L.WebGLPathTracer(renderer);
+    t.bounces = 4;
+    t.filterGlossyFactor = 0.5;
+    t.tiles.set(1, 1);                             // a whole picture per sample
+    t.rasterizeScene = false;                      // the drawn picture is already on screen
+    t.dynamicLowRes = false;
+    t.fadeDuration = 0;
+    t.minSamples = 1;
+    t.renderDelay = 0;
+    // THE PICTURE IS FIRST SHOWN LIGHTLY DENOISED: at RT_SHOW samples a little grain is
+    // left, and smoothing it reads as the finished picture. The smoothing is withdrawn
+    // as real samples replace it, so it never costs the converged picture its detail.
+    rt.dn = new FullScreenQuad(new L.DenoiseMaterial());
+    t.renderToCanvasCallback = (target, r, quad) => {
+      const k = 1 - Math.min(Math.max(t.samples - RT_SHOW, 0) / (RT_DENOISE - RT_SHOW), 1), ac = r.autoClear;
+      r.autoClear = false;
+      if (k > 0) {
+        const m = rt.dn.material;
+        m.map = target.texture; m.opacity = quad.material.opacity;
+        m.sigma = 1.5 + 2.5 * k; m.threshold = 0.02 + 0.05 * k; m.kSigma = 1;
+        rt.dn.render(r);
+      } else quad.render(r);
+      r.autoClear = ac;
+    };
+  }
+  // one mesh per PART, sharing the drawn model's vertex data, so that a part can be
+  // hidden or moved by its matrix alone
+  function rtScene() {
+    const L = rt.lib, s = new THREE.Scene();
+    s.background = scene.background;
+    const sky = new L.GradientEquirectTexture();   // the room: brighter overhead, as the drawn light is
+    sky.topColor.set(0xf2f5fa); sky.bottomColor.set(0x5a6068); sky.update();
+    s.environment = sky; s.environmentIntensity = 1.0;
+    for (const p of M.list) {
+      let geo = p.mesh && p.mesh.geometry;
+      if (!geo) {
+        const b = p.batch, nv = p.pos.length / 3, col = b.drawGeo.attributes.color;
+        geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(p.pos, 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(
+          b.pickGeo.attributes.normal.array.subarray(3 * p.vStart, 3 * (p.vStart + nv)), 3));
+        if (col) geo.setAttribute('color', new THREE.BufferAttribute(
+          col.array.subarray(4 * p.vStart, 4 * (p.vStart + nv)), 4, true));
+        const idx = new Uint32Array(p.iCount), o = p.vStart;
+        for (let i = 0; i < idx.length; i++) idx[i] = b.full[p.iStart + i] - o;
+        geo.setIndex(new THREE.BufferAttribute(idx, 1));
+        rt.made.push(geo);
+      }
+      const m = new THREE.Mesh(geo, p.mesh ? p.mesh.material : p.batch.mat);
+      m.matrixAutoUpdate = false;
+      s.add(m);
+      rt.items.push([p, m]);
+    }
+    const sun = rt.sun = new THREE.DirectionalLight(0xffffff, key.intensity);
+    s.add(sun, sun.target);
+    rt.scene = s;
+  }
+  function rtPose() {
+    const c = new THREE.Vector3();
+    for (const [p, m] of rt.items) {
+      const world = (p.mesh || p.batch.draw).matrixWorld;
+      // hidden: shrunk to a point WHERE IT STANDS. Anywhere else would stretch every
+      // box of the tree that holds it across the model, and slow each ray down.
+      if (p.hidden) {
+        (p.box || (p.box = partBox(p, new THREE.Box3()))).getCenter(c).applyMatrix4(M.parts.matrixWorld);
+        m.matrix.makeScale(0, 0, 0).setPosition(c);
+      } else m.matrix.copy(world);
+    }
+    rt.sun.position.copy(key.position); rt.sun.target.position.copy(key.target.position);
+    rt.scene.updateMatrixWorld(true);
+  }
+  // the first build of a model: in the background, the page still drawing
+  async function rtPrepare() {
+    const gen = rt.gen, t0 = performance.now();
+    rt.preparing = true; rt.dirty = false;
+    rt.note = $('status').textContent;
+    $('status').textContent = 'ray tracing: preparing the model (once, in the background)…';
+    if (!rt.tracer) rtTracer();
+    rtScene(); rtPose();
+    try {
+      rt.tracer.setBVHWorker(rtWorker());
+      await rt.tracer.setSceneAsync(rt.scene, camera);
+    } catch (e) {                                  // no worker here: build it in the page
+      console.warn(e);
+      if (gen === rt.gen) rt.tracer.setScene(rt.scene, camera);
+    }
+    rt.preparing = false;
+    if (gen !== rt.gen) return;                    // the model was replaced meanwhile
+    rt.ready = true; rt.reset = true; rt.still = 0;
+    rt.built = performance.now() - t0;
+    $('status').textContent = rt.note;
+  }
+  function rtBuild() {                             // what is shown, or where, has changed
+    const t0 = performance.now();
+    rtPose();
+    rt.tracer.setScene(rt.scene, camera);
+    rt.dirty = false; rt.reset = false; rt.last = 0;
+    rt.built = performance.now() - t0;
+  }
+  // true when this frame was ray traced (so the drawn picture must NOT be drawn over it)
+  function rtFrame(changed) {
+    if (quality !== 3 || !rt.lib || sec.on || !M.parts) return false;
+    const size = innerWidth + 'x' + innerHeight;
+    if (changed) rt.dirty = true;
+    if (!rt.ready) { if (!rt.preparing) rtPrepare(); return false; }
+    if (changed || size !== rt.size || !rt.cam.equals(camera.matrixWorld)) {
+      rt.cam.copy(camera.matrixWorld); rt.size = size; rt.still = 0; rt.reset = true; rt.last = 0;
+      return false;
+    }
+    if (++rt.still < RT_STILL) return false;
+    if (rt.dirty) rtBuild();
+    if (rt.reset) { rt.tracer.updateCamera(); rt.reset = false; rt.last = 0; }
+    const t = rt.tracer;
+    if (t.samples >= RT_SAMPLES) return true;                  // done: the picture stays
+    // SEVERAL SAMPLES A FRAME, as many as this card does inside one: judged on the time
+    // from one traced frame to the next (the calls return before the card has done the
+    // work). A card that cannot do one in a frame gets it in tiles instead. Until
+    // RT_SHOW of them are in, they go to a buffer and the drawn picture is drawn as usual.
+    for (let i = 0; i < rt.per; i++) {
+      t.renderToCanvas = t.samples >= RT_SHOW - 1;
+      t.renderSample();
+    }
+    const shown = t.samples >= RT_SHOW;
+    if (shown) rtOverlays();
+    const now = performance.now();
+    if (rt.last && rt.tracer.samples > 2) {
+      rt.ms = rt.ms ? 0.8 * rt.ms + 0.2 * (now - rt.last) : now - rt.last;
+      const tl = rt.tracer.tiles;
+      if (rt.ms < 15 && tl.x === 1 && rt.per < 8) { rt.per++; rt.ms = 0; }
+      else if (rt.ms > 24 && rt.per > 1) { rt.per--; rt.ms = 0; }
+      else if (rt.ms > 34 && tl.x < 4) { tl.set(tl.x + 1, tl.x + 1); rt.ms = 0; }
+    }
+    rt.last = now;
+    return shown;
+  }
+  // the selection tint and the measure marks, over the traced picture
+  function rtOverlays() {
+    const off = [];
+    for (const b of M.batches) if (b.draw.visible) { b.draw.visible = false; off.push(b.draw); }
+    for (const p of M.list) if (p.mesh && p.mesh.visible) { p.mesh.visible = false; off.push(p.mesh); }
+    const bg = scene.background, ac = renderer.autoClear;
+    scene.background = null; renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(scene, camera);
+    scene.background = bg; renderer.autoClear = ac;
+    for (const o of off) o.visible = true;
   }
   function fitShadow() {
     const box = new THREE.Box3();
@@ -1233,24 +1456,30 @@
   function rigSignature() {
     let s = 0;
     for (const n in nodes) { const e = nodes[n].matrix.elements; s += e[0] + 1.7 * e[5] + e[12] + 1.3 * e[13] + 1.9 * e[14]; }
-    return s;
+    // to a tenth of a micron: the rig EASES to rest, and its last digits go on settling
+    // for seconds after anything that could be seen has stopped
+    return Math.round(s * 1e4);
   }
   function drawFrame() {
+    let changed = false;
     if (quality >= 1 && M.parts) {
       const sig = rigSignature();
+      changed = lightDirty || sig !== lastSig;
       if (lightDirty) fitShadow();
-      if (lightDirty || sig !== lastSig) renderer.shadowMap.needsUpdate = true;
+      if (changed) renderer.shadowMap.needsUpdate = true;
       lastSig = sig; lightDirty = false;
     }
+    traced = rtFrame(changed);
+    if (traced) return;
     if (quality >= 2) composer.render(); else renderer.render(scene, camera);
   }
   // called once a second with the measured rate
   function govern(fps, now) {
     if (!autoQuality || quality === 0 || document.hidden || now < settledAt) { slowFor = 0; return; }
     if (fps >= 57) { slowFor = 0; return; }
-    if (++slowFor >= 2) setQuality(quality - 1);
+    if (++slowFor >= 2) setQuality(Math.min(quality, 3) - 1);
   }
-  $('bLight').onclick = () => setQuality(quality - 1, true);
+  $('bLight').onclick = () => setQuality(quality + 1, true);
   // the model is built again from the file: parts are grouped by material when it loads
   function setPrinted(on) {
     asPrinted = on;
@@ -1388,9 +1617,15 @@
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
     if (++fpsN && now - fpsT >= 1000) {
       const fps = fpsN * 1000 / (now - fpsT);
-      fpsEl.textContent = Math.round(fps) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
-                          Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality];
-      if (stalled) stalled = false; else govern(fps, now);
+      fpsEl.textContent = traced
+        ? 'ray traced · ' + Math.min(Math.floor(rt.tracer.samples), RT_SAMPLES) + ' of ' + RT_SAMPLES + ' samples'
+        : Math.round(fps) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
+          Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +
+          (quality !== 3 ? '' : rt.failed ? ' (unavailable)' : sec.on ? ' (not with a section cut)'
+           : !rt.ready ? ' (preparing)'
+           : rt.still >= RT_STILL ? ' (' + Math.round(100 * Math.min(rt.tracer.samples / RT_SHOW, 1)) + '%)' : ' (when still)');
+      // a second spent tracing says nothing about how fast this device DRAWS
+      if (stalled || traced) stalled = false; else govern(fps, now);
       fpsT = now; fpsN = 0;
     }
     applyRig(dt);
@@ -1406,8 +1641,9 @@
     requestAnimationFrame(tick);
   }
   // for poking at it from the console (and for the checks that drive the page)
-  window.viewer = { renderer, scene, camera, controls, sec, setSection, undo, viewFrom, setPrinted, setQuality, get quality() { return quality; }, key, THREE,
-                    frame() { controls.update(); lightDirty = true; renderer.info.reset(); drawFrame(); }, M, meas, pickAt, snapAt, setHidden, setMode,
+  window.viewer = { rt, renderer, scene, camera, controls, sec, setSection, undo, viewFrom, setPrinted, setQuality, get quality() { return quality; }, key, THREE,
+                    frame() { controls.update(); lightDirty = true; renderer.info.reset(); drawFrame(); },
+                    draw() { renderer.info.reset(); drawFrame(); return traced; }, M, meas, pickAt, snapAt, setHidden, setMode,
                     measureClick, between, showAll, get selection() { return selection; },
                     select(names) { selection = names.flatMap(n => M.byName.has(n) ? M.units.get(M.byName.get(n).unit) : []); drawSelection(); },
                     selAction, loadGeo, toPx };
