@@ -1,7 +1,7 @@
 """cadkit — shared, project-agnostic CAD/3D-printing utilities.
 
-A small library reused across the parametric-3D-printing projects. The core modules
-depend only on CadQuery/OCP (no FreeCAD): import them directly, e.g.
+A small library reused across the parametric-3D-printing projects. The modules depend
+only on CadQuery/OCP: import them directly, e.g.
 
     from cadkit.fasteners import cut_anchor, M2, M4
     from cadkit.threads import cut_thread, threaded_rod
@@ -18,10 +18,9 @@ depend only on CadQuery/OCP (no FreeCAD): import them directly, e.g.
     from cadkit.agents import current_agent, get_scope   # multi-agent: who owns what
     from cadkit.scratch import ScratchView               # fast per-part iteration loop
 
-FreeCAD-specific helpers (the viewer hub) live in the OPTIONAL `cadkit.freecad`
-subpackage, kept separate so the core never drags in a FreeCAD dependency:
+The assembly viewer is a web page, `cadkit.web`:
 
-    from cadkit.freecad import show      # never raises; viewer trouble can't break a build
+    from cadkit.web import show          # never raises; viewer trouble can't break a build
 
 Dev-only tooling (the multi-agent worktree/merge CLI) lives in `cadkit/tools/` and is
 run as a script, not imported: `py -3.12 cadkit/tools/agent_sync.py`.

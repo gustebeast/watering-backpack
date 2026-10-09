@@ -2,23 +2,23 @@
 r"""agent_sync.py -- lightweight multi-agent coordination over git worktrees.
 
 Lets several coding-agent sessions work on ONE project WITHOUT clobbering each
-other's files or racing the single FreeCAD tab / build. Solo work needs none of
+other's files or racing the one build. Solo work needs none of
 this -- it only kicks in when you deliberately add a second agent.
 
 ROLES
   LEAD         the primary session. Works in the MAIN worktree on `main`. OWNS
-               the build + the FreeCAD tab. Pulls in contributors' branches.
+               the build and the whole-model page. Pulls in contributors' branches.
   CONTRIBUTOR  an added session. Works in its OWN git worktree on branch
                `agent/<name>` -- a SEPARATE directory, so its edits never touch
                the lead's files. It OWNS A PORTION of the model, iterates on that
-               portion in ITS OWN FreeCAD tab, and files a MERGE REQUEST at each
+               portion in ITS OWN viewer page, and files a MERGE REQUEST at each
                good checkpoint; the lead integrates and builds the whole thing.
 
-EACH AGENT HAS ITS OWN TAB. `scope` records which portion is yours; `view` renders
-it -- your part FRESH against a cached rest-of-instrument -- into a tab named after
-your worktree, in seconds. The lead's tab shows the WHOLE instrument and is the only
+EACH AGENT HAS ITS OWN PAGE. `scope` records which portion is yours; `view` renders
+it -- your part FRESH against a cached rest-of-instrument -- into its worktree's own
+viewer page, in seconds. The lead's page shows the WHOLE instrument and is the only
 one produced by a real `src.build`. Two agents rendering at the same moment write
-different STEPs into different tabs, so there is nothing to race: the single-build
+different folders, served on different ports, so there is nothing to race: the single-build
 lock guards the FULL build only.
 
 WORK FLOWS agent -> LEAD -> main -> agents, AND ONLY THAT WAY. `take` and `drop`
@@ -55,7 +55,7 @@ COMMANDS
     submit "<summary>"   commit this branch, then file a merge request
     sync                 merge the latest main into this branch (pick up merges)
     scope [--set MOD]    claim / show which portion of the model you own
-    view [args...]       render YOUR portion into YOUR OWN FreeCAD tab (seconds)
+    view [args...]       render YOUR portion into YOUR OWN viewer page (seconds)
     done                 (after all merged) remove this worktree
   Lead:
     inbox                list pending merge requests
@@ -100,10 +100,10 @@ Typical flow (<name> is the contributor's task, e.g. the subsystem they own)
   contributor:  py -3.12 cadkit/tools/agent_sync.py join <name>   # -> cd the printed dir
                 ...edit, then...
                 py -3.12 cadkit/tools/agent_sync.py scope --set src.<your_module>  # once
-                py -3.12 cadkit/tools/agent_sync.py view    # your part, your tab, seconds
+                py -3.12 cadkit/tools/agent_sync.py view    # your part, your page, seconds
                 py -3.12 cadkit/tools/agent_sync.py submit "<summary of your round>"   # wakes the lead
   lead (auto-woken): py -3.12 cadkit/tools/agent_sync.py take <name>   # resolve any conflicts
-                     py -3.12 cadkit/tools/agent_sync.py build        # WHOLE instrument -> lead's tab
+                     py -3.12 cadkit/tools/agent_sync.py build        # WHOLE instrument -> lead's page
 """
 from __future__ import annotations
 
@@ -587,7 +587,7 @@ def cmd_drop(name: str):
 
 def cmd_build(extra):
     if Path(os.getcwd()).resolve() != main_worktree().resolve():
-        raise SystemExit("build only runs in the MAIN worktree (the lead owns the single tab/build).")
+        raise SystemExit("build only runs in the MAIN worktree (the lead owns the one full build).")
     _print_pending_banner()      # a queued request the lead hasn't taken is easy to miss mid-build
     lock = sync_dir() / "build.lock"
     holder = f"{cur_branch()} pid={os.getpid()}"
@@ -609,7 +609,7 @@ def cmd_build(extra):
     raise SystemExit(rc)
 
 
-# ── ownership: each agent iterates ITS OWN portion, in ITS OWN tab ─────────────
+# ── ownership: each agent iterates ITS OWN portion, in ITS OWN page ─────────────
 # The scope registry itself lives in cadkit.agents (shared by every worktree, never
 # committed -- see that module for why it is not a tracked config block). agent_sync
 # just puts a CLI on it, because this is where agents already look.
@@ -622,14 +622,14 @@ def _agents_mod():
     return agents
 
 
-def cmd_scope(module, attr, replaced, note, clear, list_all, pose, crop):
+def cmd_scope(module, attr, replaced, note, clear, list_all, pose):
     A = _agents_mod()
     me = A.current_agent()
     if clear:
         print(f"scope cleared for {me}." if A.clear_scope() else f"{me} had no scope.")
         return
     if module:
-        sc = A.set_scope(module, attr=attr, note=note, pose=pose, crop=crop,
+        sc = A.set_scope(module, attr=attr, note=note, pose=pose,
                          replaced=[r for r in (replaced or "").split(",") if r])
         print(f"{me} now owns {sc['module']}.{sc['attr']}"
               + (f"  (supersedes {', '.join(sc['replaced'])})" if sc["replaced"] else ""))
@@ -648,14 +648,14 @@ def cmd_scope(module, attr, replaced, note, clear, list_all, pose, crop):
 
 
 def cmd_view(extra):
-    """Render YOUR portion into YOUR OWN FreeCAD tab (the project's scratch view).
+    """Render YOUR portion into YOUR OWN viewer page (the project's scratch view).
 
     Deliberately separate from `build`: `build` is the WHOLE instrument and stays
     the lead's, `view` is your part and is the thing you run all day. It needs no
-    build lock -- each worktree writes its own STEP, and the hub names tabs after
-    the folder, so two agents rendering at once land in two different tabs."""
+    build lock -- each worktree writes its own .webview/ folder and serves it on its
+    own port, so two agents rendering at once cannot touch each other's page."""
     if Path(os.getcwd()).resolve() == main_worktree().resolve():
-        raise SystemExit("`view` renders ONE agent's portion; the lead's tab shows the whole "
+        raise SystemExit("`view` renders ONE agent's portion; the lead's page shows the whole "
                          "instrument, so use `build` here.")
     A = _agents_mod()
     if A.get_scope() is None:
@@ -762,13 +762,10 @@ def main():
     sc.add_argument("--note", default="", help="one line for the other agents")
     sc.add_argument("--pose", default="", metavar="KEY",
                     help="POSES key, if your part is not authored in global coords")
-    sc.add_argument("--crop", default="", metavar="KEY",
-                    help="CROPS key, to cache only a region of the instrument")
     sc.add_argument("--clear", action="store_true", help="give the portion up")
     sc.add_argument("--all", dest="list_all", action="store_true")
     # `view` forwards flags to the project's scratch view. NOT nargs=REMAINDER:
-    # argparse refuses a LEADING option there, so `view --start` errored out --
-    # and --start/--merge ARE the cache lifecycle, i.e. every documented flow
+    # argparse refuses a LEADING option there, so `view --gate` errored out
     # (branner, 2026-09-07). parse_known_args below collects them instead.
     sub.add_parser("view")
     m = sub.add_parser("msg")       # direct agent -> agent message (NOT via the lead)
@@ -797,7 +794,7 @@ def main():
      "msg": lambda: cmd_msg(a.to, a.text), "mail": lambda: cmd_mail(a.peek),
      "watch": lambda: cmd_watch(a.poll), "view": lambda: cmd_view(a.args),
      "scope": lambda: cmd_scope(a.module, a.attr, a.replaced, a.note,
-                                a.clear, a.list_all, a.pose, a.crop)}[a.cmd]()
+                                a.clear, a.list_all, a.pose)}[a.cmd]()
 
 
 if __name__ == "__main__":

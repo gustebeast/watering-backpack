@@ -45,15 +45,19 @@ cadkit/
   step_export.py     export_step(obj, path) — names the STEP product after the file
   overlap_check.py   parallel interpenetration gate (wrap in tools/check_overlaps.py)
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP
-  freecad/           OPTIONAL FreeCAD viewer hub (isolated so the core needs no FreeCAD)
-    __init__.py        `from cadkit.freecad import show`
+  scratch.py         the fast per-part loop: cache the surroundings, rebuild one part
+  web/               the assembly viewer, a web page: `from cadkit.web import show`
+    export.py          parts -> assembly.glb + the kernel's own geometry, for measuring
+    view.py            the local server, show(), and the scratch loop's export
+    boards.py parts.py real part models on circuit boards
+    viewer/index.html  the page (three.js); export(page=True) publishes it with a model
   tools/
     agent_sync.py    dev-only multi-agent git-worktree coordination CLI (run as a script)
 ```
 
-The **core** modules depend only on CadQuery/OCP — no FreeCAD. The FreeCAD-specific
-viewer lives in `cadkit.freecad` and is opt-in; `show()` never raises, so viewer trouble
-can't break a build.
+Everything depends only on CadQuery/OCP and the standard library. The viewer needs a
+browser and nothing installed; `show()` never raises, so viewer trouble can't break a
+build.
 
 ## Use
 
@@ -64,7 +68,7 @@ from cadkit.joinery import PrintSpec, joint
 from cadkit.step_export import export_step
 from cadkit.overlap_check import run
 from cadkit import cq_colors
-from cadkit.freecad import show          # optional; opens/refreshes a FreeCAD viewer tab
+from cadkit.web import show              # the model in a browser tab, kept current
 ```
 
 A project vendors cadkit at its repo root and runs its build via `python -m` from there,

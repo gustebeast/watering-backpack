@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>Assembly</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #16181c;
+                 color: #c9ced6; font: 14px/1.4 system-ui, sans-serif; }
+    #view { position: fixed; inset: 0; }
+    .label { position: fixed; left: 16px; top: 14px; opacity: .9; pointer-events: none; }
+    .label b { color: #e6eaf0; }
+    .label .sub { opacity: .6; font-size: 12px; }
+    #build { position: fixed; right: 16px; top: 14px; opacity: .5; font-variant-numeric: tabular-nums; }
+    .hint { position: fixed; left: 16px; bottom: 14px; opacity: .5; font-size: 12px; max-width: 46vw; }
+    /* control legend / buttons — two rows (5 pedals, 5 knee levers) */
+    #controls { position: fixed; right: 16px; bottom: 14px;
+                display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .row { display: flex; gap: 6px; align-items: center; }
+    .row > .rl { font-size: 11px; opacity: .45; text-transform: uppercase;
+                 letter-spacing: .06em; margin-right: 2px; }
+    .pedal { min-width: 84px; padding: 6px 8px; border: 1px solid #333842;
+             border-radius: 8px; background: #1c1f25; cursor: pointer; user-select: none;
+             transition: background .08s, border-color .08s, box-shadow .08s; }
+    .pedal.lever { opacity: .78; }
+    .pedal:hover { border-color: #4a515c; }
+    .pedal.on { background: #23405a; border-color: #4d84b8;
+                box-shadow: 0 0 0 1px #4d84b8 inset; }
+    .pedal .k { display: inline-block; min-width: 15px; text-align: center;
+                border: 1px solid #454b55; border-radius: 4px; padding: 0 4px;
+                margin-right: 6px; font-size: 12px; color: #e6eaf0; }
+    .pedal .t { color: #aab2bd; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .pedal .t .dn { color: #d08a6a; }        /* lowers read differently to raises */
+    .pedal .t .na { opacity: .45; font-style: italic; }
+    .pedal.on .t { color: #e6eaf0; }
+    #deckbtn { min-width: 0; align-self: flex-end; }
+    #fps { position: fixed; right: 16px; top: 34px; opacity: .35; font-size: 11px;
+           font-variant-numeric: tabular-nums; text-align: right; }
+    #loading { position: fixed; inset: 0; display: grid; place-items: center;
+               background: #16181c; transition: opacity .4s; }
+
+    /* ── inspection tools: select / hide / measure ─────────────────────────── */
+    #tools { position: fixed; left: 16px; top: 62px; display: flex; flex-direction: column;
+             gap: 8px; align-items: flex-start; max-height: calc(100vh - 150px); }
+    .bar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn { padding: 4px 9px; border: 1px solid #333842; border-radius: 7px; background: #1c1f25;
+           cursor: pointer; user-select: none; font-size: 12px; color: #c9ced6; }
+    .btn:hover { border-color: #4a515c; }
+    .btn.on { background: #23405a; border-color: #4d84b8; color: #e6eaf0; }
+    .btn .k { opacity: .55; margin-left: 5px; font-size: 11px; }
+    .panel { border: 1px solid #2c3038; border-radius: 9px; background: rgba(24, 26, 31, .93);
+             padding: 8px 10px; font-size: 12px; min-width: 230px; max-width: 330px; }
+    .panel h4 { margin: 0 0 4px; font-size: 11px; font-weight: 600; opacity: .55;
+                text-transform: uppercase; letter-spacing: .06em; }
+    .panel .name { color: #e6eaf0; font-weight: 600; word-break: break-all; }
+    .panel .dim { opacity: .55; }
+    #sel, #readout, #partsPanel, #secPanel { display: none; }
+    #views .btn { padding: 3px 7px; font-size: 11px; }
+    #secVal { width: 74px; background: #121418; border: 1px solid #333842; border-radius: 6px;
+              color: #e6eaf0; font: inherit; padding: 2px 5px; }
+    #secSlide { width: 100%; margin: 8px 0 0; }
+    #readout .v { color: #e6eaf0; font-variant-numeric: tabular-nums; }
+    #readout .big { font-size: 17px; color: #ffe08a; font-variant-numeric: tabular-nums; }
+    #readout .a { color: #6fd3ff; } #readout .b { color: #ff8fd0; }
+    #readout table { border-collapse: collapse; } #readout td { padding: 0 8px 0 0; vertical-align: top; }
+    #partsPanel { overflow: hidden; display: none; flex-direction: column; min-height: 0; }
+    #partsPanel input { width: 100%; box-sizing: border-box; margin-bottom: 6px; padding: 4px 6px;
+                        background: #121418; border: 1px solid #333842; border-radius: 6px;
+                        color: #e6eaf0; font: inherit; }
+    #plist { overflow-y: auto; min-height: 0; max-height: 46vh; margin: 0 -4px; }
+    .fam { display: flex; align-items: center; gap: 6px; padding: 1px 4px; border-radius: 5px;
+           cursor: pointer; white-space: nowrap; }
+    .fam:hover { background: #23262d; }
+    .fam.off { opacity: .4; }
+    .fam .eye { width: 14px; text-align: center; opacity: .8; }
+    .fam .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+    .fam .n { opacity: .45; margin-left: auto; padding-left: 8px; }
+    .dimlabel { position: fixed; transform: translate(-50%, -50%); pointer-events: none;
+                background: rgba(18, 20, 24, .9); border: 1px solid #6b5a1e; color: #ffe08a;
+                padding: 1px 6px; border-radius: 5px; font-size: 13px;
+                font-variant-numeric: tabular-nums; display: none; }
+    #status { position: fixed; right: 16px; top: 52px; font-size: 11px; opacity: .55;
+              pointer-events: none; text-align: right; }
+  </style>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/build/index.module.js"
+  } }
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="label"><b id="title">Assembly</b>
+    <div class="sub"><span id="subtitle"></span><span id="keys"></span><span id="deckhint"><b>space</b> = <span id="deckstate">hide deck</span> (and what comes off with it)</span></div>
+  </div>
+  <div id="build">build #—</div>
+  <div id="fps"></div>
+  <div id="status"></div>
+  <div id="tools">
+    <div class="bar">
+      <div class="btn on" id="bSelect">select</div>
+      <div class="btn" id="bMeasure">measure<span class="k">m</span></div>
+      <div class="btn" id="bParts">parts<span class="k">p</span></div>
+      <div class="btn" id="bSection">section<span class="k">c</span></div>
+      <div class="btn" id="bLight">light<span class="k">l</span></div>
+      <div class="btn" id="bPrinted">as printed<span class="k">k</span></div>
+      <div class="btn" id="bShowAll" style="display:none">show all<span class="k">u</span></div>
+    </div>
+    <div class="bar" id="views">
+      <div class="btn vw" data-d="1,0,0">+X</div><div class="btn vw" data-d="-1,0,0">−X</div>
+      <div class="btn vw" data-d="0,1,0">+Y</div><div class="btn vw" data-d="0,-1,0">−Y</div>
+      <div class="btn vw" data-d="0,0,1">+Z</div><div class="btn vw" data-d="0,0,-1">−Z</div>
+      <div class="btn vw" data-d="0.55,-1,0.5">iso</div>
+    </div>
+    <div class="panel" id="secPanel">
+      <h4>section cut</h4>
+      <div class="bar">
+        <div class="btn ax" data-a="0">X</div><div class="btn ax" data-a="1">Y</div>
+        <div class="btn ax" data-a="2">Z</div><div class="btn" id="bFlip">flip</div>
+        <input id="secVal" type="number" step="0.1">
+      </div>
+      <input id="secSlide" type="range" step="0.1">
+    </div>
+    <div class="panel" id="sel"></div>
+    <div class="panel" id="readout"></div>
+    <div class="panel" id="partsPanel">
+      <input id="pfilter" placeholder="filter parts…" spellcheck="false">
+      <div id="plist"></div>
+    </div>
+  </div>
+  <div class="hint" id="hint"></div>
+  <div class="dimlabel" id="dimlabel"></div>
+  <div id="controls"></div>
+  <div id="loading">loading model…</div>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+  import { Line2 } from 'three/addons/lines/Line2.js';
+  import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+  import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+  import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+  import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+  import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+  import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+  import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+
+  THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+  THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+  THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
+  const TAU = Math.PI * 2;
+  const view = document.getElementById('view');
+  const $ = id => document.getElementById(id);
+
+  // ── renderer / scene / camera ────────────────────────────────────────────
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  // no tone curve: the part colours are display colours already, and a filmic curve
+  // over mostly pale plastic washed the whole model out (user, 2026-10-09)
+  renderer.toneMapping = THREE.NoToneMapping;
+  view.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x16181c);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 20000);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  // Lighting: ONE key light does most of the work and casts the shadows. The ambient
+  // part (room environment at ENV, a hemisphere) is kept LOW: when it led, every face
+  // was lit alike and the model read flat and pale. Weak fills keep the side away from
+  // the key from falling to black (the last is an up-fill from below).
+  const ENV = 0.3;                         // envMapIntensity of every part material
+  scene.add(new THREE.HemisphereLight(0xdfe6f0, 0x2a2e36, 0.3));
+  const KEY_DIR = new THREE.Vector3(3, 4, 2).normalize();
+  const SHADOW_PX = matchMedia('(pointer: coarse)').matches ? 2048 : 4096;
+  const key = new THREE.DirectionalLight(0xffffff, 2.4);
+  key.castShadow = true;
+  key.shadow.mapSize.set(SHADOW_PX, SHADOW_PX);
+  key.shadow.bias = -0.0003;
+  scene.add(key, key.target);
+  for (const [x, y, z, intensity] of [[-3, 2, -2, 0.18], [2, 1, -3, 0.18], [-2, 3, 3, 0.18], [0, -3, 0, 0.18]]) {
+    const L = new THREE.DirectionalLight(0xffffff, intensity);
+    L.position.set(x, y, z);
+    scene.add(L);
+  }
+  // the shadow map is drawn again only when something that casts one has changed
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.info.autoReset = false;                    // counted per frame, over every pass
+
+  const lineMats = [];
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    if (composer) composer.setSize(innerWidth, innerHeight);
+    for (const m of lineMats) m.resolution.set(innerWidth, innerHeight);
+  });
+
+  // ── the animation rig: per-part pivots (CAD coords) + the copedent ────────
+  // Part nodes have identity transforms under a root that converts CAD Z-up ->
+  // glTF Y-up, so every pivot centre / axis / direction below is in CAD space
+  // and we drive each node's LOCAL matrix directly (no coord conversion here).
+  let rig = null, nodes = {}, strings = [];
+  const held = new Set();          // pedals engaged by held keys (momentary)
+  const latched = new Set();       // pedals engaged by button click (toggle)
+
+  const mrot = new THREE.Matrix4();
+  const tA = new THREE.Matrix4(), tB = new THREE.Matrix4();
+
+  function translateNode(name, x, y, z) {
+    const o = nodes[name]; if (!o) return;
+    o.matrixAutoUpdate = false;
+    o.matrix.makeTranslation(x, y, z);
+  }
+  function spinNode(name, center, axis, angle) {
+    const o = nodes[name]; if (!o) return;
+    o.matrixAutoUpdate = false;
+    const ax = new THREE.Vector3(axis[0], axis[1], axis[2]);
+    mrot.makeRotationAxis(ax, angle);
+    tA.makeTranslation(center[0], center[1], center[2]);
+    tB.makeTranslation(-center[0], -center[1], -center[2]);
+    o.matrix.copy(tA).multiply(mrot).multiply(tB);   // T(C)·R·T(-C)
+  }
+  // A belt clamp SLIDES along its belt and TURNS with it: s mm along `dir` from where it
+  // was spliced, turned `angle` about that same line through `origin`.
+  function screwNode(name, origin, dir, s, angle) {
+    const o = nodes[name]; if (!o) return;
+    o.matrixAutoUpdate = false;
+    mrot.makeRotationAxis(new THREE.Vector3(dir[0], dir[1], dir[2]), angle);
+    tA.makeTranslation(origin[0] + dir[0] * s, origin[1] + dir[1] * s, origin[2] + dir[2] * s);
+    tB.makeTranslation(-origin[0], -origin[1], -origin[2]);
+    o.matrix.copy(tA).multiply(mrot).multiply(tB);
+  }
+
+  // net semitone raise per string index, from all engaged pedals
+  function activePedals() {
+    const s = new Set([...held, ...latched]);
+    return rig.copedent.filter(p => s.has(p.name));
+  }
+  function targetRaise() {
+    const raise = new Array(rig.n_strings).fill(0);
+    for (const p of activePedals())
+      for (const r of p.raises) raise[r.i] += r.semitones;
+    return raise;
+  }
+
+  // One eased state per string: `carr` = the carriage's Z offset from its baked pose
+  // (every nut on the ceiling). The pulleys and the belt clamp are driven from it, so
+  // they always agree with where the nut actually is.
+  let curCarr = null, curPress = null;
+
+  // The pedals themselves: each engaged station swings its arm down about the
+  // axle through its full throw, and the lobe pushes both feel-cartridge pistons
+  // back into their bases. The piston stroke is not a fudge — a flat lobe face at
+  // radius rc swept through theta retracts by rc*sin(theta), which is the same
+  // relation the arm length was sized from (13.2*sin20 = 4.51 mm).
+  function applyPedals(dt, k) {
+    if (!rig.pedals) return;
+    if (!curPress) curPress = new Array(rig.pedals.length).fill(0);
+    const on = new Set(activePedals().map(p => p.pedal));
+    for (const p of rig.pedals) {
+      curPress[p.i] += ((on.has(p.i) ? 1 : 0) - curPress[p.i]) * k;
+      const e = curPress[p.i];
+      if (e < 1e-4 && !on.has(p.i)) continue;        // parked: leave it identity
+      const ang = p.throw_deg * e * Math.PI / 180;   // signed; pressed = negative
+      for (const n of p.swing_nodes) spinNode(n, p.center, p.axis, ang);
+      const s = p.lobe_rc * Math.sin(Math.abs(ang)), d = p.piston_dir;
+      for (const n of p.piston_nodes) translateNode(n, d[0] * s, d[1] * s, d[2] * s);
+    }
+  }
+
+  // The knee levers, same idea as the pedals but keyed by control name: each has its
+  // own axle centre/axis and a SIGNED throw (an "…R" lever is the design mirrored,
+  // which negates the rotation — the exporter checks that against CAD, not by eye).
+  const curSwing = {};
+  function applyLevers(dt, k) {
+    const on = new Set(activePedals().map(p => p.name));
+    for (const c of rig.copedent) {
+      const L = c.lever; if (!L) continue;
+      const e = (curSwing[c.name] = (curSwing[c.name] || 0) +
+                 ((on.has(c.name) ? 1 : 0) - (curSwing[c.name] || 0)) * k);
+      if (e < 1e-4 && !on.has(c.name)) continue;
+      const ang = L.throw_deg * e * Math.PI / 180;
+      for (const n of L.swing_nodes) spinNode(n, L.center, L.axis, ang);
+      const s = L.lobe_rc * Math.sin(Math.abs(ang)), d = L.piston_dir;
+      if (d) for (const n of L.piston_nodes)
+        translateNode(n, d[0] * s, d[1] * s, d[2] * s);
+    }
+  }
+
+  function applyRig(dt) {
+    if (!rig) return;
+    const g = rig.gains, tgtSt = targetRaise();
+    if (!curCarr) curCarr = new Array(rig.n_strings).fill(0);
+    const k = 1 - Math.pow(0.0001, dt);              // ~critically damped ease
+    applyPedals(dt, k);
+    applyLevers(dt, k);
+    for (const s of strings) {
+      // WHERE THE NUT SITS FOR A PITCH. A string's stretch from slack is proportional to
+      // its tension, and pitch goes as the root of tension: open is rig.open_down below the
+      // ceiling (where the string was wrapped), and n semitones from open is
+      // open_down * 2^(n/6). So the model, drawn as assembled with every nut on the
+      // ceiling, TUNES UP to open as the page loads, and a lower runs the nut back up.
+      const downTgt = Math.min(Math.max(rig.open_down * Math.pow(2, tgtSt[s.i] / 6), 0),
+                               rig.carriage_travel);
+      const carrTgt = -(s.rest_dz || 0) - downTgt;   // cancel any baked pose, then tension -Z
+      curCarr[s.i] += (carrTgt - curCarr[s.i]) * k;
+      for (const n of s.carriage_nodes) translateNode(n, 0, 0, curCarr[s.i]);
+      // `down` = how far the nut is below the ceiling. The model is drawn with every nut
+      // on the ceiling and every clamp where it is spliced, so pulleys and clamp follow
+      // the carriage itself, in the mechanism's own ratios (signs come from the rig).
+      const down = -curCarr[s.i] - (s.rest_dz || 0);
+      const ang = TAU * g.pulley_turns_per_mm * down;     // 1:1 pulleys
+      spinNode(s.screw_pulley.node, s.screw_pulley.center, s.screw_pulley.axis,
+               ang * (s.screw_pulley.sign || 1));
+      spinNode(s.motor_pulley.node, s.motor_pulley.center, s.motor_pulley.axis,
+               ang * (s.motor_pulley.sign || 1));
+      const c = s.belt_clamp, bs = c.mm_per_mm * down;
+      for (const n of c.nodes) screwNode(n, c.origin, c.dir, bs, c.rad_per_mm * bs);
+    }
+  }
+
+  // ── control UI (buttons = toggle; keys = momentary hold) ──────────────────
+  // Two rows: the five foot pedals, then the five knee levers. Ten controls no
+  // longer fit the one 116px row the three-pedal E9 set used.
+  function buildPedalUI() {
+    const wrap = $('controls');
+    wrap.innerHTML = '';
+    // the keys as the rig assigns them, not as this page once remembered them
+    const ks = g => g.map(p => p.key).join(' ');
+    $('keys').innerHTML = rig ? `<b>${ks(rig.copedent.filter(p => 'pedal' in p))}</b> pedals, ` +
+      `<b>${ks(rig.copedent.filter(p => !('pedal' in p)))}</b> knee levers (hold to combo) · ` : '';
+    const rows = rig ? [['pedals', rig.copedent.filter(p => 'pedal' in p)],
+                        ['knees',  rig.copedent.filter(p => !('pedal' in p))]] : [];
+    for (const [title, group] of rows) {
+      if (!group.length) continue;
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<span class="rl">${title}</span>`;
+      for (const p of group) {
+        const el = document.createElement('div');
+        el.className = 'pedal' + ('pedal' in p ? '' : ' lever');
+        el.dataset.name = p.name;
+        // signed: this copedent lowers as well as raises, so "3" alone would lie
+        const moves = p.raises.length
+          ? [...p.raises].sort((a, b) => a.i - b.i).map(r =>
+              `<span class="${r.semitones < 0 ? 'dn' : ''}">${r.i + 1}` +
+              `${r.semitones > 0 ? '+' : '−'}${Math.abs(r.semitones)}</span>`).join(' ')
+          : '<span class="na">unassigned on C6</span>';
+        el.innerHTML = `<span class="k">${p.key}</span><b>${p.name}</b>` +
+                       `<div class="t">${moves}</div>`;
+        el.onclick = () => { latched.has(p.name) ? latched.delete(p.name)
+                                                 : latched.add(p.name); syncUI(); };
+        row.appendChild(el);
+      }
+      wrap.appendChild(row);
+    }
+    // the deck toggle as a BUTTON: space does not exist on a phone
+    if (!(rig && rig.deck_prefixes)) return;
+    const d = document.createElement('div');
+    d.className = 'pedal'; d.id = 'deckbtn';
+    d.innerHTML = '<span class="k">space</span><b>hide deck</b>';
+    d.onclick = toggleDeck;
+    wrap.appendChild(d);
+  }
+  function syncUI() {
+    const on = new Set([...held, ...latched]);
+    for (const el of document.querySelectorAll('.pedal[data-name]'))
+      el.classList.toggle('on', on.has(el.dataset.name));
+  }
+  const keyToPedal = {};   // '1' -> 'A'
+  let deckVisible = true;
+  function deckParts() {
+    const pre = (rig && rig.deck_prefixes) || [];
+    return M.list.filter(p => pre.some(x => p.name.startsWith(x)));
+  }
+  function toggleDeck() {
+    act(() => { deckVisible = !deckVisible; setHidden(deckParts(), !deckVisible); });
+    $('deckstate').textContent = deckVisible ? 'hide deck' : 'show deck';
+    const b = $('deckbtn');
+    if (b) { b.classList.toggle('on', !deckVisible);
+             b.querySelector('b').textContent = deckVisible ? 'hide deck' : 'show deck'; }
+  }
+  function movingNames() {
+    const s = new Set();
+    if (!rig) return s;
+    for (const st of rig.strings) {
+      for (const n of st.carriage_nodes) s.add(n);
+      s.add(st.screw_pulley.node); s.add(st.motor_pulley.node);
+      for (const n of st.belt_clamp.nodes) s.add(n);
+    }
+    for (const p of rig.pedals || []) for (const n of [...p.swing_nodes, ...p.piston_nodes]) s.add(n);
+    for (const c of rig.copedent) if (c.lever)
+      for (const n of [...c.lever.swing_nodes, ...(c.lever.piston_nodes || [])]) s.add(n);
+    return s;
+  }
+
+  // ── THE MODEL: ONE DRAW CALL PER MATERIAL, AND EVERY PART STILL ADDRESSABLE ───────
+  // The GLB (tools/web_export.py) is one mesh per part, positions and indices only,
+  // triangles sorted by CAD face. Parts that never move are merged into one mesh per
+  // material -- draw calls, not triangles, are what a frame rate dies of -- but each
+  // keeps its run of the merged index, so a part can still be picked (the run a hit
+  // triangle falls in), hidden (the drawn index is rewritten without its run) and
+  // highlighted (its run drawn again in another colour). A part the rig moves keeps its
+  // own node.
+  const M = { root: null, parts: null, list: [], byName: new Map(), batches: [], pickables: [],
+              key: '', geo: null, geoPromise: null };
+  const matCache = new Map();
+  function partMaterial(src) {
+    const c = src.color, a = src.opacity ?? 1;
+    const key = c.getHexString() + ':' + a.toFixed(3);
+    if (!matCache.has(key))
+      matCache.set(key, new THREE.MeshStandardMaterial({
+        color: c.clone(), metalness: 0, roughness: 0.65, side: THREE.DoubleSide, clipShadows: true,
+        envMapIntensity: ENV,
+        transparent: a < 0.999, opacity: a }));
+    return matCache.get(key);
+  }
+  // a board's real components are meshes of their own, named <board part>__<ref>, but a
+  // board and everything on it is ONE thing to select, hide and list (its `unit`); only
+  // the measure tool looks at a single component
+  const unitOf = n => n.split('__')[0];
+  const family = n => unitOf(n).replace(/(_\d+)+$/, '');
+  // a part of many colours (a component model) carries them per vertex, under one white material
+  const vcMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0.1,
+                                                 roughness: 0.6, side: THREE.DoubleSide, clipShadows: true,
+                                                 envMapIntensity: ENV });
+
+  // ── as printed ───────────────────────────────────────────────────────────────────
+  // The build colours every part differently so they can be told apart. This view
+  // shows the instrument as it comes off the printer instead: every part of one
+  // filament in that filament's colour AND finish. Glass-filled PETG is matte (the
+  // fibre breaks up the surface, so it barely reflects); PCTG is a glossy plastic and
+  // picks up the room; TPU is dull rubber. Bought parts keep their colours.
+  const PRINT = {
+    'petg-gf': new THREE.MeshStandardMaterial({ color: 0x17181a, metalness: 0, roughness: 0.92,
+      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.25 }),
+    'pctg': new THREE.MeshStandardMaterial({ color: 0x14401f, metalness: 0, roughness: 0.22,
+      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0 }),
+    // the deck's second colour (its fret lines and markers): not chosen yet, so a pale one
+    'pctg-alt': new THREE.MeshStandardMaterial({ color: 0xd9d6c8, metalness: 0, roughness: 0.22,
+      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0 }),
+    'tpu': new THREE.MeshStandardMaterial({ color: 0x101011, metalness: 0, roughness: 1.0,
+      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.15 }),
+  };
+  let asPrinted = false;
+  try { asPrinted = sessionStorage.getItem('as-printed') === '1'; } catch {}
+
+  function buildModel(gltf) {
+    const root = gltf.scene;
+    let parts = root;
+    while (parts.children.length === 1 && !parts.children[0].isMesh) parts = parts.children[0];
+    M.root = root; M.parts = parts;
+    M.list = []; M.byName = new Map(); M.units = new Map(); M.batches = []; M.pickables = [];
+    nodes = {};
+    const moving = movingNames();
+    const groups = new Map();
+    for (const mesh of [...parts.children]) {
+      if (!mesh.isMesh) continue;
+      const g = mesh.geometry, col = g.attributes.color ? g.attributes.color.array : null;
+      const printed = asPrinted && !col && PRINT[mesh.userData.mat];
+      const mat = col ? vcMat : printed || partMaterial(mesh.material);
+      const unit = mesh.userData.unit || unitOf(mesh.name);      // a board's lettering names its board
+      const p = { name: mesh.name, unit, family: family(unit), mat, hidden: false, col,
+                  pos: g.attributes.position.array, idx: g.index.array,
+                  dynamic: moving.has(mesh.name), mesh: null, batch: null,
+                  vStart: 0, iStart: 0, iCount: g.index.count };
+      M.list.push(p); M.byName.set(p.name, p);
+      if (!M.units.has(p.unit)) M.units.set(p.unit, []);
+      M.units.get(p.unit).push(p);
+      if (p.dynamic) {
+        g.computeVertexNormals();
+        g.computeBoundsTree({ indirect: true });
+        mesh.material = mat; mesh.userData.part = p;
+        mesh.castShadow = mesh.receiveShadow = true;
+        p.mesh = mesh; nodes[p.name] = mesh;
+        M.pickables.push(mesh);
+      } else {
+        if (!groups.has(mat)) groups.set(mat, []);
+        groups.get(mat).push(p);
+        mesh.removeFromParent();
+      }
+    }
+    for (const [mat, ps] of groups) {
+      let nv = 0, ni = 0;
+      for (const p of ps) { p.vStart = nv; p.iStart = ni; nv += p.pos.length / 3; ni += p.iCount; }
+      const pos = new Float32Array(nv * 3), full = new Uint32Array(ni);
+      const cols = mat === vcMat ? new Uint8Array(nv * 4).fill(255) : null;
+      for (const p of ps) {
+        pos.set(p.pos, p.vStart * 3);
+        if (cols && p.col) cols.set(p.col, p.vStart * 4);
+        const o = p.vStart, src = p.idx;
+        for (let i = 0; i < src.length; i++) full[p.iStart + i] = src[i] + o;
+        p.pos = pos.subarray(p.vStart * 3, p.vStart * 3 + p.pos.length);
+        p.idx = null;
+      }
+      const pickGeo = new THREE.BufferGeometry();
+      pickGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      pickGeo.setIndex(new THREE.BufferAttribute(full, 1));
+      pickGeo.computeVertexNormals();
+      const drawGeo = new THREE.BufferGeometry();
+      drawGeo.setAttribute('position', pickGeo.attributes.position);
+      drawGeo.setAttribute('normal', pickGeo.attributes.normal);
+      if (cols) drawGeo.setAttribute('color', new THREE.BufferAttribute(cols, 4, true));
+      drawGeo.setIndex(new THREE.BufferAttribute(full.slice(), 1));
+      drawGeo.boundingSphere = null; drawGeo.computeBoundingSphere();
+      const draw = new THREE.Mesh(drawGeo, mat);
+      draw.castShadow = draw.receiveShadow = true;
+      const pick = new THREE.Mesh(pickGeo, mat);
+      pick.visible = false;                     // raycast only: the ray does not test visibility
+      const b = { mat, parts: ps, full, draw, pick, drawGeo, pickGeo,
+                  starts: Uint32Array.from(ps, p => p.iStart / 3) };
+      for (const p of ps) p.batch = b;
+      pick.userData.batch = b;
+      parts.add(draw); parts.add(pick);
+      M.batches.push(b); M.pickables.push(pick);
+    }
+    scene.add(root);
+    root.updateWorldMatrix(true, true);
+    // the trees cost about a second on the whole instrument: after the first frame
+    setTimeout(() => { for (const b of M.batches) b.pickGeo.computeBoundsTree({ indirect: true }); }, 50);
+  }
+  function disposeModel() {
+    if (!M.root) return;
+    clearSelection(); clearMeasure();
+    scene.remove(M.root);
+    for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose(); }
+    for (const p of M.list) if (p.mesh) { p.mesh.geometry.disposeBoundsTree(); p.mesh.geometry.dispose(); }
+    M.root = null; M.geo = null; M.geoPromise = null;
+  }
+
+  // ── hiding ───────────────────────────────────────────────────────────────────────
+  function redrawBatch(b) {
+    const out = b.drawGeo.index.array;
+    let n = 0;
+    for (const p of b.parts) if (!p.hidden) {
+      out.set(b.full.subarray(p.iStart, p.iStart + p.iCount), n); n += p.iCount;
+    }
+    b.drawGeo.index.needsUpdate = true;
+    b.drawGeo.setDrawRange(0, n);
+    b.draw.visible = n > 0;
+  }
+  function setHidden(ps, hidden) {
+    const dirty = new Set();
+    for (const p of ps) {
+      if (p.hidden === hidden) continue;
+      p.hidden = hidden;
+      if (p.mesh) p.mesh.visible = !hidden; else dirty.add(p.batch);
+    }
+    for (const b of dirty) redrawBatch(b);
+    lightDirty = true;
+    if (hidden) { const s = new Set(ps); selection = selection.filter(p => !s.has(p)); drawSelection(); }
+    syncPartsUI();
+  }
+  const hiddenParts = () => M.list.filter(p => p.hidden);
+  function showAll() { act(() => { setHidden(hiddenParts(), false); deckVisible = true; syncDeckUI(); }); }
+
+  // ── undo / redo of what is shown (ctrl+z, ctrl+y) ────────────────────────────────
+  // A step is the whole set of hidden part NAMES, so it survives a model reload.
+  const undoStack = [], redoStack = [];
+  const visState = () => ({ names: hiddenParts().map(p => p.name), deck: deckVisible });
+  const sameVis = (a, b) => a.deck === b.deck && a.names.length === b.names.length
+                            && a.names.every((n, i) => n === b.names[i]);
+  function act(fn) {                       // run a change to what is shown, as one step
+    const before = visState();
+    fn();
+    if (sameVis(before, visState())) return;
+    undoStack.push(before); redoStack.length = 0;
+    if (undoStack.length > 200) undoStack.shift();
+  }
+  function restoreVis(s) {
+    const want = new Set(s.names);
+    setHidden(M.list.filter(p => p.hidden && !want.has(p.name)), false);
+    setHidden(M.list.filter(p => !p.hidden && want.has(p.name)), true);
+    deckVisible = s.deck; syncDeckUI();
+  }
+  function undo(redo = false) {
+    const from = redo ? redoStack : undoStack, to = redo ? undoStack : redoStack;
+    if (!from.length) return false;
+    to.push(visState()); restoreVis(from.pop());
+    return true;
+  }
+  function syncDeckUI() {
+    $('deckstate').textContent = deckVisible ? 'hide deck' : 'show deck';
+    const b = $('deckbtn');
+    if (b) { b.classList.toggle('on', !deckVisible);
+             b.querySelector('b').textContent = deckVisible ? 'hide deck' : 'show deck'; }
+  }
+
+  // ── picking ──────────────────────────────────────────────────────────────────────
+  const ray = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  function pickAt(cx, cy) {
+    if (!M.root) return null;
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    ray.firstHitOnly = false;
+    for (const h of ray.intersectObjects(M.pickables, false)) {
+      let p, tri;
+      const b = h.object.userData.batch;
+      if (b) {
+        let lo = 0, hi = b.starts.length - 1;            // the last run starting at or before it
+        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (b.starts[m] <= h.faceIndex) lo = m; else hi = m - 1; }
+        p = b.parts[lo]; tri = h.faceIndex - b.starts[lo];
+      } else { p = h.object.userData.part; tri = h.faceIndex; }
+      if (!p || p.hidden) continue;
+      if (sec.on && sec.plane.distanceToPoint(h.point) < 0) continue;   // cut away
+      return { part: p, tri, world: h.point.clone(), cad: M.parts.worldToLocal(h.point.clone()) };
+    }
+    return null;
+  }
+
+  // ── selection ────────────────────────────────────────────────────────────────────
+  let selection = [];
+  const selMat = new THREE.MeshBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: 0.45,
+    side: THREE.DoubleSide, depthWrite: false, polygonOffset: true,
+    polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  let selOverlays = [];
+  function partOverlay(p, mat) {
+    const g = new THREE.BufferGeometry();
+    let m;
+    if (p.mesh) {
+      g.setAttribute('position', p.mesh.geometry.attributes.position);
+      g.setIndex(p.mesh.geometry.index);
+      m = new THREE.Mesh(g, mat);
+      m.matrixAutoUpdate = false; m.userData.follow = p.mesh;
+    } else {
+      g.setAttribute('position', p.batch.pickGeo.attributes.position);
+      g.setIndex(new THREE.BufferAttribute(p.batch.full.slice(p.iStart, p.iStart + p.iCount), 1));
+      m = new THREE.Mesh(g, mat);
+    }
+    m.frustumCulled = false; m.renderOrder = 5;
+    M.parts.add(m);
+    return m;
+  }
+  function drawSelection() {
+    for (const o of selOverlays) { o.removeFromParent(); }
+    selOverlays = selection.map(p => partOverlay(p, selMat));
+    const el = $('sel');
+    if (!selection.length) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    const fams = [...new Set(selection.map(p => p.family))];
+    const units = [...new Set(selection.map(p => p.unit))];
+    const head = units.length === 1
+      ? `<div class="name">${units[0]}</div>` + (selection.length > 1 ? `<div class="dim">board, lettering and components: ${selection.length} pieces</div>` : '')
+      : `<div class="name">${units.length} parts</div><div class="dim">${fams.slice(0, 6).join(', ')}${fams.length > 6 ? ', …' : ''}</div>`;
+    const sib = M.list.filter(p => fams.includes(p.family)).length;
+    el.innerHTML = `<h4>selected</h4>${head}<div class="bar" style="margin-top:6px">
+      <div class="btn" data-a="hide">hide<span class="k">x</span></div>
+      <div class="btn" data-a="isolate">isolate<span class="k">i</span></div>
+      <div class="btn" data-a="zoom">zoom<span class="k">z</span></div>
+      ${sib > selection.length ? `<div class="btn" data-a="fam">select all ${sib} alike</div>` : ''}</div>`;
+    for (const b of el.querySelectorAll('.btn')) b.onclick = () => selAction(b.dataset.a);
+  }
+  function clearSelection() { selection = []; drawSelection(); }
+  function selAction(a) {
+    if (!selection.length) return;
+    if (a === 'hide') act(() => setHidden([...selection], true));
+    if (a === 'isolate') { const keep = new Set(selection); act(() => setHidden(M.list.filter(p => !keep.has(p)), true)); }
+    if (a === 'zoom') frameParts(selection);
+    if (a === 'fam') { const f = new Set(selection.map(p => p.family));
+                       selection = M.list.filter(p => f.has(p.family) && !p.hidden); drawSelection(); }
+  }
+  function partBox(p, box) {
+    const m = p.mesh ? p.mesh.matrix : null, v = new THREE.Vector3();
+    for (let i = 0; i < p.pos.length; i += 3) {
+      v.set(p.pos[i], p.pos[i + 1], p.pos[i + 2]); if (m) v.applyMatrix4(m);
+      box.expandByPoint(v);
+    }
+    return box;
+  }
+  function frameParts(ps) {
+    const box = new THREE.Box3();
+    for (const p of ps) partBox(p, box);
+    if (box.isEmpty()) return;
+    box.applyMatrix4(M.parts.matrixWorld);
+    frameBox(box, false);
+  }
+
+  // ── the parts list ───────────────────────────────────────────────────────────────
+  let partsOpen = false;
+  function buildPartsUI() {
+    const fams = new Map();
+    for (const p of M.list) { if (!fams.has(p.family)) fams.set(p.family, []); fams.get(p.family).push(p); }
+    const list = $('plist'); list.innerHTML = '';
+    for (const [f, ps] of [...fams].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const el = document.createElement('div');
+      el.className = 'fam'; el.dataset.f = f;
+      el.innerHTML = `<span class="eye">●</span><span class="sw" style="background:#${ps[0].col ? '8a8f98' : ps[0].mat.color.getHexString()}"></span>` +
+                     `<span>${f}</span><span class="n">${ps.length > 1 ? '×' + ps.length : ''}</span>`;
+      el.querySelector('.eye').onclick = ev => { ev.stopPropagation(); act(() => setHidden(ps, !ps.every(p => p.hidden))); };
+      el.onclick = () => { selection = ps.filter(p => !p.hidden); drawSelection(); };
+      el.ondblclick = () => frameParts(ps);
+      el._parts = ps;
+      list.appendChild(el);
+    }
+    syncPartsUI();
+  }
+  function syncPartsUI() {
+    const n = hiddenParts().length;
+    $('bShowAll').style.display = n ? '' : 'none';
+    $('bShowAll').firstChild.textContent = `show all (${n} hidden)`;
+    if (!partsOpen) return;
+    const q = $('pfilter').value.trim().toLowerCase();
+    for (const el of $('plist').children) {
+      const off = el._parts.every(p => p.hidden);
+      el.classList.toggle('off', off);
+      el.querySelector('.eye').textContent = off ? '○' : '●';
+      el.style.display = !q || el.dataset.f.includes(q) ? '' : 'none';
+    }
+  }
+  $('pfilter').oninput = syncPartsUI;
+  function toggleParts() {
+    partsOpen = !partsOpen;
+    $('partsPanel').style.display = partsOpen ? 'flex' : 'none';
+    $('bParts').classList.toggle('on', partsOpen);
+    syncPartsUI();
+  }
+
+  // ── MEASURING, AGAINST THE KERNEL'S NUMBERS AND NOT THE TRIANGLES ────────────────
+  // assembly.geo.json says what every triangle WAS: each part's faces (plane with its
+  // normal, cylinder with its axis and radius, ...) with the run of triangles each one
+  // owns, each edge (line, circle with centre and radius, or a sampled curve) and which
+  // edges bound which face. A pick lands on a triangle; the triangle names its face; the
+  // cursor then snaps to that face's own corners and edges. Every figure shown is read
+  // from those records -- nothing is fitted to the mesh. All of it is in the CAD frame
+  // (millimetres, Z up), which is the frame the part nodes live in.
+  let mode = 'select';
+  const V = (a, i) => new THREE.Vector3(a[i], a[i + 1], a[i + 2]);
+  function loadGeo() {
+    if (!M.geoPromise)
+      M.geoPromise = fetch('assembly.geo.json?v=' + M.key).then(r => {
+        if (!r.ok) throw new Error('no geometry record for this model');
+        return r.json();
+      }).then(j => { M.models = j.models || {}; return (M.geo = j.parts); });
+    return M.geoPromise;
+  }
+  function faceOfTri(G, tri) {
+    const r = G.r; let lo = 0, hi = r.length - 2;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (r[m] <= tri) lo = m; else hi = m - 1; }
+    return lo;
+  }
+  function edgePolyline(e) {
+    if (e[0] === 'l') return [V(e, 1), V(e, 4)];
+    if (e[0] === 'c') {
+      const c = V(e, 1), d = V(e, 4), s = V(e, 8), sweep = e[11];
+      const n = Math.max(6, Math.ceil(Math.abs(sweep) / TAU * 72)), out = [];
+      const rel = s.clone().sub(c), q = new THREE.Quaternion();
+      for (let i = 0; i <= n; i++) {
+        q.setFromAxisAngle(d, sweep * i / n);
+        out.push(rel.clone().applyQuaternion(q).add(c));
+      }
+      return out;
+    }
+    const a = e[1], out = [];
+    for (let i = 0; i < a.length; i += 3) out.push(V(a, i));
+    return out;
+  }
+  const polyLen = pts => { let s = 0; for (let i = 1; i < pts.length; i++) s += pts[i].distanceTo(pts[i - 1]); return s; };
+  // an entity in the CAD frame as the part stands NOW (a part the rig has moved carries its matrix)
+  // (and a component is ONE shared record placed by a matrix: `i` names it, `m` places it)
+  const GEO = part => { const g = M.geo[part.name]; return g && g.i !== undefined ? M.models[g.i] : g; };
+  function xf(part) {
+    const g = M.geo[part.name];
+    if (!g || g.i === undefined) return part.mesh ? part.mesh.matrix : null;
+    const a = g.m, inst = new THREE.Matrix4().set(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
+                                                  a[8], a[9], a[10], a[11], 0, 0, 0, 1);
+    return part.mesh ? part.mesh.matrix.clone().multiply(inst) : inst;
+  }
+  const P = (v, m) => m ? v.clone().applyMatrix4(m) : v;
+  const D = (v, m) => m ? v.clone().transformDirection(m) : v;
+  function edgeEntity(part, ei) {
+    const e = GEO(part).e[ei], m = xf(part);
+    const pts = edgePolyline(e).map(p => P(p, m));
+    const base = { part, edge: ei, pts };
+    if (e[0] === 'l') return { ...base, kind: 'line', a: pts[0], b: pts[1] };
+    if (e[0] === 'c') return { ...base, kind: 'circle', c: P(V(e, 1), m), d: D(V(e, 4), m), r: e[7], sweep: e[11] };
+    return { ...base, kind: 'curve' };
+  }
+  function faceEntity(part, fi) {
+    const G = GEO(part), f = G.f[fi], m = xf(part), base = { part, face: fi };
+    switch (f[0]) {
+      case 'p': return { ...base, kind: 'plane', p: P(V(f, 1), m), n: D(V(f, 4), m) };
+      case 'c': return { ...base, kind: 'cyl', p: P(V(f, 1), m), d: D(V(f, 4), m), r: f[7], len: Math.abs(f[9] - f[8]) };
+      case 'k': return { ...base, kind: 'cone', p: P(V(f, 1), m), d: D(V(f, 4), m), ang: f[7] };
+      case 's': return { ...base, kind: 'sphere', c: P(V(f, 1), m), r: f[4] };
+      case 't': return { ...base, kind: 'torus', p: P(V(f, 1), m), d: D(V(f, 4), m), R: f[7], r: f[8] };
+    }
+    return { ...base, kind: 'surface' };
+  }
+  function faceArea(part, fi) {
+    const G = GEO(part), t0 = G.r[fi], t1 = G.r[fi + 1];
+    const idx = part.mesh ? part.mesh.geometry.index.array : part.batch.full;
+    const pos = part.mesh ? part.mesh.geometry.attributes.position.array : part.batch.pickGeo.attributes.position.array;
+    const o = part.mesh ? 0 : part.iStart;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    let s = 0;
+    for (let t = t0; t < t1; t++) {
+      a.fromArray(pos, idx[o + 3 * t] * 3); b.fromArray(pos, idx[o + 3 * t + 1] * 3); c.fromArray(pos, idx[o + 3 * t + 2] * 3);
+      s += b.sub(a).cross(c.sub(a)).length() / 2;
+    }
+    return s;
+  }
+  const toPx = (() => { const v = new THREE.Vector3(); return p => {
+    v.copy(p).applyMatrix4(M.parts.matrixWorld).project(camera);
+    return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; }; })();
+  function segDist2(px, py, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy;
+    const t = l ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / l)) : 0;
+    const x = a[0] + t * dx - px, y = a[1] + t * dy - py;
+    return [x * x + y * y, t];
+  }
+  // what the cursor means: a corner of the face under it, else one of its edges, else the face
+  const SNAP_PT = 11, SNAP_EDGE = 8;
+  function snapAt(cx, cy) {
+    const hit = pickAt(cx, cy);
+    if (!hit || !M.geo) return null;
+    const G = GEO(hit.part);
+    if (!G) return { kind: 'point', p: hit.cad, part: hit.part, pick: hit.cad, loose: true };
+    const fi = faceOfTri(G, hit.tri);
+    let bestV = null, bestE = null;
+    for (const ei of G.fe[fi]) {
+      const ent = edgeEntity(hit.part, ei), px = ent.pts.map(toPx);
+      const closed = ent.kind === 'circle' && Math.abs(ent.sweep) > TAU - 1e-3;
+      if (!closed) for (const k of [0, px.length - 1]) {
+        const d = Math.hypot(px[k][0] - cx, px[k][1] - cy);
+        if (d < SNAP_PT && (!bestV || d < bestV.d)) bestV = { d, p: ent.pts[k] };
+      }
+      for (let i = 1; i < px.length; i++) {
+        const [d2, t] = segDist2(cx, cy, px[i - 1], px[i]);
+        if (d2 < SNAP_EDGE * SNAP_EDGE && (!bestE || d2 < bestE.d2))
+          bestE = { d2, ent, at: ent.pts[i - 1].clone().lerp(ent.pts[i], t) };
+      }
+    }
+    if (bestV) return { kind: 'point', p: bestV.p, part: hit.part, pick: bestV.p };
+    if (bestE) return { ...bestE.ent, pick: bestE.at };
+    return { ...faceEntity(hit.part, fi), pick: hit.cad };
+  }
+
+  // reduce an entity to what a dimension is taken FROM: a point, a line or a plane
+  // (a line or an axis is infinite: `q` is the point on it nearest the pick, which is
+  //  where its end of the dimension line is drawn)
+  const onLine = (p, d, x) => p.clone().add(d.clone().multiplyScalar(x.clone().sub(p).dot(d)));
+  function refOf(e) {
+    const r = refOf0(e);
+    if (r.t === 'L') r.q = onLine(r.p, r.d, e.pick);
+    return r;
+  }
+  function refOf0(e) {
+    switch (e.kind) {
+      case 'point': return { t: 'P', p: e.p };
+      case 'circle': return { t: 'P', p: e.c, r: e.r, what: 'centre' };
+      case 'sphere': return { t: 'P', p: e.c, r: e.r, what: 'centre' };
+      case 'line': return { t: 'L', p: e.a, d: e.b.clone().sub(e.a).normalize() };
+      case 'cyl': return { t: 'L', p: e.p, d: e.d, r: e.r, what: 'axis' };
+      case 'cone': case 'torus': return { t: 'L', p: e.p, d: e.d, what: 'axis' };
+      case 'plane': return { t: 'PL', p: e.p, n: e.n };
+    }
+    return { t: 'P', p: e.pick, what: 'picked point' };
+  }
+  const f3 = x => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3);
+  const deg = r => (r * 180 / Math.PI).toFixed(2) + '°';
+  const vec = v => `${f3(v.x)}, ${f3(v.y)}, ${f3(v.z)}`;
+  const NAMES = { point: 'point', line: 'straight edge', circle: 'circular edge', curve: 'curved edge',
+                  plane: 'flat face', cyl: 'cylinder', cone: 'cone', sphere: 'sphere', torus: 'torus',
+                  surface: 'curved face' };
+  function describe(e) {
+    const L = [];
+    switch (e.kind) {
+      case 'point': L.push(`X ${f3(e.p.x)}  Y ${f3(e.p.y)}  Z ${f3(e.p.z)}`); break;
+      case 'line': L.push(`length ${f3(e.a.distanceTo(e.b))}`); break;
+      case 'circle': {
+        L.push(`R ${f3(e.r)} · Ø ${f3(2 * e.r)}`);
+        if (Math.abs(e.sweep) < TAU - 1e-3) L.push(`arc ${deg(Math.abs(e.sweep))} · length ${f3(Math.abs(e.sweep) * e.r)}`);
+        L.push(`centre ${vec(e.c)}`); break; }
+      case 'curve': L.push(`length ${f3(polyLen(e.pts))} (sampled)`); break;
+      case 'plane': L.push(`normal ${vec(e.n)}`, `area ${faceArea(e.part, e.face).toFixed(2)} mm²`); break;
+      case 'cyl': L.push(`R ${f3(e.r)} · Ø ${f3(2 * e.r)}`, `axis ${vec(e.d)}` + (e.len ? ` · length ${f3(e.len)}` : '')); break;
+      case 'cone': L.push(`half angle ${deg(Math.abs(e.ang))}`, `axis ${vec(e.d)}`); break;
+      case 'sphere': L.push(`R ${f3(e.r)} · Ø ${f3(2 * e.r)}`, `centre ${vec(e.c)}`); break;
+      case 'torus': L.push(`R ${f3(e.R)} · tube r ${f3(e.r)}`); break;
+      case 'surface': L.push(`not a plane or a cylinder: measured from the picked point`); break;
+    }
+    return L;
+  }
+  // the dimension between two entities: {big, lines[], a, b} with a-b the dimension line
+  function between(ea, eb) {
+    let A = refOf(ea), B = refOf(eb), flip = false;
+    const order = { P: 0, L: 1, PL: 2 };
+    if (order[A.t] > order[B.t]) { [A, B] = [B, A]; flip = true; }
+    const out = { lines: [] };
+    const para = (u, v) => u.clone().cross(v).length() < 1e-5;
+    if (A.t === 'P' && B.t === 'P') {
+      const d = B.p.clone().sub(A.p);
+      out.big = `${f3(d.length())} mm`; out.a = A.p; out.b = B.p;
+      out.lines.push(`ΔX ${f3(Math.abs(d.x))}  ΔY ${f3(Math.abs(d.y))}  ΔZ ${f3(Math.abs(d.z))}`);
+      if (A.what || B.what) out.lines.push(`from ${A.what || 'point'} to ${B.what || 'point'}`);
+    } else if (A.t === 'P' && B.t === 'L') {
+      const foot = B.p.clone().add(B.d.clone().multiplyScalar(A.p.clone().sub(B.p).dot(B.d)));
+      const d = foot.distanceTo(A.p);
+      out.big = `${f3(d)} mm`; out.a = A.p; out.b = foot;
+      out.lines.push(`${A.what || 'point'} to ${B.what || 'line'}, square to it`);
+      if (B.r) out.lines.push(`to its surface ${f3(Math.abs(d - B.r))}`);
+    } else if (A.t === 'P' && B.t === 'PL') {
+      const s = A.p.clone().sub(B.p).dot(B.n);
+      out.big = `${f3(Math.abs(s))} mm`; out.a = A.p; out.b = A.p.clone().sub(B.n.clone().multiplyScalar(s));
+      out.lines.push(`${A.what || 'point'} to plane, square to it`);
+      if (A.r) out.lines.push(`edge of it to the plane ${f3(Math.abs(Math.abs(s) - A.r))} (if it stands square)`);
+    } else if (A.t === 'L' && B.t === 'L') {
+      if (para(A.d, B.d)) {
+        const foot = onLine(B.p, B.d, A.q);
+        const d = foot.distanceTo(A.q);
+        out.big = `${f3(d)} mm`; out.a = A.q; out.b = foot;
+        out.lines.push(`parallel ${A.what === 'axis' || B.what === 'axis' ? 'axes' : 'lines'}`);
+        if (A.r && B.r) out.lines.push(`wall between them ${f3(d - A.r - B.r)}`);
+        else if (A.r || B.r) out.lines.push(`line to the surface ${f3(Math.abs(d - (A.r || B.r)))}`);
+      } else {
+        const n = A.d.clone().cross(B.d).normalize();
+        const d = Math.abs(B.p.clone().sub(A.p).dot(n));
+        const w = A.p.clone().sub(B.p), a = 1, b = A.d.dot(B.d), c = 1, dd = A.d.dot(w), e = B.d.dot(w);
+        const den = a * c - b * b, s = (b * e - c * dd) / den, t = (a * e - b * dd) / den;
+        out.a = A.p.clone().add(A.d.clone().multiplyScalar(s)); out.b = B.p.clone().add(B.d.clone().multiplyScalar(t));
+        out.big = deg(Math.acos(Math.min(1, Math.abs(A.d.dot(B.d)))));
+        out.lines.push(d < 1e-4 ? 'the two lines meet' : `closest approach ${f3(d)} mm`);
+      }
+    } else if (A.t === 'L' && B.t === 'PL') {
+      const s = A.d.dot(B.n);
+      if (Math.abs(s) < 1e-5) {
+        const d = A.p.clone().sub(B.p).dot(B.n);
+        out.big = `${f3(Math.abs(d))} mm`; out.a = A.q; out.b = A.q.clone().sub(B.n.clone().multiplyScalar(d));
+        out.lines.push(`${A.what || 'line'} to the plane it runs along`);
+        if (A.r) out.lines.push(`surface to the plane ${f3(Math.abs(Math.abs(d) - A.r))}`);
+      } else {
+        out.big = deg(Math.asin(Math.min(1, Math.abs(s))));
+        out.lines.push(`${A.what || 'line'} to the plane` + (Math.abs(Math.abs(s) - 1) < 1e-6 ? ' (square to it)' : ''));
+      }
+    } else {
+      if (para(A.n, B.n)) {
+        const pa = flip ? eb.pick : ea.pick;
+        const d = pa.clone().sub(B.p).dot(B.n);
+        out.big = `${f3(Math.abs(d))} mm`; out.a = pa; out.b = pa.clone().sub(B.n.clone().multiplyScalar(d));
+        out.lines.push('parallel faces');
+      } else {
+        out.big = deg(Math.acos(Math.min(1, Math.abs(A.n.dot(B.n)))));
+        out.lines.push('angle between the two faces');
+      }
+    }
+    const pp = ea.pick.distanceTo(eb.pick);
+    if (!(ea.kind === 'point' && eb.kind === 'point')) out.lines.push(`<span class="dim">between the two picked points ${f3(pp)}</span>`);
+    if (!out.a) { out.a = ea.pick; out.b = eb.pick; }
+    return out;
+  }
+
+  // drawing the picks
+  const COL = { hover: 0xffe08a, a: 0x6fd3ff, b: 0xff8fd0, dim: 0xffe08a };
+  function lineMat(color, w) {
+    const m = new LineMaterial({ color, linewidth: w, depthTest: false, transparent: true });
+    m.resolution.set(innerWidth, innerHeight); lineMats.push(m); return m;
+  }
+  const fatLine = (pts, mat) => {
+    const g = new LineGeometry();
+    g.setPositions(pts.flatMap(p => [p.x, p.y, p.z]));
+    const l = new Line2(g, mat); l.renderOrder = 20; l.frustumCulled = false; return l;
+  };
+  const MATS = {};
+  for (const k of ['hover', 'a', 'b']) MATS[k] = {
+    line: lineMat(COL[k], 3.5),
+    face: new THREE.MeshBasicMaterial({ color: COL[k], transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+            depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
+    pt: new THREE.PointsMaterial({ color: COL[k], size: 11, sizeAttenuation: false, depthTest: false, transparent: true }) };
+  const dimMat = lineMat(COL.dim, 2);
+  function entityObject(e, slot) {
+    const g = new THREE.Group(), mm = MATS[slot];
+    if (e.kind === 'point') {
+      const pg = new THREE.BufferGeometry().setFromPoints([e.p]);
+      const o = new THREE.Points(pg, mm.pt); o.renderOrder = 21; g.add(o);
+    } else if (e.pts) {
+      g.add(fatLine(e.pts, mm.line));
+      if (e.kind === 'circle') { const o = new THREE.Points(new THREE.BufferGeometry().setFromPoints([e.c]), mm.pt); o.renderOrder = 21; g.add(o); }
+    } else {
+      const G = GEO(e.part), t0 = G.r[e.face], t1 = G.r[e.face + 1];
+      const bg = new THREE.BufferGeometry();
+      if (e.part.mesh) {
+        bg.setAttribute('position', e.part.mesh.geometry.attributes.position);
+        bg.setIndex(new THREE.BufferAttribute(e.part.mesh.geometry.index.array.slice(3 * t0, 3 * t1), 1));
+      } else {
+        bg.setAttribute('position', e.part.batch.pickGeo.attributes.position);
+        bg.setIndex(new THREE.BufferAttribute(e.part.batch.full.slice(e.part.iStart + 3 * t0, e.part.iStart + 3 * t1), 1));
+      }
+      const o = new THREE.Mesh(bg, mm.face); o.frustumCulled = false; o.renderOrder = 10;
+      if (e.part.mesh) { o.matrixAutoUpdate = false; o.matrix.copy(e.part.mesh.matrix); }
+      g.add(o);
+    }
+    M.parts.add(g);
+    return g;
+  }
+  const meas = { A: null, B: null, hover: null, objs: { A: null, B: null, hover: null, dim: null }, mid: null };
+  function drop(k) { const o = meas.objs[k]; if (o) { o.removeFromParent(); meas.objs[k] = null; } }
+  function clearMeasure() {
+    meas.A = meas.B = meas.hover = null; meas.mid = null;
+    for (const k of ['A', 'B', 'hover', 'dim']) drop(k);
+    $('dimlabel').style.display = 'none';
+    showReadout();
+  }
+  const sameEnt = (x, y) => x && y && x.kind === y.kind && x.part === y.part && x.face === y.face &&
+                            x.edge === y.edge && (x.kind !== 'point' || x.p.distanceTo(y.p) < 1e-6);
+  function setHover(e) {
+    if (sameEnt(e, meas.hover)) return;
+    meas.hover = e; drop('hover');
+    if (e) meas.objs.hover = entityObject(e, 'hover');
+  }
+  function showReadout() {
+    const el = $('readout');
+    if (mode !== 'measure') { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    const row = (e, cls, tag) => e ? `<tr><td class="${cls}"><b>${tag}</b></td><td><span class="${cls}">${NAMES[e.kind]}</span>` +
+      ` <span class="dim">on ${e.part.name}</span><div class="v">${describe(e).join('<br>')}</div></td></tr>` : '';
+    let h = '<h4>measure</h4>';
+    if (!M.geo) h += '<div class="dim">loading the geometry record…</div>';
+    else if (!meas.A) h += '<div class="dim">click a corner, an edge or a face — then a second one for the distance or angle between them</div>';
+    else {
+      if (meas.A && meas.B) {
+        const r = between(meas.A, meas.B);
+        h += `<div class="big">${r.big}</div><div class="v">${r.lines.join('<br>')}</div>`;
+      }
+      h += `<table style="margin-top:4px">${row(meas.A, 'a', 'A')}${row(meas.B, 'b', 'B')}</table>`;
+      if (!meas.B) h += '<div class="dim">click a second thing to measure to it</div>';
+    }
+    if (meas.A) h += '<div class="bar" style="margin-top:6px"><div class="btn" id="mclear">clear<span class="k">esc</span></div></div>';
+    el.innerHTML = h;
+    const c = $('mclear'); if (c) c.onclick = clearMeasure;
+  }
+  function measureClick(e) {
+    if (!e) return;
+    if (!meas.A || meas.B) {
+      drop('A'); drop('B'); drop('dim'); meas.B = null; meas.mid = null; $('dimlabel').style.display = 'none';
+      meas.A = e; meas.objs.A = entityObject(e, 'a');
+    } else {
+      meas.B = e; meas.objs.B = entityObject(e, 'b');
+      const r = between(meas.A, meas.B);
+      if (r.a.distanceTo(r.b) > 1e-6) {
+        meas.objs.dim = fatLine([r.a, r.b], dimMat); M.parts.add(meas.objs.dim);
+        meas.mid = r.a.clone().lerp(r.b, 0.5);
+      } else meas.mid = r.a.clone();
+      $('dimlabel').textContent = r.big;
+    }
+    setHover(null);
+    showReadout();
+  }
+  function setMode(m) {
+    mode = m;
+    $('bSelect').classList.toggle('on', m === 'select');
+    $('bMeasure').classList.toggle('on', m === 'measure');
+    renderer.domElement.style.cursor = m === 'measure' ? 'crosshair' : '';
+    if (m === 'measure') { clearSelection(); loadGeo().then(showReadout, err => { $('status').textContent = err.message; }); }
+    else clearMeasure();
+    showReadout(); setHint();
+  }
+  function setHint() {
+    $('hint').textContent = mode === 'measure'
+      ? 'measure: click a corner, edge or face, then another · esc clears · m leaves · drag still orbits'
+      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section · l lighting · k as printed';
+  }
+
+  // ── pointer and keys ─────────────────────────────────────────────────────────────
+  let down = null, lastMove = null;
+  renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY, e.button]; });
+  renderer.domElement.addEventListener('pointermove', e => { lastMove = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerleave', () => { lastMove = null; setHover(null); });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (!down || down[2] !== 0 || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) { down = null; return; }
+    down = null;
+    if (mode === 'measure') { measureClick(snapAt(e.clientX, e.clientY)); return; }
+    const hit = pickAt(e.clientX, e.clientY);
+    if (!hit) { if (!e.shiftKey) clearSelection(); return; }
+    const unit = M.units.get(hit.part.unit).filter(p => !p.hidden);
+    const had = selection.includes(hit.part), others = selection.filter(p => p.unit !== hit.part.unit);
+    if (e.shiftKey || e.ctrlKey) selection = had ? others : [...others, ...unit];
+    else selection = had && !others.length ? [] : unit;
+    drawSelection();
+  });
+  addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
+    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) toggleDeck(); return; }
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'z' || k === 'y') { e.preventDefault(); undo(k === 'y' || e.shiftKey); }
+      return;
+    }
+    if (e.key === 'Escape') { mode === 'measure' ? clearMeasure() : clearSelection(); return; }
+    if (!e.repeat && !e.ctrlKey && !e.metaKey) switch (e.key) {
+      case 'm': setMode(mode === 'measure' ? 'select' : 'measure'); return;
+      case 'p': toggleParts(); return;
+      case 'x': selAction('hide'); return;
+      case 'i': selAction('isolate'); return;
+      case 'z': selAction('zoom'); return;
+      case 'u': showAll(); return;
+      case 'c': $('bSection').onclick(); return;
+      case 'l': setQuality(quality - 1, true); return;
+      case 'k': setPrinted(!asPrinted); return;
+    }
+    const p = keyToPedal[e.key]; if (!p || e.repeat) return;
+    held.add(p); syncUI();
+  });
+  addEventListener('keyup', e => {
+    const p = keyToPedal[e.key]; if (!p) return;
+    held.delete(p); syncUI();
+  });
+  $('bSelect').onclick = () => setMode('select');
+  $('bMeasure').onclick = () => setMode(mode === 'measure' ? 'select' : 'measure');
+  $('bParts').onclick = toggleParts;
+  $('bShowAll').onclick = showAll;
+
+  // ── section cut ──────────────────────────────────────────────────────────────────
+  // One plane square to a CAD axis, at a CAD coordinate. Everything on the far side is
+  // not drawn and cannot be picked, so what the cut exposes can be selected and measured.
+  const sec = { on: false, axis: 0, v: NaN, flip: false, plane: new THREE.Plane() };
+  function cadBox() {
+    if (!M.box) M.box = new THREE.Box3().setFromObject(M.root)
+                                        .applyMatrix4(M.parts.matrixWorld.clone().invert());
+    return M.box;
+  }
+  function applySection() {
+    const on = sec.on && !!M.parts;
+    if (on) {
+      const n = new THREE.Vector3().setComponent(sec.axis, sec.flip ? 1 : -1);
+      sec.plane.set(n, sec.flip ? -sec.v : sec.v).applyMatrix4(M.parts.matrixWorld);
+    }
+    renderer.clippingPlanes = on ? [sec.plane] : [];
+    lightDirty = true;
+    $('bSection').classList.toggle('on', sec.on);
+    $('secPanel').style.display = sec.on ? 'block' : 'none';
+    if (!on) return;
+    const b = cadBox(), s = $('secSlide');
+    s.min = Math.floor(b.min.getComponent(sec.axis)); s.max = Math.ceil(b.max.getComponent(sec.axis));
+    s.value = sec.v; $('secVal').value = sec.v.toFixed(1);
+    for (const e of document.querySelectorAll('#secPanel .ax')) e.classList.toggle('on', +e.dataset.a === sec.axis);
+    $('bFlip').classList.toggle('on', sec.flip);
+  }
+  // where a cut starts: through the middle of what is selected, else of the model
+  function secHome() {
+    const b = new THREE.Box3();
+    for (const p of selection) partBox(p, b);
+    return (b.isEmpty() ? cadBox() : b).getCenter(new THREE.Vector3()).getComponent(sec.axis);
+  }
+  function setSection(on, axis, v, flip) {
+    if (!M.parts) return;
+    const moved = axis !== undefined && axis !== sec.axis, fresh = on && !sec.on;
+    sec.on = on;
+    if (axis !== undefined) sec.axis = axis;
+    if (flip !== undefined) sec.flip = flip;
+    else if (moved || fresh) {                           // take away the side nearer the eye
+      const eye = M.parts.worldToLocal(camera.position.clone()).sub(M.parts.worldToLocal(controls.target.clone()));
+      sec.flip = eye.getComponent(sec.axis) < 0;
+    }
+    if (v !== undefined) sec.v = v;
+    else if (moved || !isFinite(sec.v)) sec.v = secHome();
+    applySection();
+  }
+  $('bSection').onclick = () => { if (!sec.on) sec.v = NaN; setSection(!sec.on); };
+  $('bFlip').onclick = () => setSection(true, undefined, undefined, !sec.flip);
+  for (const e of document.querySelectorAll('#secPanel .ax')) e.onclick = () => setSection(true, +e.dataset.a);
+  $('secSlide').oninput = e => setSection(true, undefined, +e.target.value);
+  $('secSlide').onchange = e => e.target.blur();       // hand the keys back to the page
+  $('secVal').onchange = e => { if (isFinite(+e.target.value)) setSection(true, undefined, +e.target.value); };
+
+  // ── lighting that follows what is shown ──────────────────────────────────────────
+  // Three levels. Shadows come from one map fitted round whatever is VISIBLE, so hiding
+  // the deck lets light into the mechanism and an isolated part gets the whole map to
+  // itself. Occlusion is screen-space, so it follows by nature. Both cost frame time,
+  // and the page gives them up, one level at a time, if it cannot hold 60 fps.
+  const LIGHT = ['plain', 'shadows', 'shadows + occlusion'];
+  let quality = 2, autoQuality = true, composer = null, gtao = null;
+  let lightDirty = true, lastSig = 0, slowFor = 0, settledAt = Infinity;
+  function setQuality(q, manual = false) {
+    quality = (q + LIGHT.length) % LIGHT.length;
+    if (manual) autoQuality = false;
+    const sh = quality >= 1;
+    if (renderer.shadowMap.enabled !== sh) {
+      renderer.shadowMap.enabled = sh; key.castShadow = sh;
+      for (const m of [...matCache.values(), vcMat, ...Object.values(PRINT)]) m.needsUpdate = true;
+    }
+    if (quality >= 2 && !composer) {
+      const pr = renderer.getPixelRatio();
+      composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(
+        innerWidth * pr, innerHeight * pr, { samples: 4, type: THREE.HalfFloatType }));
+      composer.addPass(new RenderPass(scene, camera));
+      gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+      gtao.updateGtaoMaterial({ radius: 14, distanceExponent: 1.5, thickness: 2, scale: 1.1, samples: 12 });
+      // the occlusion is worked out from the PARTS alone: the selection tint and the
+      // measure marks are drawn over them and would read as solid black otherwise
+      const hideRest = gtao.overrideVisibility.bind(gtao);
+      gtao.overrideVisibility = () => {
+        hideRest();
+        scene.traverse(o => { if (o.isMesh && !(o.material && o.material.isMeshStandardMaterial)) o.visible = false; });
+      };
+      composer.addPass(gtao);
+      composer.addPass(new OutputPass());
+    }
+    lightDirty = true; slowFor = 0;
+    $('bLight').title = 'lighting: ' + LIGHT[quality] + (autoQuality ? ' (drops by itself under 60 fps)' : '');
+  }
+  function fitShadow() {
+    const box = new THREE.Box3();
+    for (const p of M.list) if (!p.hidden) box.union(p.box || (p.box = partBox(p, new THREE.Box3())));
+    if (box.isEmpty()) return;
+    const s = box.applyMatrix4(M.parts.matrixWorld).getBoundingSphere(new THREE.Sphere());
+    const R = Math.max(s.radius, 1), c = key.shadow.camera;
+    key.target.position.copy(s.center);
+    key.position.copy(s.center).addScaledVector(KEY_DIR, 2 * R);
+    key.target.updateMatrixWorld();
+    c.left = c.bottom = -R; c.right = c.top = R; c.near = 0.01 * R; c.far = 4 * R;
+    c.updateProjectionMatrix();
+    key.shadow.normalBias = 3 * R / SHADOW_PX;          // a texel and a half
+  }
+  // anything the rig has moved since the last frame? (a sum that any motion changes)
+  function rigSignature() {
+    let s = 0;
+    for (const n in nodes) { const e = nodes[n].matrix.elements; s += e[0] + 1.7 * e[5] + e[12] + 1.3 * e[13] + 1.9 * e[14]; }
+    return s;
+  }
+  function drawFrame() {
+    if (quality >= 1 && M.parts) {
+      const sig = rigSignature();
+      if (lightDirty) fitShadow();
+      if (lightDirty || sig !== lastSig) renderer.shadowMap.needsUpdate = true;
+      lastSig = sig; lightDirty = false;
+    }
+    if (quality >= 2) composer.render(); else renderer.render(scene, camera);
+  }
+  // called once a second with the measured rate
+  function govern(fps, now) {
+    if (!autoQuality || quality === 0 || document.hidden || now < settledAt) { slowFor = 0; return; }
+    if (fps >= 57) { slowFor = 0; return; }
+    if (++slowFor >= 2) setQuality(quality - 1);
+  }
+  $('bLight').onclick = () => setQuality(quality - 1, true);
+  // the model is built again from the file: parts are grouped by material when it loads
+  function setPrinted(on) {
+    asPrinted = on;
+    try { sessionStorage.setItem('as-printed', on ? '1' : '0'); } catch {}
+    $('bPrinted').classList.toggle('on', on);
+    load(false).catch(e => console.error(e));
+  }
+  $('bPrinted').onclick = () => setPrinted(!asPrinted);
+  $('bPrinted').classList.toggle('on', asPrinted);
+
+  // ── the axis views ───────────────────────────────────────────────────────────────
+  // look along a CAD direction, from that side: "+Z" is the view from above
+  function viewFrom(d) {
+    if (!M.parts) return;
+    const dir = new THREE.Vector3(d[0], d[1], d[2]).transformDirection(M.parts.matrixWorld);
+    if (Math.abs(dir.y) > 0.9999) dir.z += 1e-4;        // straight down: CAD +Y up the screen
+    const dist = camera.position.distanceTo(controls.target);
+    camera.position.copy(controls.target).addScaledVector(dir.normalize(), dist);
+    controls.update();
+  }
+  for (const e of document.querySelectorAll('#views .vw'))
+    e.onclick = () => viewFrom(e.dataset.d.split(',').map(Number));
+
+  // ── frame camera to the model ─────────────────────────────────────────────
+  function frameBox(box, reset = true) {
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = 0.5 * Math.max(size.x, size.y, size.z, 1);
+    const dist = radius / Math.sin((camera.fov * Math.PI / 180) / 2) * 1.15;
+    const dir = reset ? new THREE.Vector3(0.55, 0.5, 1).normalize()
+                      : camera.position.clone().sub(controls.target).normalize();
+    camera.position.copy(center).add(dir.multiplyScalar(dist));
+    if (reset) { camera.near = dist / 100; camera.far = dist * 100; camera.updateProjectionMatrix(); }
+    controls.target.copy(center); controls.update();
+  }
+
+  // ── load rig + model ──────────────────────────────────────────────────────
+  // The same page serves two models. Published (a folder written by export(page=True))
+  // it is the build that was pushed. Served locally (cadkit.web.view) it is whatever was
+  // last shown, and stamp.json says when: the page reloads the model then, keeping the
+  // camera and whatever was hidden.
+  let stamp = null;
+  async function fetchJSON(url) {
+    try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : null; }
+    catch { return null; }
+  }
+  async function load(first) {
+    stamp = await fetchJSON('stamp.json?t=' + Date.now());
+    rig = await fetchJSON('rig.json?v=' + Date.now());
+    strings = rig ? rig.strings : [];
+    for (const k of Object.keys(keyToPedal)) delete keyToPedal[k];
+    if (rig) for (const p of rig.copedent) keyToPedal[p.key] = p.name;
+    M.key = stamp ? String(stamp.t) : rig ? String(rig.build) : String(Date.now());
+    $('status').textContent = stamp && stamp.scratch
+      ? ['scratch view',
+         stamp.live.length ? stamp.live.length + ' part(s) fresh' : 'nothing rebuilt',
+         stamp.own ? stamp.own + ' kept as built here' : '',
+         stamp.cache_age_min != null
+           ? `the rest from build${stamp.build != null ? ' #' + stamp.build : ''}, ${Math.round(stamp.cache_age_min)} min old` : '',
+         stamp.drift ? 'NOT THE SAME TREE: ' + stamp.drift : '']
+        .filter(Boolean).join(' · ')
+      : '';
+    const hiddenNames = new Set(hiddenParts().map(p => p.name));
+    const wasMode = mode;
+    const gltf = await new GLTFLoader().loadAsync('assembly.glb?v=' + M.key);
+    // what the export says the model IS: its name, a line about it, its build number
+    const about = (gltf.asset && gltf.asset.extras) || {};
+    document.title = $('title').textContent = about.title || 'Assembly';
+    $('subtitle').textContent = about.subtitle ? about.subtitle + ' · ' : '';
+    $('deckhint').style.display = rig && rig.deck_prefixes ? '' : 'none';
+    // a scratch view is not a build: its number would be the surroundings', not its own
+    const buildN = stamp && stamp.scratch ? null : about.build != null ? about.build : rig && rig.build;
+    $('build').textContent = [buildN != null ? 'build #' + buildN : '',
+                              stamp ? 'local · ' + new Date(stamp.t * 1000).toLocaleTimeString() : '']
+                             .filter(Boolean).join(' · ');
+    disposeModel();
+    curCarr = null; curPress = null;
+    buildModel(gltf);
+    buildPedalUI(); syncUI();
+    buildPartsUI();
+    M.box = null; applySection();
+    lightDirty = true; settledAt = performance.now() + 6000;
+    if (first) frameBox(new THREE.Box3().setFromObject(M.root));
+    else { setHidden(M.list.filter(p => hiddenNames.has(p.name)), true); syncDeckUI(); }
+    if (wasMode === 'measure') setMode('measure');
+  }
+  // The local server also says when this page's own file was last edited; the page then
+  // reloads itself and comes back as it was (camera, hidden parts, section, mode).
+  let pageStamp = null;
+  const KEEP = 'viewer-state';
+  function keepState() {
+    try { sessionStorage.setItem(KEEP, JSON.stringify({
+      cam: camera.position.toArray(), tgt: controls.target.toArray(),
+      hidden: hiddenParts().map(p => p.name), deck: deckVisible, mode,
+      sec: { on: sec.on, axis: sec.axis, v: sec.v, flip: sec.flip } })); } catch {}
+  }
+  function restoreState() {
+    let s = null;
+    try { s = JSON.parse(sessionStorage.getItem(KEEP)); sessionStorage.removeItem(KEEP); } catch {}
+    if (!s) return;
+    camera.position.fromArray(s.cam); controls.target.fromArray(s.tgt); controls.update();
+    restoreVis({ names: s.hidden, deck: s.deck });
+    if (s.sec.on) setSection(true, s.sec.axis, s.sec.v, s.sec.flip);
+    if (s.mode === 'measure') setMode('measure');
+  }
+  async function watch() {
+    if (!stamp) return;
+    const pg = await fetchJSON('page.json?t=' + Date.now());
+    if (pg) {
+      if (pageStamp === null) pageStamp = pg.t;
+      else if (pg.t !== pageStamp) { keepState(); location.reload(); return; }
+    }
+    const s = await fetchJSON('stamp.json?t=' + Date.now());
+    if (s && s.t !== stamp.t) { $('status').textContent = 'reloading…'; try { await load(false); } catch (e) { console.error(e); } }
+    setTimeout(watch, 1500);
+  }
+  async function init() {
+    setHint();
+    try {
+      await load(true);
+      restoreState();
+      $('loading').style.opacity = '0';
+      setTimeout(() => $('loading').remove(), 400);
+      watch();
+    } catch (err) {
+      $('loading').textContent = 'failed to load model';
+      console.error(err);
+    }
+  }
+
+  let last = performance.now(), fpsT = last, fpsN = 0, stalled = false;
+  const fpsEl = $('fps');
+  function tick(now) {
+    if (now - last > 250) stalled = true;               // a hidden tab, a load: not a slow device
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (++fpsN && now - fpsT >= 1000) {
+      const fps = fpsN * 1000 / (now - fpsT);
+      fpsEl.textContent = Math.round(fps) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
+                          Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality];
+      if (stalled) stalled = false; else govern(fps, now);
+      fpsT = now; fpsN = 0;
+    }
+    applyRig(dt);
+    controls.update();
+    for (const o of selOverlays) if (o.userData.follow) o.matrix.copy(o.userData.follow.matrix);
+    if (mode === 'measure' && lastMove && !down && M.geo) { setHover(snapAt(lastMove[0], lastMove[1])); lastMove = null; }
+    if (meas.mid && meas.B) {
+      const [x, y, z] = toPx(meas.mid), el = $('dimlabel');
+      el.style.display = z < 1 ? 'block' : 'none'; el.style.left = x + 'px'; el.style.top = y + 'px';
+    }
+    renderer.info.reset();
+    drawFrame();
+    requestAnimationFrame(tick);
+  }
+  // for poking at it from the console (and for the checks that drive the page)
+  window.viewer = { renderer, scene, camera, controls, sec, setSection, undo, viewFrom, setPrinted, setQuality, get quality() { return quality; }, key, THREE,
+                    frame() { controls.update(); lightDirty = true; renderer.info.reset(); drawFrame(); }, M, meas, pickAt, snapAt, setHidden, setMode,
+                    measureClick, between, showAll, get selection() { return selection; },
+                    select(names) { selection = names.flatMap(n => M.byName.has(n) ? M.units.get(M.byName.get(n).unit) : []); drawSelection(); },
+                    selAction, loadGeo, toPx };
+  setQuality(quality);
+  init();
+  requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
