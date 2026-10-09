@@ -34,6 +34,11 @@ FRAME: board-centred millimetres (the centre of the Edge.Cuts bounding box), +X 
                    for a CONNECTOR (ref J<n>), pads: {number: [x, y]} -- where each way
                    actually is, so a harness is drawn onto ways rather than onto a pitch
                    and a rotation someone worked out (`Boards.way`)
+                   and models: [{file, offset, rot, scale}] -- the 3D models the footprint
+                   names, AS KiCad WRITES THEM (the path keeps its ${KICAD..._3DMODEL_DIR}
+                   variable; offset in mm, rot in degrees about x, y, z, in the
+                   footprint's own frame). Absent when it names none. A viewer that
+                   wants the real part instead of a box reads this (web_export)
     silk[]         the lettering the fab prints: text, side, centre, size, angle, box.
                    Board-level text (the name, test-pad nets, pinouts, and the
                    designators kicad_silk lays with `silk_refs`), plus -- marked
@@ -154,6 +159,13 @@ def read(stem):
         })
         if ways:
             out["footprints"][-1]["pads"] = ways
+        models = [{"file": str(m.m_Filename).replace("\\", "/"),
+                   "offset": [round(m.m_Offset.x, 4), round(m.m_Offset.y, 4), round(m.m_Offset.z, 4)],
+                   "rot": [round(m.m_Rotation.x, 4), round(m.m_Rotation.y, 4), round(m.m_Rotation.z, 4)],
+                   "scale": [round(m.m_Scale.x, 5), round(m.m_Scale.y, 5), round(m.m_Scale.z, 5)]}
+                  for m in fp.Models() if m.m_Show and str(m.m_Filename)]
+        if models:
+            out["footprints"][-1]["models"] = models
     out["footprints"].sort(key=lambda f: f["ref"])
     # the board's lettering, so the CAD can draw it as a part of its own: what the fab
     # will print, and nothing it will not. Board-level text first (name, test pads,
