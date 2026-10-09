@@ -42,6 +42,7 @@ PRINTED = {"petg-gf": ((0.0086, 0.0091, 0.0103), 0.92),
            "tpu": ((0.0052, 0.0052, 0.0056), 1.0)}
 
 parts = {}                  # name -> (object, plain material, filament or None)
+finishes = {}               # the model's own table: finish -> (metalness, roughness)
 posed = {}                  # name -> the pose it was last given, as the page sent it
 mats = {}
 
@@ -58,6 +59,8 @@ def read_glb(path):
     n = struct.unpack_from("<I", data, 12)[0]
     doc = json.loads(data[20:20 + n])
     blob = memoryview(data)[20 + n + 8:]
+    finishes.clear()
+    finishes.update((doc["asset"].get("extras") or {}).get("finishes") or {})
     kinds = {5121: np.uint8, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
     width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}
 
@@ -90,10 +93,20 @@ def material(key, rgba=(1, 1, 1, 1), rough=0.65, metal=0.0, vertex=False):
     b.inputs["Roughness"].default_value = rough
     b.inputs["Metallic"].default_value = metal
     b.inputs["Alpha"].default_value = rgba[3]
-    if vertex:
-        a = m.node_tree.nodes.new("ShaderNodeAttribute")
+    if vertex:                                     # many colours, and metal where alpha is 0
+        nt = m.node_tree
+        a = nt.nodes.new("ShaderNodeAttribute")
         a.attribute_name = "Col"
-        m.node_tree.links.new(a.outputs["Color"], b.inputs["Base Color"])
+        nt.links.new(a.outputs["Color"], b.inputs["Base Color"])
+        inv = nt.nodes.new("ShaderNodeMath")
+        inv.operation = "SUBTRACT"
+        inv.inputs[0].default_value = 1.0
+        nt.links.new(a.outputs["Alpha"], inv.inputs[1])
+        nt.links.new(inv.outputs[0], b.inputs["Metallic"])
+        r = nt.nodes.new("ShaderNodeMapRange")
+        r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = 0.3, rough
+        nt.links.new(a.outputs["Alpha"], r.inputs["Value"])
+        nt.links.new(r.outputs["Result"], b.inputs["Roughness"])
     mats[key] = m
     return m
 
@@ -123,9 +136,10 @@ def load(path):
         if col is not None:
             a = me.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
             a.data.foreach_set("color", (col.astype(np.float32) / 255.0).ravel())
-            plain = material("vertex", rough=0.6, metal=0.1, vertex=True)
+            plain = material("vertex", rough=0.6, vertex=True)
         else:
-            plain = material(tuple(round(c, 4) for c in rgba), rgba)
+            metal, rough = finishes.get(filament, (0.0, 0.65))
+            plain = material(tuple(round(c, 4) for c in rgba) + (metal, rough), rgba, rough, metal)
         me.update()
         me.materials.append(plain)
         ob = bpy.data.objects.new(name, me)

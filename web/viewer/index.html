@@ -82,6 +82,7 @@
                 padding: 1px 6px; border-radius: 5px; font-size: 13px;
                 font-variant-numeric: tabular-nums; display: none; }
     #status { position: fixed; right: 16px; top: 52px; font-size: 11px; opacity: .55;
+              max-width: 44vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
               pointer-events: none; text-align: right; }
   </style>
   <script type="importmap">
@@ -421,14 +422,18 @@
   // own node.
   const M = { root: null, parts: null, list: [], byName: new Map(), batches: [], pickables: [],
               key: '', geo: null, geoPromise: null };
+  // WHAT A PART IS MADE OF. A printed part is plastic; a bought one names its finish
+  // (steel, brass, rubber...: cadkit/web/finishes.py, the table comes in the model file)
+  // and keeps its colour. A metal is lit mostly by what it reflects, so it takes the
+  // room at full strength where plastic takes a little of it.
   const matCache = new Map();
-  function partMaterial(src) {
-    const c = src.color, a = src.opacity ?? 1;
-    const key = c.getHexString() + ':' + a.toFixed(3);
+  function partMaterial(src, finish) {
+    const c = src.color, a = src.opacity ?? 1, [metal, rough] = finish || [0, 0.65];
+    const key = c.getHexString() + ':' + a.toFixed(3) + ':' + metal + ':' + rough;
     if (!matCache.has(key))
       matCache.set(key, new THREE.MeshStandardMaterial({
-        color: c.clone(), metalness: 0, roughness: 0.65, side: THREE.DoubleSide, clipShadows: true,
-        envMapIntensity: ENV,
+        color: c.clone(), metalness: metal, roughness: rough, side: THREE.DoubleSide, clipShadows: true,
+        envMapIntensity: metal ? 1.0 : finish ? 0.6 : ENV,
         transparent: a < 0.999, opacity: a }));
     return matCache.get(key);
   }
@@ -438,9 +443,19 @@
   const unitOf = n => n.split('__')[0];
   const family = n => unitOf(n).replace(/(_\d+)+$/, '');
   // a part of many colours (a component model) carries them per vertex, under one white material
-  const vcMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0.1,
+  const vcMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0,
                                                  roughness: 0.6, side: THREE.DoubleSide, clipShadows: true,
-                                                 envMapIntensity: ENV });
+                                                 envMapIntensity: 0.8 });
+  // ...and its METAL in the colour's alpha (0 = a lead, a shell, a contact): the model
+  // is opaque, so the export uses the spare channel to say which faces are metal
+  vcMat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>',
+      `#include <metalnessmap_fragment>
+       #ifdef USE_COLOR_ALPHA
+         metalnessFactor = 1.0 - vColor.a;
+         roughnessFactor = mix(0.3, roughnessFactor, vColor.a);
+       #endif`);
+  };
 
   // ── as printed ───────────────────────────────────────────────────────────────────
   // The build colours every part differently so they can be told apart. This view
@@ -462,8 +477,10 @@
   let asPrinted = false;
   try { asPrinted = sessionStorage.getItem('as-printed') === '1'; } catch {}
 
+  let FINISH = {};
   function buildModel(gltf) {
     const root = gltf.scene;
+    FINISH = (gltf.asset && gltf.asset.extras && gltf.asset.extras.finishes) || {};
     let parts = root;
     while (parts.children.length === 1 && !parts.children[0].isMesh) parts = parts.children[0];
     M.root = root; M.parts = parts;
@@ -475,7 +492,7 @@
       if (!mesh.isMesh) continue;
       const g = mesh.geometry, col = g.attributes.color ? g.attributes.color.array : null;
       const printed = asPrinted && !col && PRINT[mesh.userData.mat];
-      const mat = col ? vcMat : printed || partMaterial(mesh.material);
+      const mat = col ? vcMat : printed || partMaterial(mesh.material, FINISH[mesh.userData.mat]);
       const unit = mesh.userData.unit || unitOf(mesh.name);      // a board's lettering names its board
       const p = { name: mesh.name, unit, family: family(unit), mat, hidden: false, col,
                   pos: g.attributes.position.array, idx: g.index.array,
@@ -538,7 +555,7 @@
   }
   function disposeModel() {
     if (!M.root) return;
-    clearSelection(); clearMeasure(); rtDrop();
+    clearSelection(); clearMeasure(); rtDrop(); M.span = 0;
     scene.remove(M.root);
     for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose(); }
     for (const p of M.list) if (p.mesh) { p.mesh.geometry.disposeBoundsTree(); p.mesh.geometry.dispose(); }
@@ -626,6 +643,29 @@
     }
     return null;
   }
+
+  // ── zooming and panning at the pace of what is under the cursor ──────────────────
+  // The controls zoom by a share of the distance to their TARGET and pan in proportion
+  // to it. Zoom far in and the camera is almost on the target: each notch then moves a
+  // share of almost nothing, and the view crawls. So before a zoom or a drag the target
+  // is slid along the line of sight (which changes nothing on screen) to the depth of
+  // the part under the cursor. Over empty space there is no such depth, and the target
+  // is only kept from closing on the camera: never nearer than a share of the model's
+  // own size, which is the pace of flying through it.
+  function retarget(e, always) {
+    const hit = pickAt(e.clientX, e.clientY);
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const now = controls.target.clone().sub(camera.position).dot(dir);
+    let depth = hit ? hit.world.sub(camera.position).dot(dir) : now;
+    if (!hit) {
+      if (!M.span) M.span = new THREE.Box3().setFromObject(M.parts).getSize(new THREE.Vector3()).length();
+      depth = Math.max(now, 0.1 * M.span);
+      if (depth === now) return;
+    } else if (depth <= camera.near || (!always && depth < 2 * now && depth > 0.5 * now)) return;
+    controls.target.copy(camera.position).addScaledVector(dir, depth);
+  }
+  renderer.domElement.addEventListener('wheel', e => retarget(e, true), { capture: true, passive: true });
+  renderer.domElement.addEventListener('pointerdown', e => retarget(e, false), { capture: true });
 
   // ── selection ────────────────────────────────────────────────────────────────────
   let selection = [];
@@ -1217,6 +1257,8 @@
     }
     lightDirty = true; slowFor = 0;
     if (quality === 3) fetchJSON('trace.json?warm=1');           // have it ready
+    else { rtDrop(); traced = false; }                           // a traced picture belongs to its level
+    fpsLine();                                                   // said now, not at the next second
     $('bLight').title = 'lighting: ' + LIGHT[quality] + (autoQuality ? ' (drops by itself under 60 fps)' : '');
   }
 
@@ -1454,9 +1496,12 @@
          stamp.own ? stamp.own + ' kept as built here' : '',
          stamp.cache_age_min != null
            ? `the rest from build${stamp.build != null ? ' #' + stamp.build : ''}, ${Math.round(stamp.cache_age_min)} min old` : '',
-         stamp.drift ? 'NOT THE SAME TREE: ' + stamp.drift : '']
+         stamp.drift ? 'made from older code than that build (hover)' : '']
         .filter(Boolean).join(' · ')
       : '';
+    // the whole story of a mismatch is long: it is the line's tooltip, not the line
+    $('status').title = stamp && stamp.scratch && stamp.drift ? stamp.drift : '';
+    $('status').style.pointerEvents = $('status').title ? 'auto' : 'none';
     const hiddenNames = new Set(hiddenParts().map(p => p.name));
     const wasMode = mode;
     const gltf = await new GLTFLoader().loadAsync('assembly.glb?v=' + M.key);
@@ -1530,7 +1575,7 @@
   const fpsEl = $('fps');
   let fpsNow = 0;
   function fpsLine() {                                  // also said at once when tracing starts or ends
-    fpsEl.textContent = traced || rt.shown
+    fpsEl.textContent = quality === 3 && (traced || rt.shown)
         ? 'ray traced · ' + rt.n + ' samples in ' + (rt.ms / 1000).toFixed(2) + ' s'
         : Math.round(fpsNow) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
           Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +

@@ -258,6 +258,15 @@ def mesh_shape(shape, tolerance=TOLERANCE, angular=ANGULAR, face_colors=None, co
             k = fmap.FindIndex(face)
             if k >= 1 and c is not None:
                 fc[k - 1, :3] = np.clip(np.round(np.array(c) * 255.0), 0, 255)
+        # ALPHA SAYS METAL (0) OR NOT (255): the model is opaque, so the channel is free,
+        # and the page and the tracer read a lead's or a shell's shine from it
+        from .finishes import METAL_COLOURS, METAL_TOL
+        lin = fc[:, :3].astype(np.float64) / 255.0
+        srgb = np.where(lin <= 0.0031308, 12.92 * lin, 1.055 * lin ** (1 / 2.4) - 0.055)
+        metal = np.zeros(nf, dtype=bool)
+        for m in METAL_COLOURS:
+            metal |= np.abs(srgb - np.array(m)).max(axis=1) < METAL_TOL
+        fc[metal, 3] = 0
         col = np.zeros((len(pos), 4), dtype=np.uint8)
         for k in range(3):
             col[tri[:, k]] = fc[tri_face]
@@ -346,7 +355,7 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
         ex = {}
         if units and name in units:                # what it is selected and hidden with
             ex["unit"] = units[name]
-        if mats and mats.get(name):                # the filament it is printed in
+        if mats and mats.get(name):                # its filament, or what else it is made of
             ex["mat"] = mats[name]
         if ex:
             nodes[-1]["extras"] = ex
@@ -360,8 +369,8 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
             "nodes": nodes, "meshes": meshes, "materials": materials,
             "accessors": accessors, "bufferViews": views,
             "buffers": [{"byteLength": len(buf)}]}
-    if extras:
-        gltf["asset"]["extras"] = extras
+    from .finishes import FINISHES
+    gltf["asset"]["extras"] = dict(extras or {}, finishes=FINISHES)
     js = _pad4(json.dumps(gltf, separators=(",", ":")).encode(), b" ")
     bn = _pad4(bytes(buf))
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -485,8 +494,10 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                 board's footprint boxes are swapped for KiCad's own part models, or one
                 drawn by cadkit.web.parts (cadkit.web.boards says how, and what it
                 leaves alone). `cache_dir` keeps what that needs between runs.
-    materials = optional name -> "petg-gf" | "pctg" | ... , the filament a part is
-                printed in, for the page's as-printed view.
+    materials = optional name -> what the part is made of: the filament a printed part
+                is printed in ("petg-gf" | "pctg" | ..., for the page's as-printed
+                view), or a bought part's finish, one of cadkit.web.finishes.FINISHES
+                ("steel", "brass", "rubber", ...), which it is always shown with.
     whole     = names that must stay one part though drawn as several solids (see
                 pieces()); by default the names in the rig file beside the output.
     page      = True also writes the viewer page beside the model (index.html), which

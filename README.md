@@ -51,6 +51,7 @@ cadkit/
     export.py          parts -> assembly.glb + the kernel's own geometry, for measuring
     view.py            the local server, show(), and the scratch loop's export
     boards.py parts.py real part models on circuit boards
+    finishes.py        what bought parts are made of: steel, brass, rubber...
     trace.py           the ray traced lighting level: pictures from a background Blender
     trace_blender.py   ... and the half of it that runs inside Blender
     viewer/index.html  the page (three.js); export(page=True) publishes it with a model
