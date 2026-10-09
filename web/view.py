@@ -35,6 +35,7 @@ import time
 import urllib.request
 
 from .export import PAGE, export, rig_names, step_parts
+from .trace import Tracer
 
 PORT = 8137
 PORTS = 20                      # how many ports up from PORT a project may land on
@@ -45,6 +46,7 @@ MODEL_FILES = ("assembly.glb", "assembly.geo.json", "rig.json", "stamp.json")
 # ── the server ────────────────────────────────────────────────────────────────────
 class _Handler(http.server.SimpleHTTPRequestHandler):
     model_dir = None            # set by serve()
+    tracer = None               # the ray tracer behind the page's top lighting level
 
     def translate_path(self, path):
         name = path.split("?", 1)[0].split("#", 1)[0].lstrip("/")
@@ -66,7 +68,32 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({"t": PAGE.stat().st_mtime_ns})
         if name == "/where.json":           # which project this server is showing
             return self._json({"dir": str(self.model_dir)})
+        if name == "/trace.json":           # can this server ray trace? (?warm: get ready)
+            if self.tracer.available and "warm" in self.path:
+                self.tracer.warm()
+            return self._json({"available": self.tracer.available})
         super().do_GET()
+
+    def do_POST(self):
+        # ONE THING IS POSTED: a view to ray trace. Only as JSON, which another site's
+        # page cannot send here without asking first, and nothing in it names a file.
+        if self.path.split("?", 1)[0] != "/trace" or not self.tracer.available                 or self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            return self.send_error(404)
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            if not 0 < n < 4_000_000:
+                return self.send_error(400)
+            body = self.tracer.picture(json.loads(self.rfile.read(n)))
+        except Exception as e:
+            return self.send_error(503, "ray tracing failed: %s" % str(e)[:200])
+        if body is None:                    # overtaken by a newer view
+            self.send_response(204)
+            return self.end_headers()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
@@ -79,6 +106,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
 def serve(model_dir, port=PORT):
     """Serve the page with the model in `model_dir`, in the foreground."""
     _Handler.model_dir = pathlib.Path(model_dir).resolve()
+    _Handler.tracer = Tracer(_Handler.model_dir)
     handler = functools.partial(_Handler, directory=str(PAGE.parent))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     print("web view: http://127.0.0.1:%d/   (model from %s)" % (port, _Handler.model_dir))

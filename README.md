@@ -51,6 +51,8 @@ cadkit/
     export.py          parts -> assembly.glb + the kernel's own geometry, for measuring
     view.py            the local server, show(), and the scratch loop's export
     boards.py parts.py real part models on circuit boards
+    trace.py           the ray traced lighting level: pictures from a background Blender
+    trace_blender.py   ... and the half of it that runs inside Blender
     viewer/index.html  the page (three.js); export(page=True) publishes it with a model
   tools/
     agent_sync.py    dev-only multi-agent git-worktree coordination CLI (run as a script)
@@ -58,7 +60,8 @@ cadkit/
 
 Everything depends only on CadQuery/OCP and the standard library. The viewer needs a
 browser and nothing installed; `show()` never raises, so viewer trouble can't break a
-build.
+build. Its ray traced lighting level alone wants Blender on the machine, and is simply
+not offered without one.
 
 ## Use
 
