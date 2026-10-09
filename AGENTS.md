@@ -20,7 +20,7 @@ Two layers of reusable capability back a cadkit project:
   supports). It's the "CAD skill" / "cad-skill" the notes here refer to, and it
   auto-loads when a task looks like designing a printable part. **A cadkit project
   OVERRIDES two of its defaults:** export **STEP, not STL** (no preview PNGs — see STEP
-  conventions below), and preview in the shared **FreeCAD viewer hub**, not the
+  conventions below), and preview in the **web viewer** (`cadkit.web`), not the
   skill's headless renderer. Use the skill for *method*; use this file + `cadkit`
   for *how we actually build and view*.
 - **`cadkit` — shared, project-agnostic utilities**, vendored at `<project>/cadkit`
@@ -65,7 +65,8 @@ Two layers of reusable capability back a cadkit project:
     layout, pre-order checklist). `cadkit.pcb` is the plastic side: `pcb_cradle` and
     drawing-accurate JST headers.
   - `cadkit.fasteners` — shared M2/M4 hole/insert dims · `cadkit.cq_colors` — baked STEP colours
-  - `cadkit.freecad` — the FreeCAD viewer hub (`from cadkit.freecad import show`) + `view_assembly.cmd` launcher
+  - `cadkit.web` — the assembly viewer, a web page (`from cadkit.web import show`): select / hide /
+    isolate, section, measure, shadows; real part models on circuit boards; publishable as a site
   - `cadkit.scratch` — the fast per-part iteration loop: cache the surroundings,
     rebuild only the part under work, and (`--gate`) run the project's own gates over
     that cache instead of a full rebuild; `cadkit.agents` — who owns which portion
@@ -86,73 +87,62 @@ Two layers of reusable capability back a cadkit project:
 
 ## The build loop
 Build with `py -3.12 -m src.build` from the project folder. That writes the STEP
-files **and** opens/refreshes the model in the shared FreeCAD viewer hub via
-`show()` — no separate launch step, no Onshape.
+files **and** refreshes the model in the web viewer via `show()` — no separate
+launch step, no Onshape.
 
 **Write outputs relative to the build script, never to the cwd.** Anchor every
-output path (and the `show()` path) to `OUT = pathlib.Path(__file__).resolve().parent`,
-e.g. `export_step(obj, str(OUT / "housing.step"))`, `show(str(OUT / "assembly.step"))`.
+output path (and `show()`'s `root=`) to `OUT = pathlib.Path(__file__).resolve().parent`,
+e.g. `export_step(obj, str(OUT / "housing.step"))`, `show(parts, root=OUT)`.
 A bare `"housing.step"` writes to wherever the build was *launched* from — which
 scatters files into a parent dir when a package is run as `-m pkg.build`, or into
 the build counter's folder. `__file__`-anchored paths land in the project folder
 no matter the cwd.
 
-## FreeCAD viewer hub
-`from cadkit.freecad import show` opens/refreshes the project's assembly in a shared
-FreeCAD hub window (each part coloured + individually show/hide-able; the tab
-auto-reloads on every rebuild). `show()` never raises — viewer trouble can't break a
-build.
+## The viewer
+`from cadkit.web import show` puts the project's model in a browser tab:
 
-**Nothing kills FreeCAD any more, and no tab is ever lost to an update.** The hub used to
-record its process id so a build could `taskkill /F /T` a hub whose watch loop looked
-stopped — which destroyed healthy hubs mid-import, because a big STEP blocks the poll
-timer. That is gone. Liveness is now the heartbeat file, "loading, not wedged" is the
-`.busy` marker, and a hub that is wedged **or running older code** is fixed by re-running
-the macro inside the same process (`freecad.exe --single-instance view.FCMacro`), which
-reloads the viewer module in place. A FreeCAD holding someone's unsaved work is theirs to
-close, not a build's to kill.
+```python
+show([(name, solid, colour), ...], root=OUT, title="My Project")
+```
 
-That is affordable only because **a tab carries its own provenance**: the source STEP,
-mtime and size live on the FreeCAD document (`doc.Meta`), not in a dict inside the hub. So
-new code adopts the running tabs without re-importing any geometry, and a tab you close by
-hand is simply gone — there is no second copy of the truth to drift. If you change
-`freecad_viewer.py` or `view.FCMacro`, the next `show()` notices by content hash and
-reloads the hub for you; you do not need to close FreeCAD. `py -3.12
-cadkit/freecad/test_hub.py` covers this bookkeeping against a stubbed FreeCAD.
-
-**FreeCAD is located automatically — no hardcoded path.** `cadkit.freecad` resolves the
-executable in this order: `freecad_exe=` arg → `FREECAD_EXE` env → a cached config file
-(`%APPDATA%\cadkit\freecad.path` on Windows, `~/.config/cadkit/freecad.path` elsewhere)
-→ auto-discovery of the usual install locations (Windows `Program Files\FreeCAD*`, macOS
-`FreeCAD.app`, Linux AppImage / `PATH`), which is **cached on first success**. So on a
-fresh machine the first `show()` just finds FreeCAD and remembers it. If FreeCAD isn't
-installed, `show()` prints a link to download it and how to pin the path —
-`py -m cadkit.freecad --set-path "<exe>"` (or set `FREECAD_EXE`) — and skips the viewer.
-The config file is machine-local and outside every repo, so it never gets committed.
-
-**Double-click launcher.** Every project ships a `View Assembly.cmd` in its root so the
-user can open the last-built model straight from Explorer — no rebuild, no build-counter
-bump, just whatever STEP is on disk. The logic lives in the vendored
-`cadkit/freecad/view_assembly.cmd`; each project's root `View Assembly.cmd` is a one-line
-forwarder (it must physically sit in the root — it's the double-click target — but
-carries no logic):
+It meshes the parts into `<project>/.webview/` (git-ignored by its own ignore file),
+starts a small local server if none is running, and opens the page the first time. **An
+open page reloads the model by itself** on every later `show()`, keeping the camera and
+whatever is hidden — so the loop is: build, look. `show()` never raises — viewer trouble
+can't break a build. Each project (and each worktree) is served on its own port, counting
+up from 8137; the run prints the URL. To reopen the last model without building:
+`py -3.12 -m cadkit.web.view` from the project folder -- which is all a project's root
+`View Assembly.cmd` (the double-click target) does:
 
 ```bat
 @echo off
-REM Double-click to open this project's assembly.step in the FreeCAD viewer hub.
-REM All logic lives in the vendored launcher (cadkit subtree); this forwards our folder.
-call "%~dp0cadkit\freecad\view_assembly.cmd" "%~dp0"
+REM Double-click to open this project's last-built model in the web viewer.
+cd /d "%~dp0"
+py -3.12 -m cadkit.web.view
 ```
 
-(The `.cmd` launcher is Windows-only; on macOS/Linux run `py -3.12 -m cadkit.freecad`
-from the project folder instead.)
+**The page:** click selects (shift adds), `x` hide, `i` isolate, `u` show all, `z` zoom,
+ctrl+z / ctrl+y undo and redo those; `p` the parts list, `c` a section cut, `m` MEASURE.
+Measure reads the CAD kernel's own numbers — distance, angle, radius, between corners,
+edges, axes and faces — not triangles, so what it says is the model's figure. `l` steps
+the lighting (plain / shadows / shadows + occlusion), which also steps itself down on a
+device that cannot hold 60 fps. `k` shows the parts as printed, if the project names its
+filaments.
+
+**What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
+`boards=` its `cadkit.board_geom.Boards`, and every circuit board gets real part models
+in place of the footprint boxes (KiCad's library where this machine has it, else parts
+drawn by `cadkit.web.parts`); `materials=` a name → filament function, for the as-printed
+view; `extras={"title", "subtitle", "build"}`; and a `rig.json` beside the model animates
+a mechanism. `export(..., page=True)` writes the page beside the model: that folder is a
+web site, which is how a project publishes its model (GitHub Pages serves it as is).
+
+`show()` also takes the path of an assembly STEP, for a model something else wrote.
 
 ## STEP file conventions
-- **Export STEP, never STL.** This workflow is STEP-only: the FreeCAD viewer and
-  the slicer both consume STEP, and STEP keeps the named, separable, coloured
-  structure that STL discards. Use `export_step(obj, "name.step")` for a part
-  (see naming bullet) and `asm.save("assembly.step", mode="default")` for the
-  assembly. **Do not write `.stl`** (no `.stl` outputs, no STL previews). ⚠️ The
+- **Export STEP, never STL.** This workflow is STEP-only: the slicer consumes STEP,
+  and STEP keeps the named, coloured, exact solid that STL discards. Use
+  `export_step(obj, "name.step")` for a part (see naming bullet). **Do not write `.stl`** (no `.stl` outputs, no STL previews). ⚠️ The
   `cad-skill` emits STL + preview PNGs by default — override it and produce
   `.step` instead.
 - **One STEP per printed part** (`housing.step`, `axle.step`, …) — one printable
@@ -235,19 +225,21 @@ from the project folder instead.)
   project says to make instead of needing a flip by hand in the slicer.
 - **Name every product to match its filename.** A bare
   `cq.exporters.export(part, "housing.step")` names the STEP product *"Open
-  CASCADE STEP translator 7.8 …"*, which is what Bambu/FreeCAD then display. Use
+  CASCADE STEP translator 7.8 …"*, which is what Bambu then displays. Use
   the shared exporter instead — it exports normally, then rewrites the product
   name to the file stem (a single, correctly named product):
   ```python
   from cadkit.step_export import export_step
   export_step(part, "housing.step")          # imports/slices as "housing"
   ```
-  (For `assembly.step`, the per-part `name=` on each `.add(...)` already does this.)
 - **Dummy / purchased parts get NO standalone STEP** (springs, bearings, screws,
-  switch bodies, motors) — they appear ONLY inside the assembly, for fit-checks.
-- **One `assembly.step`** — every part placed as-built, kept SEPARATE and
-  coloured (`cq.Assembly().add(part, name=…, color=…)`, exported un-fused). This
-  is the file the viewer opens; each `name=` is a toggleable, coloured entry.
+  switch bodies, motors) — they appear ONLY in the assembly, for fit-checks.
+- **The assembly is a LIST, not a file** — `[(name, solid, colour)]`, every part placed
+  as-built, kept SEPARATE and coloured. It is what `show()` and the gates are given;
+  each name is a selectable, coloured part in the viewer. Do not write it out as one
+  STEP as a matter of course: on a big model that file is the slowest thing in the
+  build and nothing reads it. Write one only when something outside the project asks
+  for it.
 
 ## Test parts / print-fit coupons
 Sometimes you want a small COUPON to test-print a tricky feature (a thread fit, a
@@ -270,8 +262,8 @@ zero-maintenance:
   scatter them into `tools/` or scratch dirs.
   (This replaces the older rule of exporting coupons to the PROJECT ROOT.)
 - **RENDER coupons IN the assembly too, off to the side** (`.add(coupon.translate((90,0,0)),
-  name="…_coupon", …)`) so they're rebuilt with every `src.build`, visible in the one
-  FreeCAD tab, and can't silently diverge from the model. Give them a non-TPU colour and
+  name="…_coupon", …)`) so they're rebuilt with every `src.build`, visible in the
+  viewer, and can't silently diverge from the model. Give them a non-TPU colour and
   a `_coupon` name so they read as test pieces, not product parts. Prefer exporting the
   `test_*.step` from `src.build` alongside the real parts (a `tools/*.py` that only
   writes its STEP when hand-run can go stale between regenerations — if such a tool
@@ -544,8 +536,8 @@ solid** with a point-probe / cross-section, not on paper.
 ## Don't
 - Don't re-add Onshape (push scripts, credentials, `_push_onshape`) — removed on
   purpose.
-- Don't hand-set part colours in the FreeCAD GUI — they reset on reload. Bake
-  colours into the STEP in the build (`cadkit.cq_colors`).
+- Don't colour parts anywhere but the build (`cadkit.cq_colors`): the build's colour
+  table is what the viewer and the part STEPs both carry.
 - Don't colour any non-TPU part black (or near-black): **black is reserved for
   TPU parts**, so material reads at a glance in the viewer. Wires follow their
   own scheme (coloured by gauge bucket in the project's build colour table).
@@ -561,8 +553,7 @@ not a setting.
 and commit normally; zero overhead. This stays DORMANT until the human turns it on
 — by telling the original chat *"let's go multi-agent"*, or by telling a second
 chat *"you're a sub-agent on this project."* It exists because two chats editing
-the **same** working dir clobber each other's files and race the single FreeCAD
-tab / build.
+the **same** working dir clobber each other's files and race the one build.
 
 Shared CLI: **`cadkit/tools/agent_sync.py`** (run with `-h` for the full reference;
 run it from the project dir; coordination state lives in `.git/agent-sync/`,
@@ -576,14 +567,29 @@ editing anything:
    directory, so you never collide with the lead. (If you already had uncommitted
    work in the lead's main dir, `git stash` it BEFORE `join`, then `git stash pop`
    once you're in your worktree — that carries it over without losing anything.)
-2. **You own a PORTION, and you render it to YOUR OWN tab.** Claim it once:
+2. **You own a PORTION, and you render it to YOUR OWN page.** Claim it once:
    `py -3.12 cadkit/tools/agent_sync.py scope --set src.<your_module> [--attr assembly]
    [--replaced <prefix>,] [--note "one line"]`, and see everyone's with `scope`.
-   Then iterate with `py -3.12 cadkit/tools/agent_sync.py view` — it renders YOUR
-   portion (fresh) against a cached rest-of-instrument, into a FreeCAD tab named
-   after your worktree; add `--gate` to check it in ~30 s. Seconds, not minutes. The lead's tab keeps showing the
-   WHOLE instrument; yours shows your part in context. Two agents rendering at the
-   same moment land in two different tabs and cannot race.
+   Then iterate with `py -3.12 cadkit/tools/agent_sync.py view` — it rebuilds YOUR
+   portion and takes everything else AS THE LEAD LAST BUILT IT, into your worktree's
+   own viewer page (its own port; the run prints the URL, and an open page reloads
+   itself); add `--gate` to check it in ~30 s. Seconds, not minutes, and no build of
+   your own to begin with: the lead's build leaves every component in a cache all
+   worktrees share (`cadkit.scratch`). The lead's page keeps showing the WHOLE
+   instrument as last built; yours shows your part fresh in it. Two agents rendering
+   at the same moment write two different folders and cannot race.
+   - **Moving on to a second part in the same round?** Re-`scope` to it. The first
+     stays AS YOU BUILT IT (your own cache wins over the lead's copy, by name) while
+     you iterate on the second. To rebuild several every run, claim them together:
+     `scope --set src.a,part:b`.
+   - **Your change moves what OTHER parts read** (a shared dimension, a datum)?
+     `view --own` builds everything here once (minutes) into your own cache.
+   - **`view --lead`** forgets your own cache — after your work is merged and built,
+     or to drop an experiment. Every run says what is fresh, what is kept and yours,
+     and which build the rest is from and how old.
+   **END every turn that changed geometry by running `view`** — the human reads the
+   page, not the commit. `view --cache-only` refreshes the page in seconds when the
+   part itself did not change.
    **Still never run `src.build`** — the full build is the lead's, and it is what
    the lead does when it takes your merge request.
    **Validating your DESIGN is YOUR job; the full gate is the LEAD's.** The lead
@@ -599,10 +605,10 @@ editing anything:
      context plus your fresh part, in ~30 s. `--only <bases>` would scope what gets
      CHECKED, but the model BUILD is ~95% of a gate's cost, so name-scoping barely
      helps — `--gate` scopes what gets BUILT, exactly as the view does.
-     Know its reach: the context is cached and may be CROPPED, so it only finds faults
-     involving what is loaded. If your change MOVES parts outside your scope (a datum
-     that drags the chassis, the belts, another agent's part), WIDEN the live set and
-     drop the crop so the scoped gate sees them. It also SKIPS belts and belt clamps
+     Know its reach: everything but your part is as it was LAST BUILT, so it finds
+     only faults against that. If your change MOVES parts outside your scope (a datum
+     that drags the chassis, the belts, another agent's part), WIDEN the live set, or
+     `view --own`, so the scoped gate sees them where they now are. It also SKIPS belts and belt clamps
      (their booleans dominate runtime) — belt collisions are real, and the lead's
      build gates them, so belt work is covered there. Say in the summary what the
      scoped gate covered ("scoped gate: keyhead + strings, clean").
@@ -645,7 +651,7 @@ editing anything:
 
 **► You're the LEAD** (original/only chat; the human said "multi-agent" or named
 another agent alongside you). Keep working in the main worktree on `main`. You OWN
-the build + the FreeCAD tab — the ONLY chat that runs `src.build` / `show()`. To
+the build and the whole-model page — the ONLY chat that runs `src.build`. To
 take contributors' work **hands-free**:
 1. Arm the notifier, in the **BACKGROUND**:
    `py -3.12 cadkit/tools/agent_sync.py watch`  (run_in_background). It blocks until
@@ -667,9 +673,9 @@ take contributors' work **hands-free**:
 
 Rules that keep it from clobbering:
 - **Only the lead runs the FULL BUILD.** Every agent renders its own portion to its
-  own tab (`view`); the whole instrument is built once, by the lead, on merge.
+  own page (`view`); the whole instrument is built once, by the lead, on merge.
   `agent_sync.py build` refuses
-  outside the main worktree and holds a single-build lock — never a second tab or
+  outside the main worktree and holds a single-build lock — never
   a concurrent build. Contributors verify with the SCOPED gate (`view --gate`); the
   full gate runs once, in the lead's build.
 - **Contributors edit ONLY in their own worktree**, never in the lead's directory.
@@ -679,23 +685,23 @@ Rules that keep it from clobbering:
   arrives on a stale base, the lead should **inspect the diff before `take`**
   (`git diff --stat main..agent/<name>`); if it reverts current work, `drop` it and
   have the contributor `sync` and resubmit rather than resolving by hand.
-- **ONE PORTION PER AGENT, ONE TAB PER AGENT.** The working model is that each
-  contributor owns a piece of the model and iterates on it in its own FreeCAD tab,
+- **ONE PORTION PER AGENT, ONE PAGE PER AGENT.** The working model is that each
+  contributor owns a piece of the model and iterates on it in its own viewer page,
   sending the lead a merge request at each good checkpoint. Three commands carry it:
-  `scope` (claim/see who owns what), `view` (render YOUR piece into YOUR tab, in
+  `scope` (claim/see who owns what), `view` (render YOUR piece into YOUR page, in
   seconds), `submit` (checkpoint). The lead does `take` → `build`, and the lead's
-  tab is the only one showing the whole instrument.
+  page is the one showing the whole instrument freshly built.
   Why the scope registry is not a config block in the project's scratch-view script:
   that file is TRACKED, so every agent's "which part am I on" edit would land on the
   same three lines and conflict on every merge request — between two agents who are
   both right. It lives in `.git/agent-sync/scopes.json` instead (`cadkit.agents`),
   shared by every worktree, never committed, keyed by branch so nobody edits anyone
   else's entry.
-  **Tabs cannot collide**: the hub names a document after the folder its STEP sits
-  in, and every agent has its own worktree, so two agents rendering at the same
-  moment land in two different tabs. The build lock guards the FULL build only.
-  **The scratch cache is for the VIEW only** — `src.build` and the gates never read
-  it, so a drift costs a surprise at merge instead of a wrong part. Don't wire it
+  **Pages cannot collide**: a render goes to the `.webview/` folder of the worktree
+  it ran in, served on that worktree's own port, so two agents rendering at the same
+  moment write two different folders. The build lock guards the FULL build only.
+  **The scratch caches are for the VIEW and the scoped gate only** — `src.build` and
+  its gates never read them, so a drift costs a surprise at merge instead of a wrong part. Don't wire it
   into anything that gates.
 - **The merge request IS the notification.** `submit` writing the request file is
   exactly what ends the lead's background `wait` and re-invokes it — fully
@@ -712,10 +718,9 @@ Rules that keep it from clobbering:
   `msg <name> "<text>"` them directly rather than saving it up for the next merge.
   A question routed through a third party costs an extra round trip each way and
   arrives without the asker's context.
-- **Shared `cadkit/` edits are now normal tracked diffs** (cadkit is a git subtree,
-  not the old on-disk `freecad/`). A contributor who changes a shared util just commits
-  `cadkit/*` and `submit`s like any other change — the lead `take`s it normally. (The
-  old "[freecad-only: empty diff]" handoff is retired.) Once merged, that util change
+- **Shared `cadkit/` edits are normal tracked diffs** (cadkit is a git subtree). A
+  contributor who changes a shared util just commits `cadkit/*` and `submit`s like any
+  other change — the lead `take`s it normally. Once merged, that util change
   lives only in this project's vendored copy until the lead PROPAGATES it to the other
   projects — the lead runs `py -3.12 ../cadkit/tools/propagate.py` (pushes canonical,
   re-pulls every consumer; see the "Changing a shared util" bullet up top). Do this

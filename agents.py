@@ -3,7 +3,7 @@
 
 The multi-agent model this supports (see cadkit/AGENTS.md): each contributor owns
 a PORTION of the model, iterates on it in their own worktree, and renders it to
-THEIR OWN FreeCAD tab. Only the lead builds the whole instrument.
+THEIR OWN viewer page. Only the lead builds the whole instrument.
 
 That only works if "which portion is mine?" is answered somewhere both the tools
 and the humans can see. The obvious place — a config block in the project's
@@ -85,7 +85,7 @@ def get_scope(agent=None, cwd=None):
     return load_scopes(cwd).get(agent or current_agent(cwd))
 
 
-def set_scope(module, attr="assembly", replaced=(), note="", pose="", crop="",
+def set_scope(module, attr="assembly", replaced=(), note="", pose="",
               agent=None, cwd=None) -> dict:
     """Register/replace THIS agent's scope. Returns the stored dict.
 
@@ -97,7 +97,7 @@ def set_scope(module, attr="assembly", replaced=(), note="", pose="", crop="",
     name = agent or current_agent(cwd)
     scopes = load_scopes(cwd)
     scopes[name] = {"module": module, "attr": attr, "replaced": list(replaced),
-                    "note": note, "pose": pose, "crop": crop}
+                    "note": note, "pose": pose}
     p.write_text(json.dumps(scopes, indent=2, sort_keys=True), encoding="utf-8")
     return scopes[name]
 

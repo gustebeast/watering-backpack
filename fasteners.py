@@ -458,7 +458,7 @@ def cut_boss_insert_bore(spec, w, pt, direction, clr_len, reason=None, print_up=
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# DUMMIES — fit-check only. They go in assembly.step, never in a part STEP.
+# DUMMIES — fit-check only. They go in the assembly, never in a part STEP.
 # ════════════════════════════════════════════════════════════════════════════
 def insert(spec):
     """Dummy heat-set insert: Ø insert_pilot_d × insert_l TUBE (Ø insert_bore_d
