@@ -130,11 +130,15 @@ edges, axes and faces — not triangles, so what it says is the model's figure. 
 the lighting (plain / shadows / shadows + occlusion / ray traced). The first three are
 drawn every frame, and the page steps down by itself on a device that cannot hold
 60 fps. RAY TRACED is never chosen for you: the drawn picture stays on screen, quick
-and live, and once the view is still a path tracer works behind it (bounced light, soft
-shadows, reflections). Its picture is swapped in only when it is whole -- about a
-second on a strong graphics card -- and any movement puts the drawn one straight back.
-It prepares each model once, in the background, and pauses while a section cut is on. `k` shows the parts as printed, if the project names its
-filaments.
+and live, and once the view is still ONE traced picture of exactly what is shown is
+swapped in (bounced light, soft shadows, reflections); any movement puts the drawn one
+straight back. The page does not trace it: a browser cannot reach a card's ray-tracing
+hardware. The local server keeps a Blender running in the background with the model
+loaded (`cadkit/web/trace.py`; Cycles on the card, denoised there) and answers in about
+half a second. So the level is offered only on the page served from the machine that
+built the model, and only if Blender is found there (`CADKIT_BLENDER`, the PATH, or the
+usual install folders); a published page has the three drawn levels. It pauses while a
+section cut is on. `k` shows the parts as printed, if the project names its filaments.
 
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
 `boards=` its `cadkit.board_geom.Boards`, and every circuit board gets real part models

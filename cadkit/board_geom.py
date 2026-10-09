@@ -227,6 +227,30 @@ SILK_T = 0.02            # ink stands this far off the laminate, so its faces ar
 SILK_CAP = 0.72          # a KiCad text "size" is its capital height; a font size is its em
 
 
+# A BOARD IS DRAWN THE COLOUR OF ITS SOLDER MASK, the one it is ordered in, so the model
+# shows what will be in the hand. The laminate under a mask darkens it: these are the
+# colours of a made board, not of the ink.
+SOLDER_MASK = {
+    "green":  (0.03, 0.33, 0.14),
+    "black":  (0.035, 0.04, 0.045),
+    "blue":   (0.04, 0.16, 0.45),
+    "red":    (0.55, 0.06, 0.07),
+    "yellow": (0.78, 0.62, 0.08),
+    "white":  (0.93, 0.93, 0.91),
+    "purple": (0.28, 0.10, 0.42),
+}
+
+
+def mask_rgb(order: str = "green"):
+    """(r, g, b) for a solder mask as an order names it: 'black', 'Matte Black',
+    'black -- and why'. Green, the fabs' default, if it names none."""
+    words = str(order or "").lower().replace("-", " ").split()
+    for w in words:
+        if w in SOLDER_MASK:
+            return SOLDER_MASK[w]
+    return SOLDER_MASK["green"]
+
+
 def fp_name(fpid: str) -> str:
     """'Library:Footprint' -> 'Footprint' -- the key every table here uses."""
     return fpid.split(":")[-1]
