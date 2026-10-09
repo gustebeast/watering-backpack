@@ -480,7 +480,8 @@ def step_parts(path):
 
 
 def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=False,
-           boards=None, cache_dir=None, materials=None, whole=None, page=False):
+           boards=None, cache_dir=None, materials=None, whole=None, page=False,
+           units=None, parents=None):
     """Write <stem>.glb and <stem>.geo.json into out_dir.
 
     parts     = [(name, solid, colour)]; solid is a cq.Workplane / cq.Shape /
@@ -498,6 +499,11 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                 is printed in ("petg-gf" | "pctg" | ..., for the page's as-printed
                 view), or a bought part's finish, one of cadkit.web.finishes.FINISHES
                 ("steel", "brass", "rubber", ...), which it is always shown with.
+    units     = optional name -> the part it is ONE THING with, or None: a print in two
+                filaments is two parts here (deck base and deck colour) and one object
+                on the printer, so the page selects, hides and lists them as one. The
+                solids of one part are one thing without being told.
+    parents   = optional {piece name: its part's name}, for pieces split by the caller.
     whole     = names that must stay one part though drawn as several solids (see
                 pieces()); by default the names in the rig file beside the output.
     page      = True also writes the viewer page beside the model (index.html), which
@@ -508,6 +514,7 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
     if whole is None:
         whole = rig_names(out_dir / "rig.json")
     done, colors, solids = {}, {}, {}
+    parents = dict(parents or {})
     taken = {p[0] for p in parts}
     for part_name, solid, color in parts:
         if part_name in done or part_name in solids:
@@ -517,6 +524,8 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
         else:
             split = pieces(part_name, _topods(solid), taken, whole)
         for name, piece in split:
+            if name != part_name:
+                parents[name] = part_name
             solids[name] = piece
             m = (meshed or {}).get(name)
             if m is None:
@@ -552,7 +561,22 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
             mats = {n: materials(n) for n in done if "__" not in n}
         except Exception as exc:             # the as-printed view is an extra
             print("web export: no print materials (%s)" % exc)
-    write_glb(glb_parts, glb, extras=extras, units=silk_units(done), mats=mats)
+    # WHAT EACH PART IS ONE THING WITH: its part if it is one solid of several, then
+    # whatever the project says that part belongs to; lettering goes with its board
+    one = {}
+    for n in done:
+        if "__" in n:
+            continue
+        part = parents.get(n, n)
+        try:
+            said = units(part) if units is not None else None
+        except Exception:
+            said = None
+        if said or part != n:
+            one[n] = said or part
+    for ink, board in silk_units(done).items():
+        one[ink] = one.get(board, board)
+    write_glb(glb_parts, glb, extras=extras, units=one, mats=mats)
     side.write_text(json.dumps({"format": FORMAT, "units": "mm", "parts": geo, "models": models},
                                separators=(",", ":")))
     if page:

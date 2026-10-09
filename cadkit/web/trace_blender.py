@@ -38,9 +38,10 @@ SKY_TOP, SKY_BOTTOM = (0.888, 0.913, 0.956), (0.102, 0.117, 0.138)          # li
 # a filament's colour and finish, as the page's "as printed" view has them
 PRINTED = {"petg-gf": ((0.0086, 0.0091, 0.0103), 0.92),
            "pctg": ((0.0070, 0.0513, 0.0137), 0.22),
-           "pctg-alt": ((0.694, 0.672, 0.578), 0.22),
+           "pctg-clear": ((0.815, 0.855, 0.888), 0.18),
            "tpu": ((0.0052, 0.0052, 0.0056), 1.0)}
 
+CLEAR = 0.38                # how much of a clear filament is seen: the page's figure
 parts = {}                  # name -> (object, plain material, filament or None)
 finishes = {}               # the model's own table: finish -> (metalness, roughness)
 posed = {}                  # name -> the pose it was last given, as the page sent it
@@ -139,6 +140,8 @@ def load(path):
             plain = material("vertex", rough=0.6, vertex=True)
         else:
             metal, rough = finishes.get(filament, (0.0, 0.65))
+            if str(filament).endswith("-clear"):   # a clear filament is seen through
+                rgba = tuple(rgba[:3]) + (CLEAR,)
             plain = material(tuple(round(c, 4) for c in rgba) + (metal, rough), rgba, rough, metal)
         me.update()
         me.materials.append(plain)
@@ -267,7 +270,8 @@ def render(q):
         want = plain
         if printed and filament in PRINTED:
             rgb, rough = PRINTED[filament]
-            want = material("printed:" + filament, rgb + (1,), rough)
+            want = material("printed:" + filament,
+                            rgb + (CLEAR if filament.endswith("-clear") else 1,), rough)
         if ob.data.materials[0] is not want:
             ob.data.materials[0] = want
     sc.render.filepath = q["out"]

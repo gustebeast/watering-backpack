@@ -316,7 +316,7 @@ def scratch_export(view, describe=None, colors=None, rig=None, refresh_rig=False
     cols = _colors(out, sorted(set(base.values())), colors if colors is not None else view.colors)
     export_kw.setdefault("cache_dir", out / "boards")
     export([(n, solids[n], cols[base[n]]) for n in meshed], out, meshed=meshed, whole=whole,
-           **export_kw)
+           parents={n: p for n, p in base.items() if n != p}, **export_kw)
     stamp = dict(describe or view.describe(), t=time.time(), scratch=True, parts=len(meshed))
     stamp.pop("own_names", None)
     (out / "stamp.json").write_text(json.dumps(stamp))
