@@ -311,7 +311,9 @@ def silk_units(done):
 def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> None:
     """parts = [(name, pos float32 (n,3), tri uint32 (m,3), (r, g, b, a), col)]: `col`
     is None, or uint8 (n,4) per-vertex colour (linear, as glTF's COLOR_0), and then the
-    part's material is plain white under it."""
+    part's material is plain white under it. A part whose `mats` entry is a filament
+    takes that filament's colour in place of its own."""
+    from .finishes import FILAMENTS, surfaces
     buf = bytearray()
     views, accessors, meshes, nodes, materials, mat_ix = [], [], [], [], [], {}
 
@@ -324,6 +326,8 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
         return len(views) - 1
 
     for name, pos, tri, rgba, col in parts:
+        if col is None and mats and mats.get(name) in FILAMENTS:
+            rgba = tuple(FILAMENTS[mats[name]][0]) + (1.0,)
         key = (1.0, 1.0, 1.0, 1.0) if col is not None else tuple(round(float(c), 4) for c in rgba)
         if key not in mat_ix:
             mat_ix[key] = len(materials)
@@ -369,8 +373,7 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
             "nodes": nodes, "meshes": meshes, "materials": materials,
             "accessors": accessors, "bufferViews": views,
             "buffers": [{"byteLength": len(buf)}]}
-    from .finishes import FINISHES
-    gltf["asset"]["extras"] = dict(extras or {}, finishes=FINISHES)
+    gltf["asset"]["extras"] = dict(extras or {}, finishes=surfaces())
     js = _pad4(json.dumps(gltf, separators=(",", ":")).encode(), b" ")
     bn = _pad4(bytes(buf))
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -496,9 +499,10 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                 drawn by cadkit.web.parts (cadkit.web.boards says how, and what it
                 leaves alone). `cache_dir` keeps what that needs between runs.
     materials = optional name -> what the part is made of: the filament a printed part
-                is printed in ("petg-gf" | "pctg" | ..., for the page's as-printed
-                view), or a bought part's finish, one of cadkit.web.finishes.FINISHES
-                ("steel", "brass", "rubber", ...), which it is always shown with.
+                is printed in (cadkit.web.finishes.FILAMENTS: "petg-gf" | "pctg" | ...),
+                whose colour and surface it is then shown in, or a bought part's
+                finish (FINISHES: "steel", "brass", "rubber", ...), which gives it that
+                surface in its own colour. None: the part is shown as the build has it.
     units     = optional name -> the part it is ONE THING with, or None: a print in two
                 filaments is two parts here (deck base and deck colour) and one object
                 on the printer, so the page selects, hides and lists them as one. The
@@ -559,8 +563,8 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
     if materials is not None:
         try:
             mats = {n: materials(n) for n in done if "__" not in n}
-        except Exception as exc:             # the as-printed view is an extra
-            print("web export: no print materials (%s)" % exc)
+        except Exception as exc:             # the model is still worth showing
+            print("web export: no materials (%s)" % exc)
     # WHAT EACH PART IS ONE THING WITH: its part if it is one solid of several, then
     # whatever the project says that part belongs to; lettering goes with its board
     one = {}

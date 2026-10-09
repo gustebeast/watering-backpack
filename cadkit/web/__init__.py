@@ -13,7 +13,7 @@ cut, axis views, and a MEASURE tool that reads the kernel's own numbers (distanc
 angle, radius, between corners, edges, axes and faces) rather than fitting triangles.
 Shadows and occlusion follow what is shown, and step down by themselves on a device
 that cannot hold 60 fps. A project with circuit boards gets real part models on them;
-one that names its filaments gets an as-printed view; one that writes a rig file gets
+one that names its filaments is shown as printed; one that writes a rig file gets
 its mechanism animated.
 
     export   mesh parts into assembly.glb + assembly.geo.json (page=True adds the page,
