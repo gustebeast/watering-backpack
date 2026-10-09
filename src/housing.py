@@ -99,6 +99,7 @@ from cadkit.fasteners import M4, ScrewJoint
 from . import lumber_frame as L
 from . import pump_frame as F
 from .battery_dock import battery_dock, terminal_cutter
+from . import silk_face as SF
 from .dimensions import BOOL_OVERSHOOT
 
 # ── The board comes from the ROUTED board, never a typed placement ──────────
@@ -114,7 +115,22 @@ from .dimensions import BOOL_OVERSHOOT
 # part heights. src/build.py runs the agreement gate (elec/cad_geom_check.py)
 # that fails if this solid and the routed board diverge -- and it is pointed at
 # THIS solid, the one the assembly actually places.
-_BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT)
+# ⚠ AND IT IS LETTERED IN THE FACE THE FAB PLOTS, which it was not until
+# finding 57. elec/silk.py moved the silkscreen to "Rennie Mackintosh PSG"
+# (finding 52) and nothing told the CAD, so the board was PLOTTED in Rennie
+# Mackintosh and DRAWN in the CAD kernel's default face. Every gate passed the
+# whole time: cad_geom_check counts labels by probing for ink where each label
+# is printed, and reported 139 / 139, because a label in the wrong typeface is
+# still a label with ink in it. See src/silk_face.py -- the face is read out of
+# elec/silk.py rather than declared a second time, and silk_cap is MEASURED
+# through this same kernel (0.6670 for this face against cadkit's 0.72 default,
+# which is the kernel default face's own ratio and 7.9 % wrong here).
+_SILK_FONT, _SILK_CAP, _SILK_NOTE = SF.resolve()
+if _SILK_NOTE:
+    print(_SILK_NOTE)
+
+_BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT,
+                 silk_font=_SILK_FONT, silk_cap=_SILK_CAP)
 
 
 # ── Where it mounts ─────────────────────────────────────────────────────────
