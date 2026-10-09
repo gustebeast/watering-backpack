@@ -150,8 +150,7 @@ class Tracer:
                          near=float(view.get("near", 1)), far=float(view.get("far", 20000)),
                          hidden=[str(n) for n in view.get("hidden", ())],
                          poses={str(n): [float(x) for x in m][:16]
-                                for n, m in (view.get("poses") or {}).items()},
-                         printed=bool(view.get("printed")))
+                                for n, m in (view.get("poses") or {}).items()})
                 for k, n in (("sun", 3), ("bg", 3)):
                     if k in view:
                         q[k] = [float(x) for x in view[k]][:n]

@@ -83,6 +83,27 @@ def resolve_model(path, _dirs=[]):
     return None
 
 
+def library_models(name, _index={}):
+    """KiCad's own model of the footprint called `name`, as a footprint would name it
+    ([{file, offset, rot, scale}]), or []. For a board whose footprints name no model: one
+    laid out by script from footprints that carry none, or a project's own footprint
+    library. A library footprint and its model share a name, so the name finds it."""
+    if not _index:
+        _index[""] = None
+        env, default = _model_dirs()
+        for base in [default] + list(env.values()):
+            for p in glob.glob(os.path.join(base, "*.3dshapes", "*.step")) if base else ():
+                _index.setdefault(os.path.basename(p)[:-len(".step")], p.replace("\\", "/"))
+    p = _index.get(name)
+    return [{"file": p, "offset": [0.0, 0.0, 0.0], "rot": [0.0, 0.0, 0.0],
+             "scale": [1.0, 1.0, 1.0]}] if p else []
+
+
+def _models(f):
+    """The models footprint record `f` is shown with: its own, else the library's."""
+    return f.get("models") or library_models(f["fpid"].split(":")[-1])
+
+
 def load_model(path):
     """A STEP model -> (compound, [(face, (r, g, b) or None)]): colours as the file
     gives them, a face's own first, else its solid's."""
@@ -246,8 +267,9 @@ def fit_pose(ref, pts, tol=2e-3):
 
 
 def _reference_inks(boards, cache_dir):
-    """{(board, refs): corner array} for every board whose geom names a model, cached on
-    the geom file's time (drawing the lettering costs seconds a board)."""
+    """{(board, refs): corner array} for every board with a part there is a model for
+    (KiCad's, or one drawn by cadkit.web.parts), cached on the geom file's time (drawing
+    the lettering costs seconds a board)."""
     from .export import shape_vertices, _topods
     out = {}
     geom_dir = pathlib.Path(boards.geom_dir)
@@ -256,7 +278,7 @@ def _reference_inks(boards, cache_dir):
     for path in sorted(geom_dir.glob("*.geom.json")):
         board = path.name[:-len(".geom.json")]
         g = json.loads(path.read_text(encoding="utf-8"))
-        if not any(f.get("models") for f in g["footprints"]):
+        if not any(_models(f) or WP.knows(f["fpid"].split(":")[-1]) for f in g["footprints"]):
             continue
         cf = pathlib.Path(cache_dir) / (board + ".ink.pkl") if cache_dir is not None else None
         key = (path.stat().st_size, path.stat().st_mtime_ns)
@@ -395,7 +417,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
         local = _apply(np.linalg.inv(pose), sv.astype(float))    # the solid's corners, board frame
         cut, added, drawn = [], 0, 0
         for f in g["footprints"]:
-            ms = f.get("models") or []
+            ms = _models(f)
             if not f.get("fab") or not (ms or WP.knows(f["fpid"].split(":")[-1])):
                 continue
             x0, x1, y0, y1 = f["fab"]

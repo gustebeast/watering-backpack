@@ -138,13 +138,13 @@ loaded (`cadkit/web/trace.py`; Cycles on the card, denoised there) and answers i
 half a second. So the level is offered only on the page served from the machine that
 built the model, and only if Blender is found there (`CADKIT_BLENDER`, the PATH, or the
 usual install folders); a published page has the three drawn levels. It pauses while a
-section cut is on. `k` shows the parts as printed, if the project names its filaments.
+section cut is on.
 
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
 `boards=` its `cadkit.board_geom.Boards`, and every circuit board gets real part models
 in place of the footprint boxes (KiCad's library where this machine has it, else parts
 drawn by `cadkit.web.parts`); `materials=` a name → what-it-is-made-of function: a
-printed part's filament, for the as-printed view, or a bought part's FINISH
+printed part's filament, whose colour and surface it is then shown in, or a bought part's FINISH
 (`cadkit/web/finishes.py`: steel, polished, brass, gold, rubber, board...), so a bearing
 does not look moulded (component models get their metal from the library's own pin
 colours); `extras={"title", "subtitle", "build"}`; and a `rig.json` beside the model animates

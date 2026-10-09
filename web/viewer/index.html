@@ -108,7 +108,6 @@
       <div class="btn" id="bParts">parts<span class="k">p</span></div>
       <div class="btn" id="bSection">section<span class="k">c</span></div>
       <div class="btn" id="bLight">light<span class="k">l</span></div>
-      <div class="btn" id="bPrinted">as printed<span class="k">k</span></div>
       <div class="btn" id="bShowAll" style="display:none">show all<span class="k">u</span></div>
     </div>
     <div class="bar" id="views">
@@ -422,18 +421,19 @@
   // own node.
   const M = { root: null, parts: null, list: [], byName: new Map(), batches: [], pickables: [],
               key: '', geo: null, geoPromise: null };
-  // WHAT A PART IS MADE OF. A printed part is plastic; a bought one names its finish
-  // (steel, brass, rubber...: cadkit/web/finishes.py, the table comes in the model file)
-  // and keeps its colour. A metal is lit mostly by what it reflects, so it takes the
-  // room at full strength where plastic takes a little of it.
+  // WHAT A PART IS MADE OF. A printed part names its filament and comes in that
+  // filament's colour; a bought one names its finish (steel, brass, rubber...) and keeps
+  // its own. Either gives the surface (cadkit/web/finishes.py: the table comes in the
+  // model file). A metal is lit mostly by what it reflects, so it takes the room at
+  // full strength; a plastic takes what its table entry says, or a little of it.
   const matCache = new Map();
   function partMaterial(src, finish) {
-    const c = src.color, a = src.opacity ?? 1, [metal, rough] = finish || [0, 0.65];
-    const key = c.getHexString() + ':' + a.toFixed(3) + ':' + metal + ':' + rough;
+    const c = src.color, a = src.opacity ?? 1, [metal, rough, room] = finish || [0, 0.65];
+    const key = c.getHexString() + ':' + a.toFixed(3) + ':' + metal + ':' + rough + ':' + room;
     if (!matCache.has(key))
       matCache.set(key, new THREE.MeshStandardMaterial({
         color: c.clone(), metalness: metal, roughness: rough, side: THREE.DoubleSide, clipShadows: true,
-        envMapIntensity: metal ? 1.0 : finish ? 0.6 : ENV,
+        envMapIntensity: room ?? (metal ? 1.0 : finish ? 0.6 : ENV),
         transparent: a < 0.999, opacity: a, depthWrite: a >= 0.999 }));
     return matCache.get(key);
   }
@@ -457,30 +457,9 @@
        #endif`);
   };
 
-  // ── as printed ───────────────────────────────────────────────────────────────────
-  // The build colours every part differently so they can be told apart. This view
-  // shows the instrument as it comes off the printer instead: every part of one
-  // filament in that filament's colour AND finish. Glass-filled PETG is matte (the
-  // fibre breaks up the surface, so it barely reflects); PCTG is a glossy plastic and
-  // picks up the room; TPU is dull rubber. Bought parts keep their colours.
-  // A FILAMENT NAMED ...-clear IS SEEN THROUGH, in the build's colours as well as as
-  // printed: a clear part drawn solid hides what the real one shows (the deck's base is
-  // clear so the fret lights shine up through it).
+  // A FILAMENT NAMED ...-clear IS SEEN THROUGH: a clear part drawn solid hides what the
+  // real one shows (the deck's base is clear so the fret lights shine up through it).
   const CLEAR = 0.38;
-  const PRINT = {
-    'petg-gf': new THREE.MeshStandardMaterial({ color: 0x17181a, metalness: 0, roughness: 0.92,
-      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.25 }),
-    'pctg': new THREE.MeshStandardMaterial({ color: 0x14401f, metalness: 0, roughness: 0.22,
-      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0 }),
-    // clear PCTG: you see through it, a little milky (see CLEAR)
-    'pctg-clear': new THREE.MeshStandardMaterial({ color: 0xe9eef2, metalness: 0, roughness: 0.18,
-      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0,
-      transparent: true, opacity: CLEAR, depthWrite: false }),
-    'tpu': new THREE.MeshStandardMaterial({ color: 0x101011, metalness: 0, roughness: 1.0,
-      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.15 }),
-  };
-  let asPrinted = false;
-  try { asPrinted = sessionStorage.getItem('as-printed') === '1'; } catch {}
 
   let FINISH = {};
   function buildModel(gltf) {
@@ -496,9 +475,8 @@
     for (const mesh of [...parts.children]) {
       if (!mesh.isMesh) continue;
       const g = mesh.geometry, col = g.attributes.color ? g.attributes.color.array : null;
-      const printed = asPrinted && !col && PRINT[mesh.userData.mat];
       const clear = /-clear$/.test(mesh.userData.mat || '');
-      const mat = col ? vcMat : printed || partMaterial(
+      const mat = col ? vcMat : partMaterial(
         clear ? { color: mesh.material.color, opacity: CLEAR } : mesh.material, FINISH[mesh.userData.mat]);
       const unit = mesh.userData.unit || unitOf(mesh.name);      // a board's lettering names its board
       const p = { name: mesh.name, unit, family: family(unit), mat, hidden: false, col,
@@ -1123,7 +1101,7 @@
   function setHint() {
     $('hint').textContent = mode === 'measure'
       ? 'measure: click a corner, edge or face, then another · esc clears · m leaves · drag still orbits'
-      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section · l lighting · k as printed';
+      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section · l lighting';
   }
 
   // ── pointer and keys ─────────────────────────────────────────────────────────────
@@ -1161,7 +1139,6 @@
       case 'u': showAll(); return;
       case 'c': $('bSection').onclick(); return;
       case 'l': setQuality(quality + 1, true); return;
-      case 'k': setPrinted(!asPrinted); return;
     }
     const p = keyToPedal[e.key]; if (!p || e.repeat) return;
     held.add(p); syncUI();
@@ -1243,7 +1220,7 @@
     const sh = quality >= 1;
     if (renderer.shadowMap.enabled !== sh) {
       renderer.shadowMap.enabled = sh; key.castShadow = sh;
-      for (const m of [...matCache.values(), vcMat, ...Object.values(PRINT)]) m.needsUpdate = true;
+      for (const m of [...matCache.values(), vcMat]) m.needsUpdate = true;
     }
     if (quality >= 2 && !composer) {
       const pr = renderer.getPixelRatio();
@@ -1310,7 +1287,7 @@
     for (const n in nodes) poses[n] = nodes[n].matrixWorld.toArray();
     const view = { w: Math.round(innerWidth * pr), h: Math.round(innerHeight * pr), samples,
                    cam: rt.cam.toArray(), fov: camera.fov, near: camera.near, far: camera.far,
-                   hidden: M.list.filter(p => p.hidden).map(p => p.name), poses, printed: asPrinted,
+                   hidden: M.list.filter(p => p.hidden).map(p => p.name), poses,
                    sun: KEY_DIR.toArray(), sun_strength: key.intensity,
                    bg: scene.background.clone().convertLinearToSRGB().toArray() };
     const t0 = performance.now();
@@ -1463,15 +1440,6 @@
     if (++slowFor >= 2) setQuality(Math.min(quality, 3) - 1);
   }
   $('bLight').onclick = () => setQuality(quality + 1, true);
-  // the model is built again from the file: parts are grouped by material when it loads
-  function setPrinted(on) {
-    asPrinted = on;
-    try { sessionStorage.setItem('as-printed', on ? '1' : '0'); } catch {}
-    $('bPrinted').classList.toggle('on', on);
-    load(false).catch(e => console.error(e));
-  }
-  $('bPrinted').onclick = () => setPrinted(!asPrinted);
-  $('bPrinted').classList.toggle('on', asPrinted);
 
   // ── the axis views ───────────────────────────────────────────────────────────────
   // look along a CAD direction, from that side: "+Z" is the view from above
@@ -1631,7 +1599,7 @@
     requestAnimationFrame(tick);
   }
   // for poking at it from the console (and for the checks that drive the page)
-  window.viewer = { rt, renderer, scene, camera, controls, sec, setSection, undo, viewFrom, setPrinted, setQuality, get quality() { return quality; }, key, THREE,
+  window.viewer = { rt, renderer, scene, camera, controls, sec, setSection, undo, viewFrom, setQuality, get quality() { return quality; }, key, THREE,
                     frame() { controls.update(); lightDirty = true; renderer.info.reset(); drawFrame(); },
                     draw() { renderer.info.reset(); drawFrame(); return traced; }, M, meas, pickAt, snapAt, setHidden, setMode,
                     measureClick, between, showAll, get selection() { return selection; },

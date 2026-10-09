@@ -14,7 +14,7 @@ reply line starting with MARK (Blender prints a good deal of its own).
     {"op": "load", "glb": path}
     {"op": "render", "out": path, "w": 1280, "h": 800, "samples": 64,
      "cam": [16 numbers], "fov": 40, "near": 1, "far": 20000,
-     "hidden": [part names], "poses": {part name: [16 numbers]}, "printed": false,
+     "hidden": [part names], "poses": {part name: [16 numbers]},
      "sun": [x, y, z], "sun_strength": 2.4, "bg": [r, g, b]}
     {"op": "quit"}
 
@@ -35,15 +35,9 @@ from mathutils import Matrix, Vector
 MARK = "@@trace "
 C = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))      # page -> CAD
 SKY_TOP, SKY_BOTTOM = (0.888, 0.913, 0.956), (0.102, 0.117, 0.138)          # linear
-# a filament's colour and finish, as the page's "as printed" view has them
-PRINTED = {"petg-gf": ((0.0086, 0.0091, 0.0103), 0.92),
-           "pctg": ((0.0070, 0.0513, 0.0137), 0.22),
-           "pctg-clear": ((0.815, 0.855, 0.888), 0.18),
-           "tpu": ((0.0052, 0.0052, 0.0056), 1.0)}
-
 CLEAR = 0.38                # how much of a clear filament is seen: the page's figure
-parts = {}                  # name -> (object, plain material, filament or None)
-finishes = {}               # the model's own table: finish -> (metalness, roughness)
+parts = {}                  # name -> object
+finishes = {}               # the model's own table: filament or finish -> (metalness, roughness)
 posed = {}                  # name -> the pose it was last given, as the page sent it
 mats = {}
 
@@ -123,7 +117,7 @@ def load(path):
     posed.clear()
     tris = 0
     coll = bpy.context.scene.collection
-    for name, pos, idx, col, rgba, filament in read_glb(path):
+    for name, pos, idx, col, rgba, made_of in read_glb(path):
         me = bpy.data.meshes.new(name)
         nt = len(idx) // 3
         me.vertices.add(len(pos))
@@ -139,15 +133,15 @@ def load(path):
             a.data.foreach_set("color", (col.astype(np.float32) / 255.0).ravel())
             plain = material("vertex", rough=0.6, vertex=True)
         else:
-            metal, rough = finishes.get(filament, (0.0, 0.65))
-            if str(filament).endswith("-clear"):   # a clear filament is seen through
+            metal, rough = finishes.get(made_of, (0.0, 0.65))[:2]
+            if str(made_of).endswith("-clear"):    # a clear filament is seen through
                 rgba = tuple(rgba[:3]) + (CLEAR,)
             plain = material(tuple(round(c, 4) for c in rgba) + (metal, rough), rgba, rough, metal)
         me.update()
         me.materials.append(plain)
         ob = bpy.data.objects.new(name, me)
         coll.objects.link(ob)
-        parts[name] = (ob, plain, filament if col is None else None)
+        parts[name] = ob
         tris += nt
     return dict(parts=len(parts), triangles=tris, seconds=round(time.perf_counter() - t, 2))
 
@@ -255,9 +249,9 @@ def render(q):
     sun.data.energy = q.get("sun_strength", 2.4)
     bg = linear(q.get("bg", (0.086, 0.094, 0.110)))
     sc.world.node_tree.nodes["backdrop"].inputs["Color"].default_value = (bg[0], bg[1], bg[2], 1)
-    hidden, poses, printed = set(q.get("hidden", ())), q.get("poses", {}), bool(q.get("printed"))
+    hidden, poses = set(q.get("hidden", ())), q.get("poses", {})
     # ONLY WHAT CHANGED IS TOUCHED: whatever is touched is rebuilt on the card
-    for name, (ob, plain, filament) in parts.items():
+    for name, ob in parts.items():
         hide = name in hidden                      # hidden from every kind of ray
         if ob.visible_camera == hide:
             for ray in ("camera", "diffuse", "glossy", "transmission", "volume_scatter", "shadow"):
@@ -267,13 +261,6 @@ def render(q):
         if posed.get(name) != key:
             posed[name] = key
             ob.matrix_world = C @ mat4(p) if p else Matrix.Identity(4)
-        want = plain
-        if printed and filament in PRINTED:
-            rgb, rough = PRINTED[filament]
-            want = material("printed:" + filament,
-                            rgb + (CLEAR if filament.endswith("-clear") else 1,), rough)
-        if ob.data.materials[0] is not want:
-            ob.data.materials[0] = want
     sc.render.filepath = q["out"]
     bpy.ops.render.render(write_still=True)
     return dict(out=q["out"], seconds=round(time.perf_counter() - t, 3))

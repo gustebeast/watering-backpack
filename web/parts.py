@@ -212,6 +212,22 @@ def stick(W, D, H, **_):
             (_cyl_z(0.16 * min(W, D), H - frame, y=D / 2, z=frame), BLACK)]
 
 
+def push_latch(W, D, H, **_):
+    """A self-locking push switch of the square board-mount kind: the moulded case, the
+    steel strap that clips over its top and down two sides, and the plunger's shoulder
+    in the strap's window. The stem above the case is the project's to draw: how far it
+    stands is the state the switch is in."""
+    t = min(0.3, 0.05 * W)
+    top = 0.9 * H
+    win = 0.56 * min(W, D)
+    case = _box(W - 2 * t, D, top)
+    strap = (_box(W, 0.62 * D, H, y=0.19 * D)
+             .cut(_box(W - 2 * t, 0.62 * D + 0.02, H - t, y=0.19 * D - 0.01, z=-0.01))
+             .cut(_box(win, win, 3 * t, y=(D - win) / 2, z=H - 2 * t)))
+    shoulder = _box(win - 0.3, win - 0.3, H - top, y=(D - win + 0.3) / 2, z=top)
+    return [(case, BLACK), (strap, STEEL), (shoulder, WHITE)]
+
+
 # footprint name -> (generator, facts read from the name)
 _RULES = [
     (r"^JST_(ZH|PH|XH)_S(\d+)B.*(Horizontal|TightCourtyard|MouthOnEdge)", jst_side),
@@ -225,6 +241,7 @@ _RULES = [
     (r"^Xinyangze_YZ1[68]\d+.*-(\d\d)\d\d\d$", pogo),
     (r"DSHP01", dip_switch),
     (r"RKJXT1F", stick),
+    (r"PB-22E", push_latch),
 ]
 _PITCH = {"ZH": 1.5, "PH": 2.0, "XH": 2.5}
 
