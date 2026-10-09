@@ -143,8 +143,11 @@ section cut is on. `k` shows the parts as printed, if the project names its fila
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
 `boards=` its `cadkit.board_geom.Boards`, and every circuit board gets real part models
 in place of the footprint boxes (KiCad's library where this machine has it, else parts
-drawn by `cadkit.web.parts`); `materials=` a name → filament function, for the as-printed
-view; `extras={"title", "subtitle", "build"}`; and a `rig.json` beside the model animates
+drawn by `cadkit.web.parts`); `materials=` a name → what-it-is-made-of function: a
+printed part's filament, for the as-printed view, or a bought part's FINISH
+(`cadkit/web/finishes.py`: steel, polished, brass, gold, rubber, board...), so a bearing
+does not look moulded (component models get their metal from the library's own pin
+colours); `extras={"title", "subtitle", "build"}`; and a `rig.json` beside the model animates
 a mechanism. `export(..., page=True)` writes the page beside the model: that folder is a
 web site, which is how a project publishes its model (GitHub Pages serves it as is).
 
