@@ -15,6 +15,14 @@ need here" before you have geometry. See JOINERY_README.md.
     up   = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")    # prints -Z→+Z
     side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")  # prints -Y→+Y
 
+Projects should DERIVE the facing from the part's declared print orientation
+instead of naming it (the two used to be independent claims about the same
+fact — see PrintSpec.at and cadkit.orientation):
+
+    SITE = JointSite(install_dir=(0, -1, 0), normal=(0, 0, 1))
+    up   = PrintSpec.at(SITE, PRINT_ORIENTATION["frame_bottom"],
+                        nozzle=0.8, material="PETG-GF")
+
     j    = joint(width=5.6, length=6, tenon=side, mortise=up)
     host = host.union(j.tenon(root=1.0).translate(...))    # tenon fuses into its host
     ring = ring.cut(j.mortise(drop=2.0).translate(...))    # cavity opens through the face
@@ -1234,7 +1242,15 @@ class PrintSpec:
     shape has to bend for it. It therefore constrains nothing, and the OTHER
     half's facing alone picks the family. (For install='z' sites this case is
     what 'up'/'down' already say — there the profile lies in the plan plane and
-    the install axis IS the build axis — so 'axial' is an x-family word.)"""
+    the install axis IS the build axis — so 'axial' is an x-family word.)
+
+    DON'T WORK `facing` OUT IN YOUR HEAD — use `PrintSpec.at()`. The word is
+    downstream of two facts the project already knows: the part's declared
+    print orientation and WHERE the joint sits. Mapping one onto the other by
+    hand means the mapping survives only as a comment beside the call ("local
+    +X -> global -y, the cap travels +y over the fixed tenons"), and nothing
+    checks it against the orientation the STEP actually exports with (#1070).
+    `at()` does that arithmetic from a `cadkit.orientation.JointSite`."""
     __slots__ = ("nozzle", "material", "facing")
 
     def __init__(self, nozzle=0.8, material=None, facing="up"):
@@ -1244,6 +1260,23 @@ class PrintSpec:
         if nozzle <= 0:
             raise ValueError("nozzle must be > 0")
         self.nozzle, self.material, self.facing = nozzle, material, facing
+
+    @classmethod
+    def at(cls, site, orientation, nozzle=0.8, material=None):
+        """This half's spec, with `facing` DERIVED rather than asserted.
+
+        `site` is a `cadkit.orientation.JointSite` — the joint's install
+        direction and mating normal, in the frame the parts are modelled in —
+        and `orientation` is this half's host's `PrintOrientation`, the same
+        object its STEP exports with. The two can no longer disagree.
+
+        It raises when the part's build direction does not line up with the
+        joint's axes at all: that is a real finding (one of the three
+        directions is wrong), not an inconvenience.
+        """
+        from .orientation import facing_for
+        return cls(nozzle=nozzle, material=material,
+                   facing=facing_for(orientation, site))
 
 
 def _clearance_for(tenon, mortise, override):
