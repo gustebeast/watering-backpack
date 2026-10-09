@@ -445,9 +445,14 @@ def step_parts(path):
     """[(name, shape, colour)] out of an assembly STEP file as cadquery writes one: each
     named, coloured part, where it stands. For a project that still hands the viewer its
     assembly.step; a project that has the parts in memory passes them and skips the
-    file."""
+    file. A STEP that is ONE PART and no assembly (a single-part project's only output)
+    is that part, named after the file."""
     import cadquery as cq
-    asm = cq.Assembly.importStep(str(path))
+    try:
+        asm = cq.Assembly.importStep(str(path))
+    except ValueError:                               # "does not contain an assembly"
+        import pathlib
+        return [(pathlib.Path(path).stem, cq.importers.importStep(str(path)), (0.8, 0.8, 0.8, 1.0))]
     out, seen = [], {}
     for name, node in asm.traverse():
         shapes = [s for s in getattr(node, "shapes", []) if s is not None]
