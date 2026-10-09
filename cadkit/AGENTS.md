@@ -27,7 +27,8 @@ Two layers of reusable capability back a cadkit project:
   (git subtree; canonical upstream github.com/gustebeast/cadkit). Imported as
   `cadkit.*` — NO sys.path hack, because every build runs via `-m` from the project
   root, so the vendored package is already importable:
-  - `cadkit.step_export` — `export_step()` (names the STEP product after the file stem) · `print_pose()` (per-part STEPs export print-oriented — see STEP conventions)
+  - `cadkit.step_export` — `export_step()` (names the STEP product after the file stem) · `export_print()` / `print_pose()` (per-part STEPs export print-oriented — see STEP conventions)
+  - `cadkit.orientation` — `PrintOrientation` (a part's bed face + why, declared once) · `JointSite` · `facing_for()` (derives the joinery `facing`) · `require_declared()` · `unconfirmed()`
   - `cadkit.overlap_check` — the parallel interpenetration engine (see the overlap gate)
   - `cadkit.threads` — **self-supporting 45° screw threads**; read **`cadkit/THREADS_README.md`**
     before changing any thread (OCCT fails *silently* in ~7 documented ways — a smooth
@@ -156,22 +157,65 @@ from the project folder instead.)
   `.step` instead.
 - **One STEP per printed part** (`housing.step`, `axle.step`, …) — one printable
   solid each; the slicer imports these.
-- **Per-part STEPs export in PRINT POSE** (user, cable-spool #935): each file
-  lands in the slicer already print-oriented — rotated onto its documented bed
-  face, dropped to z = 0, centred on x/y — so nothing ever needs flipping in
-  Bambu. Use the shared helper, **at export ONLY**; the assembly keeps every
-  part as-modeled (add the untransformed part to `cq.Assembly`):
+- **EVERY printed part DECLARES its print orientation — required, never
+  defaulted** (user, cable-spool #1070). A part's bed face is a fact about the
+  part; state it ONCE, as a `PrintOrientation` with the REASON for it, and both
+  consumers read that one declaration — STEP export poses with it, and the
+  joinery derives each joint's `facing` from it:
   ```python
-  from cadkit.step_export import export_step, print_pose
-  PRINT_ROT = {              # one table beside PARTS: bed face declared once
-      "lid": "flip",                     # prints +z→−z (modeled top = bed)
-      "lever": ((1, 0, 0), -90),         # stands on its +y face
-      # parts that model as printed just get the drop-and-centre
+  from cadkit.orientation import (PrintOrientation as PO, JointSite,
+                                  require_declared, unconfirmed)
+  from cadkit.step_export import export_print
+
+  PRINT_ORIENTATION = {      # one table beside PARTS — the project's record
+      "lid":   PO("flip", "modelled top is the bed — the slots print clean"),
+      "frame": PO(None, "models as printed"),
+      "lever": PO(((1, 0, 0), -90), "stands on its +y outer face"),
   }
-  export_step(print_pose(part, PRINT_ROT.get(name)), fname)
+  require_declared({n for n, _p, _f in PARTS}, PRINT_ORIENTATION)   # import time
+  export_print(part, PRINT_ORIENTATION[name], fname)
   ```
-  When a part's print direction changes, update its `PRINT_ROT` entry in the
-  same commit — the table is the print-orientation record of the project.
+  `export_print` **refuses** a part whose orientation is not declared, and
+  `require_declared` names both a missing part and a stale entry. This is not
+  ceremony: export used to read the table with `PRINT_ROT.get(name)`, so a
+  MISSING entry and a deliberate "this models as printed" were the same value
+  — `None`. A TPU pin shipped standing on its end, a 5.9:1 tower, because
+  nobody had ever declared its bed face and nothing could tell. **An omission
+  and a claim are different.** Per-part STEPs therefore always land in the
+  slicer print-oriented — rotated onto the declared bed face, dropped to z = 0,
+  centred on x/y — so nothing needs flipping in Bambu. Posing is **export
+  ONLY**: the assembly keeps every part as-modeled (add the untransformed part
+  to `cq.Assembly`). When a part's print direction changes, its entry changes in
+  the same commit.
+- **A joint declares WHERE IT SITS; `facing` is derived, not asserted.** Build a
+  `JointSite(install_dir=..., normal=...)` — the direction the mortise host
+  travels to go on, and the mating plane's normal, both in the frame the parts
+  are MODELLED in — and let each half's spec come from the site plus that
+  host's declared orientation:
+  ```python
+  SITE = JointSite(install_dir=(0, -1, 0), normal=(0, 0, 1))
+  tspec = PrintSpec.at(SITE, PRINT_ORIENTATION["frame_bottom"], material="PETG-GF")
+  mspec = PrintSpec.at(SITE, PRINT_ORIENTATION["horn_cap"],     material="PETG-GF")
+  ```
+  Writing `facing="up"` by hand states the same fact a SECOND time, worked out
+  in your head by mapping the joint's local axes onto the global ones — a
+  mapping that then survives only as a comment beside the call and that nothing
+  checks against the orientation the STEP actually exports with. Both
+  directions are needed: for an x-family joint, 'up' and 'side' are BOTH
+  perpendicular to the install axis, so the install direction alone
+  under-determines the answer. `PrintSpec.at` raises when the part's build
+  direction lines up with none of the joint's axes — that means one of the
+  three directions is wrong, which is a finding, not an inconvenience.
+- 🚩 **An UNCONFIRMED orientation is a red flag you must clear first.**
+  `PO(..., confirmed=False)` means somebody — usually an agent migrating a
+  project — made a best-effort guess about a part they had not studied. The
+  build prints these on every run (`unconfirmed(PRINT_ORIENTATION)`). **If you
+  are about to work on a part whose orientation is unconfirmed, settle the bed
+  face with the user and set `confirmed=True` BEFORE doing anything else to
+  it.** Do not model, gate or export changes to that part on top of a guess:
+  the bed face decides which faces are overhangs, which slots bridge, and which
+  way every joint on it prints — so a wrong guess silently invalidates the
+  overhang gate and the joinery for the whole part.
 - **Name every product to match its filename.** A bare
   `cq.exporters.export(part, "housing.step")` names the STEP product *"Open
   CASCADE STEP translator 7.8 …"*, which is what Bambu/FreeCAD then display. Use

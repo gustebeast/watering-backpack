@@ -26,10 +26,29 @@ flip a part in Bambu. Wrap each export in ``print_pose``:
 It rotates the part onto its documented bed face, drops it to z = 0 and
 centres it on x/y. EXPORT-ONLY by design: pass the posed copy straight to
 ``export_step`` and keep adding the as-modeled part to the ``cq.Assembly`` —
-the viewer keeps every part in its assembly place. Keep a small
-``PRINT_ROT = {name: rotate}`` table next to the project's PARTS list so each
-part's bed face is declared once, beside its export (parts that already model
-as printed simply get the drop-and-centre).
+the viewer keeps every part in its assembly place.
+
+DECLARE IT ONCE (cable-spool #1070). A part's bed face is a fact about the
+part, and the project states it in ONE table of `PrintOrientation`s, which
+both this exporter and the joinery's `facing` read:
+
+    from cadkit.orientation import PrintOrientation as PO
+
+    PRINT_ORIENTATION = {
+        "lid":   PO("flip", "modelled top is the bed — slots print clean"),
+        "frame": PO(None, "models as printed"),
+    }
+
+    for name, part, fname in PARTS:
+        export_print(part, PRINT_ORIENTATION[name], out / fname)
+
+`export_print` REFUSES anything that is not a `PrintOrientation`, so a part
+can no longer be exported with its bed face unstated — which is how a TPU pin
+shipped standing on its end as a 5.9:1 tower. Call `require_declared()` on the
+table at import time to catch a missing or stale name, and print
+`unconfirmed()` on every build so a guessed orientation stays visible. The
+legacy ``PRINT_ROT = {name: rotate}`` forms still work through `print_pose`
+during migration.
 
 Self-test: ``python -m cadkit.step_export`` (or run this file).
 """
@@ -38,6 +57,8 @@ import pathlib
 import re
 
 import cadquery as cq
+
+from .orientation import PrintOrientation
 
 # Matches a STEP PRODUCT entity's first two fields (id, name), which both carry
 # the OCC default name. The fields can be split across lines, so \s* spans them.
@@ -58,6 +79,26 @@ def export_step(obj, path, name=None):
     _rename_products(path, label)
 
 
+def export_print(obj, orientation, path, name=None):
+    """Pose ``obj`` for printing and export it — the ONE export path for a
+    printed part.
+
+    Unlike ``export_step(print_pose(obj, rot), path)`` this REFUSES an
+    undeclared bed face: ``orientation`` must be a
+    `cadkit.orientation.PrintOrientation`, so "nobody said" can no longer
+    arrive as the same ``None`` that means "models as printed" (#1070).
+    """
+    if not isinstance(orientation, PrintOrientation):
+        raise TypeError(
+            "export_print needs a PrintOrientation for %s, not %r. Every "
+            "printed part declares its bed face AND the reason for it:\n"
+            "    from cadkit.orientation import PrintOrientation as PO\n"
+            "    PO(None, 'models as printed')   PO('flip', 'why')\n"
+            "    PO(((1, 0, 0), -90), 'stands on its +y face')"
+            % (name or pathlib.Path(str(path)).stem, orientation))
+    export_step(print_pose(obj, orientation), path, name)
+
+
 def print_pose(obj, rotate=None):
     """``obj`` posed for PRINTING: rotated onto its bed face, dropped so
     its lowest point sits at z = 0, centred on x/y. EXPORT-ONLY — feed
@@ -71,7 +112,13 @@ def print_pose(obj, rotate=None):
                    TOP face is the bed)
       (axis, deg)  anything else, about the origin: ((1, 0, 0), -90)
                    stands a part on its +y face, etc.
+
+    A `cadkit.orientation.PrintOrientation` is also accepted, and is what
+    projects should pass — it carries the same rotation plus the REASON for
+    it. Prefer `export_print`, which refuses the bare forms outright.
     """
+    if isinstance(rotate, PrintOrientation):
+        rotate = rotate.rot
     w = obj if isinstance(obj, cq.Workplane) else cq.Workplane(obj=obj)
     if rotate == "flip":
         rotate = ((1.0, 0.0, 0.0), 180.0)
@@ -123,5 +170,27 @@ if __name__ == "__main__":
     # a bare Shape (not a Workplane) is accepted too
     bb = _bb(print_pose(_box().val()))
     assert abs(bb.zmin) < 1e-9
+
+    # a PrintOrientation poses exactly like the bare form it carries
+    from .orientation import PrintOrientation as _PO
+    for _rot in (None, "flip", ((1.0, 0.0, 0.0), -90.0)):
+        a = _bb(print_pose(_box(), _rot))
+        b = _bb(print_pose(_box(), _PO(_rot, "self-test")))
+        assert (abs(a.zlen - b.zlen) < 1e-9 and abs(a.xlen - b.xlen) < 1e-9
+                and abs(a.ylen - b.ylen) < 1e-9), _rot
+
+    # export_print refuses an undeclared bed face, in every bare form
+    import tempfile, os
+    _d = tempfile.mkdtemp()
+    for _bad in (None, "flip", ((1.0, 0.0, 0.0), -90.0)):
+        try:
+            export_print(_box(), _bad, os.path.join(_d, "x.step"))
+        except TypeError as e:
+            assert "PrintOrientation" in str(e)
+        else:
+            raise AssertionError("export_print accepted %r" % (_bad,))
+    _f = os.path.join(_d, "nub.step")
+    export_print(_box(), _PO("flip", "self-test"), _f)
+    assert "nub" in pathlib.Path(_f).read_text(errors="replace")
 
     print("cadkit.step_export self-test OK")
