@@ -1277,11 +1277,20 @@
   // from the machine that built the model, and only if that machine has the renderer:
   // a published page does not offer it. It traces what is SHOWN, not a section cut:
   // with a cut on, the page stays with the drawn picture.
-  // TWO PICTURES A VIEW: a quick one of few samples, denoised, which is nearly the
-  // finished thing and is there in a third of a second, then the full one over it.
-  const RT_FIRST = 24, RT_SAMPLES = 128;
+  // TWO PICTURES A VIEW: a quick one, few samples at two thirds of the size, denoised,
+  // which is nearly the finished thing and is there in a quarter of a second; then the
+  // full one over it. (A view crowded with small parts costs several times an open one
+  // per sample: every ray there bounces.)
+  //
+  // WHILE A PICTURE IS BEING TRACED THE PAGE STOPS DRAWING. The drawn picture is already
+  // on screen and nothing in it is changing; redrawing it hundreds of times a second
+  // takes the very card the tracer is waiting for, and doubled the wait.
+  const RT_FIRST = 12, RT_FIRST_SCALE = 2 / 3, RT_SAMPLES = 96;
+  let woke = 3;                                    // frames still owed to something the user did
+  for (const ev of ['pointermove', 'pointerdown', 'pointerup', 'wheel', 'keydown', 'keyup', 'resize'])
+    addEventListener(ev, () => { woke = 3; }, { capture: true, passive: true });
   const rt = { ok: null, cam: new THREE.Matrix4(), size: '', want: 0, shown: false,
-               asking: 0, ms: 0, n: 0, quad: null, error: '', prev: new THREE.Matrix4(), goal: null, asked: -1, far: 1 };
+               asking: 0, ms: 0, n: 0, quad: null, error: '', prev: new THREE.Matrix4(), goal: null, asked: -1, far: 1, idle: false, rest: 0, fresh: 0 };
   async function rtLoad() {                        // is there a tracer behind this page?
     if (rt.ok !== null) return;
     const r = await fetchJSON('trace.json?t=' + Date.now());
@@ -1289,7 +1298,8 @@
   }
   function rtDrop() { rt.want++; rt.shown = false; rt.goal = null; }
   async function rtAsk(samples = RT_FIRST) {
-    const want = rt.want, pr = renderer.getPixelRatio(), poses = {};
+    const want = rt.want, poses = {};
+    const pr = renderer.getPixelRatio() * (samples < RT_SAMPLES ? RT_FIRST_SCALE : 1);
     for (const n in nodes) poses[n] = nodes[n].matrixWorld.toArray();
     const view = { w: Math.round(innerWidth * pr), h: Math.round(innerHeight * pr), samples,
                    cam: rt.cam.toArray(), fov: camera.fov, near: camera.near, far: camera.far,
@@ -1313,7 +1323,7 @@
           m.map.colorSpace = THREE.SRGBColorSpace; m.map.generateMipmaps = false;
           m.map.minFilter = m.map.magFilter = THREE.LinearFilter;
           m.map.needsUpdate = true; m.needsUpdate = true;
-          rt.shown = true; rt.ms = performance.now() - t0; rt.n = samples; rt.error = '';
+          rt.shown = true; rt.ms = performance.now() - t0; rt.n = samples; rt.error = ''; rt.fresh = 3;
           if (samples < RT_SAMPLES) rtAsk(RT_SAMPLES);
         }
       } else if (r.status !== 204) { rt.error = r.statusText || 'failed'; console.warn('ray tracing:', rt.error); }
@@ -1369,17 +1379,25 @@
   }
   // true when this frame shows the traced picture (so the drawn one must NOT be drawn over it)
   function rtFrame(changed) {
+    rt.idle = false;
     if (quality !== 3 || !rt.ok || sec.on || !M.parts) return false;
     const pose = rtPose(), size = innerWidth + 'x' + innerHeight;
     if (changed || !pose || size !== rt.size || !rtSame(pose, rt.cam)) {
       const was = rt.shown;
-      rt.shown = false; rt.want++; rt.size = size;
+      rt.shown = false; rt.want++; rt.size = size; rt.rest = 0;
       if (pose) rt.cam.copy(pose); else rt.cam.identity();
       if (was) fpsLine();
     }
     // asked for as soon as there is a pose and nothing else is changing (the rig eases)
     if (pose && !changed && rt.asked !== rt.want) { rt.asked = rt.want; rtAsk(); }
-    if (!rt.shown || rt.goal || !rtSame(camera.matrixWorld, rt.cam)) return false;
+    const quiet = !changed && woke <= 0;
+    if (!rt.shown || rt.goal || !rtSame(camera.matrixWorld, rt.cam)) {
+      // at rest, the drawn picture up, a traced one on its way: leave the card to it
+      rt.idle = quiet && !rt.goal && !!pose && rt.asking > 0 && ++rt.rest > 3;
+      return false;
+    }
+    if (quiet && rt.fresh <= 0) return true;                 // it is on screen already
+    rt.fresh--;
     rt.quad.render(renderer);
     rtOverlays();
     return true;
@@ -1427,7 +1445,8 @@
       lastSig = sig; lightDirty = false;
     }
     traced = rtFrame(changed);
-    if (traced) return;
+    if (woke > 0) woke--;
+    if (traced || rt.idle) return;
     if (quality >= 2) composer.render(); else renderer.render(scene, camera);
   }
   // called once a second with the measured rate
