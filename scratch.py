@@ -256,10 +256,14 @@ class ScratchView:
         list of prefixes kept by hand, which is why name identity does not rely on it.
         """
         if self._live_memo is None:
+            t0 = time.time()
             parts = list(self.live())
             if self.pose:
                 parts = [(n, self.pose(n, w)) for n, w in parts]
             self._live_memo = parts
+            # SAY WHAT THE SCOPE COSTS: this is the whole price of an iteration, and it
+            # is mostly whatever the scope's module IMPORTS, not the part itself
+            print("live set: %d part(s) imported and built in %.0f s" % (len(parts), time.time() - t0))
         return self._live_memo
 
     # ── your own cache ──────────────────────────────────────────────────────

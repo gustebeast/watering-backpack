@@ -67,6 +67,8 @@ Two layers of reusable capability back a cadkit project:
   - `cadkit.fasteners` — shared M2/M4 hole/insert dims · `cadkit.cq_colors` — baked STEP colours
   - `cadkit.web` — the assembly viewer, a web page (`from cadkit.web import show`): select / hide /
     isolate, section, measure, shadows; real part models on circuit boards; publishable as a site
+  - `cadkit.lazy` — `name = lazy(_build)`: a module's solids built on FIRST USE, so a module
+    that imports another for a dimension does not wait for its parts
   - `cadkit.scratch` — the fast per-part iteration loop: cache the surroundings,
     rebuild only the part under work, and (`--gate`) run the project's own gates over
     that cache instead of a full rebuild; `cadkit.agents` — who owns which portion
