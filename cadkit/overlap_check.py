@@ -256,6 +256,21 @@ def _scan(components, jobs, min_vol=None, cache=None):
     bboxes = [s.BoundingBox() for s in shapes]
     cands = _candidate_pairs(bboxes)
     eps = VOL_EPS if min_vol is None else min_vol
+    # A part with no SOLID in it (board lettering is bare faces) has no volume to share
+    # with anything: its pairs are zero by definition, so they are neither computed nor
+    # cached. They were never REUSED either -- glyph faces do not come out byte-identical
+    # from one build to the next, so every pair touching lettering was re-booleaned on
+    # every run (measured: 21 lettering parts of 827, a few hundred pairs a build).
+    hollow = {i for i, s in enumerate(shapes) if not s.Solids()}
+    if hollow:
+        n_all = len(cands)
+        cands = [(i, j) for i, j in cands if i not in hollow and j not in hollow]
+        print(f"  {n_all - len(cands)} pair(s) not scanned: {len(hollow)} part(s) are "
+              f"faces only, with no volume to overlap")
+        # NAMED, because this is also what a part that LOST its solid looks like (a
+        # boolean that returned a shell): such a part leaves the gate without a word
+        # unless the list is read. Anything here that is not lettering is a fault.
+        print("    faces only: " + ", ".join(sorted(names[i] for i in hollow)))
 
     known, keys, todo = {}, {}, cands
     if cache:
