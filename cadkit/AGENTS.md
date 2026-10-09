@@ -216,6 +216,12 @@ from the project folder instead.)
   the bed face decides which faces are overhangs, which slots bridge, and which
   way every joint on it prints — so a wrong guess silently invalidates the
   overhang gate and the joinery for the whole part.
+  `cadkit.tools.suggest_orientation` is where a `confirmed=False` entry
+  should come from — it measures all six axis-aligned bed faces (unsupported
+  area, footprint, aspect) and ranks them, so a migrated project gets a
+  MEASUREMENT rather than a coin flip. It still cannot know which faces must
+  be cosmetic, which way the part is loaded (layer adhesion is the weak axis),
+  or what mates with what — which is precisely why its output is unconfirmed.
 - **Name every product to match its filename.** A bare
   `cq.exporters.export(part, "housing.step")` names the STEP product *"Open
   CASCADE STEP translator 7.8 …"*, which is what Bambu/FreeCAD then display. Use
