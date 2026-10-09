@@ -93,6 +93,8 @@ import json
 
 import cadquery as cq
 
+from cadkit.orientation import PrintOrientation as PO
+
 from cadkit.board_geom import Boards
 from cadkit.fasteners import M4, ScrewJoint
 
@@ -305,7 +307,7 @@ PCB_Z_C = 74.75
 # evenly: 0.45 mm over the wire slot and 0.85 under the boss. Nothing was traded
 # away for the border: the two jobs it had are both
 # somewhere else now. The lid pillars it was originally sized for are gone, and
-# the board's Z retention is the rib on the LID (see PRINT_ROT), not a feature of
+# the board's Z retention is the rib on the LID (see PRINT_ORIENTATION), not a feature of
 # this border at all -- the comment above still says "lives in it" and was
 # already out of date when it was written.
 #
@@ -458,7 +460,7 @@ assert Y_PCB0 < CHASE_Y0 and CHASE_Y1 < Y_PCB1, (
 #               other. Drill outside that and the slot is blind against a post.
 # The slot sits inside all three with margin and the asserts below hold it there.
 #
-# It needs no overhang relief: the housing builds -X (PRINT_ROT), so a hole
+# It needs no overhang relief: the housing builds -X (PRINT_ORIENTATION), so a hole
 # bored through the plate along X is a VERTICAL hole with no ceiling anywhere
 # in it.
 WIRE_SLOT_Y_C = 147.0
@@ -1153,7 +1155,7 @@ LID_WIN_MARGIN = 1.5
 # flat-head wood screw down -- and steps to a countersink at the far end, where
 # the head seats against the plate. A long bit reaches it through the same hole.
 #
-# THE RAMP IS GONE ENTIRELY, not relocated. The lid builds +X (see PRINT_ROT),
+# THE RAMP IS GONE ENTIRELY, not relocated. The lid builds +X (see PRINT_ORIENTATION),
 # so the boss rises off the lid plate as a vertical wall and needs no ramp
 # where the plate is under it -- and the plate is simply carried up to the
 # boss's top in that one Y band to make sure it is. 509 mm3 of plate, against
@@ -1175,7 +1177,7 @@ LID_CSK_T   = 5 * BEAD                        # 4.0 -- material the countersink
                                               # 3.25 deep, so this is the first
                                               # whole number of beads that holds
                                               # it.
-LID_UP      = (1.0, 0.0, 0.0)                 # build direction (see PRINT_ROT)
+LID_UP      = (1.0, 0.0, 0.0)                 # build direction (see PRINT_ORIENTATION)
 assert LID_BORE_D >= WOOD_HEAD_D + 1.0, (
     "a %.1f mm screw head needs more than %.1f mm of bore to be posted through "
     "it, not just to fit" % (WOOD_HEAD_D, LID_BORE_D))
@@ -1252,25 +1254,44 @@ def lid() -> cq.Workplane:
             .cut(_lid_screw_path()))
 
 
-PRINT_ROT = {
-    # Stand on the back face (the one against the wood) and build OUTBOARD.
-    # +90, not -90: rotating about +Y by +90 maps x -> -z, so the back face at
-    # the LEAST negative x ends up lowest. At -90 it is the lid side that lands
-    # on the plate and the whole part prints upside down, cantilevered on its
-    # bay walls.
-    "v2_housing": ((0, 1, 0), 90),
-    # The LID goes the other way: -90 maps world +X to build UP, so the plate
-    # lands face-down on the bed and the retention rib rises off it as a
-    # vertical wall. At +90 (what it inherited while it was a plain plate) the
-    # rib prints first and the whole 105 x 128 plate cantilevers off its top.
-    "v2_housing_lid": ((0, 1, 0), -90),
+# ── PRINT ORIENTATION — the bed face of each part defined here, as cadkit
+# requires (cadkit/AGENTS.md). Export, the overhang gate and any joinery all
+# read THIS, so they cannot disagree about which way a part builds.
+PRINT_ORIENTATION = {
+    "v2_housing": PO(
+        ((0, 1, 0), 90),
+        "stands on the back face (the one against the wood) and builds "
+        "OUTBOARD. +90, not -90: rotating about +Y by +90 maps x -> -z, so "
+        "the back face at the LEAST negative x ends up lowest. At -90 it is "
+        "the lid side that lands on the plate and the whole part prints "
+        "upside down, cantilevered on its bay walls"),
+    "v2_housing_lid": PO(
+        ((0, 1, 0), -90),
+        "the LID goes the other way: -90 maps world +X to build UP, so the "
+        "plate lands face-down on the bed and the retention rib rises off it "
+        "as a vertical wall. At +90 (what it inherited while it was a plain "
+        "plate) the rib prints first and the whole 105 x 128 plate "
+        "cantilevers off its top"),
 }
+
+# The build directions were ALREADY written down a second way — as prose in
+# the comments above ("builds OUTBOARD", "builds UP") and as the LID_UP vector
+# used by the geometry itself. PrintOrientation.build_dir derives the vector
+# from the rotation, so the two statements can now be CHECKED against each
+# other instead of trusted to agree. That is the whole point of the contract:
+# a part's build direction is one fact, and every independent copy of it is a
+# chance to drift.
+def _axis(v):
+    return tuple(round(c, 9) for c in v)
+
+assert _axis(PRINT_ORIENTATION["v2_housing"].build_dir) == (-1.0, 0.0, 0.0),     "the housing is documented as building -X (outboard, off the back face)"
+assert _axis(PRINT_ORIENTATION["v2_housing_lid"].build_dir) == LID_UP,     "the lid's rotation must build along LID_UP, the vector its geometry uses"
 
 
 def _build() -> None:
     from cadkit.cq_colors import color
     from cadkit.freecad import show
-    from cadkit.step_export import export_step, print_pose
+    from cadkit.step_export import export_print
     from . import plumbing as P
     asm = cq.Assembly()
     for i, (nm, _L, solid) in enumerate(L.pieces()):
@@ -1287,8 +1308,8 @@ def _build() -> None:
         tint = "#b03030" if name.startswith("tank") else "#30a050"
         asm.add(P.run(pts), name=name, color=color(tint, alpha=0.85))
     for nm, part in (("v2_housing", housing()), ("v2_housing_lid", lid())):
-        posed = print_pose(part, PRINT_ROT[nm])
-        export_step(posed, str(F.OUT / (nm + ".step")))
+        export_print(part, PRINT_ORIENTATION[nm],
+                     str(F.OUT / (nm + ".step")))
         bb = posed.val().BoundingBox()
         print("%-16s print pose %6.1f x %6.1f x %6.1f mm  (bed 255)"
               % (nm, bb.xlen, bb.ylen, bb.zlen))

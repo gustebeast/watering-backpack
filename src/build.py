@@ -33,7 +33,9 @@ import cadquery as cq
 
 from cadkit.cq_colors import color
 from cadkit.freecad import show
-from cadkit.step_export import export_step, print_pose
+from cadkit.step_export import export_step, export_print, print_pose
+from cadkit.orientation import (PrintOrientation as PO,
+                                require_declared, unconfirmed)
 
 from . import housing as H
 from . import lumber_frame as L
@@ -103,10 +105,35 @@ def battery_sweep():
     return travel, sweep
 
 
+# ── PRINT ORIENTATION — every printed part's bed face, in ONE table, as
+# cadkit requires (cadkit/AGENTS.md). The housing pair declare themselves in
+# housing.py, beside the geometry whose shape depends on their build
+# direction; the other two declare here. All four were already documented in
+# prose — this puts the claim where export and the overhang gate read it.
+PRINT_ORIENTATION = dict(H.PRINT_ORIENTATION)
+PRINT_ORIENTATION.update({
+    "joystick_mount": PO(
+        None,
+        "exactly as modelled — Z up, clamp mouth on the bed "
+        "(joystick_mount.py). Built to print support-free: the hose grip is "
+        "a ~270 deg arc open at the bottom mouth, so there is no round "
+        "bore-ceiling and the plate just BRIDGES the ~12 mm opening; the "
+        "plate edges ride 45 deg gussets whose inner foot lands on the "
+        "grip's outer face, so the underside is carried continuously; and "
+        "two flat-bottomed screw ears flank the mouth as the print base"),
+    "dual_clamp_19": PO(
+        None,
+        "as modelled, no supports (dual_clamp.py) — the pole grip is a "
+        "vertical extrusion, and the hose grip's bore is horizontal with its "
+        "mouth DOWN so only its crown is a short, bridgeable overhang"),
+})
+
+
 def printed_parts():
-    return (("v2_housing", H.housing(), H.PRINT_ROT["v2_housing"]),
-            ("v2_housing_lid", H.lid(), H.PRINT_ROT["v2_housing_lid"]),
-            ("joystick_mount", joystick_mount, None),
+    return (("v2_housing", H.housing(), PRINT_ORIENTATION["v2_housing"]),
+            ("v2_housing_lid", H.lid(), PRINT_ORIENTATION["v2_housing_lid"]),
+            ("joystick_mount", joystick_mount,
+             PRINT_ORIENTATION["joystick_mount"]),
             # dual_clamp_23 retired: it gripped a 23 mm VALVE body and
             # DESIGN_V2 section 1 has no reversing valve. See src/dual_clamp.py.
             # line_filter_screen retired 2026-10-05: the owner decided the
@@ -114,7 +141,8 @@ def printed_parts():
             # two tees, not a printed screen -- see DESIGN_V2 section 4 and
             # WORK_V2_PUNCHLIST findings 13/13a. src/line_filter.py and the
             # test_screen_slice coupon went with it; git has them.
-            ("dual_clamp_19", dual_clamp_19, None))
+            ("dual_clamp_19", dual_clamp_19,
+             PRINT_ORIENTATION["dual_clamp_19"]))
 
 
 def components():
@@ -190,9 +218,18 @@ def main() -> int:
 
     print("=== printed parts ===")
     oversize = 0
-    for name, part, rot in printed_parts():
-        posed = print_pose(part, rot)
-        export_step(posed, str(OUT / (name + ".step")))
+    require_declared({n for n, _p, _o in printed_parts()}, PRINT_ORIENTATION)
+    # 🚩 an UNCONFIRMED bed face is a guess nobody has checked — and the bed
+    # face decides which faces are overhangs, so work done on top of a guess
+    # can be silently wrong. Say so on every build (cadkit AGENTS.md).
+    flagged = unconfirmed(PRINT_ORIENTATION)
+    if flagged:
+        print("UNCONFIRMED print orientation (confirm with the user BEFORE "
+              "working on these parts): " + ", ".join(flagged), flush=True)
+
+    for name, part, orient in printed_parts():
+        export_print(part, orient, str(OUT / (name + ".step")))
+        posed = print_pose(part, orient)
         bb = posed.val().BoundingBox()
         fits = max(bb.xlen, bb.ylen, bb.zlen) <= BED
         oversize += 0 if fits else 1
