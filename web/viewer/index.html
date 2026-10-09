@@ -434,7 +434,7 @@
       matCache.set(key, new THREE.MeshStandardMaterial({
         color: c.clone(), metalness: metal, roughness: rough, side: THREE.DoubleSide, clipShadows: true,
         envMapIntensity: metal ? 1.0 : finish ? 0.6 : ENV,
-        transparent: a < 0.999, opacity: a }));
+        transparent: a < 0.999, opacity: a, depthWrite: a >= 0.999 }));
     return matCache.get(key);
   }
   // a board's real components are meshes of their own, named <board part>__<ref>, but a
@@ -463,14 +463,19 @@
   // filament in that filament's colour AND finish. Glass-filled PETG is matte (the
   // fibre breaks up the surface, so it barely reflects); PCTG is a glossy plastic and
   // picks up the room; TPU is dull rubber. Bought parts keep their colours.
+  // A FILAMENT NAMED ...-clear IS SEEN THROUGH, in the build's colours as well as as
+  // printed: a clear part drawn solid hides what the real one shows (the deck's base is
+  // clear so the fret lights shine up through it).
+  const CLEAR = 0.38;
   const PRINT = {
     'petg-gf': new THREE.MeshStandardMaterial({ color: 0x17181a, metalness: 0, roughness: 0.92,
       side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.25 }),
     'pctg': new THREE.MeshStandardMaterial({ color: 0x14401f, metalness: 0, roughness: 0.22,
       side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0 }),
-    // the deck's second colour (its fret lines and markers): not chosen yet, so a pale one
-    'pctg-alt': new THREE.MeshStandardMaterial({ color: 0xd9d6c8, metalness: 0, roughness: 0.22,
-      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0 }),
+    // clear PCTG: you see through it, a little milky (see CLEAR)
+    'pctg-clear': new THREE.MeshStandardMaterial({ color: 0xe9eef2, metalness: 0, roughness: 0.18,
+      side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 1.0,
+      transparent: true, opacity: CLEAR, depthWrite: false }),
     'tpu': new THREE.MeshStandardMaterial({ color: 0x101011, metalness: 0, roughness: 1.0,
       side: THREE.DoubleSide, clipShadows: true, envMapIntensity: 0.15 }),
   };
@@ -492,7 +497,9 @@
       if (!mesh.isMesh) continue;
       const g = mesh.geometry, col = g.attributes.color ? g.attributes.color.array : null;
       const printed = asPrinted && !col && PRINT[mesh.userData.mat];
-      const mat = col ? vcMat : printed || partMaterial(mesh.material, FINISH[mesh.userData.mat]);
+      const clear = /-clear$/.test(mesh.userData.mat || '');
+      const mat = col ? vcMat : printed || partMaterial(
+        clear ? { color: mesh.material.color, opacity: CLEAR } : mesh.material, FINISH[mesh.userData.mat]);
       const unit = mesh.userData.unit || unitOf(mesh.name);      // a board's lettering names its board
       const p = { name: mesh.name, unit, family: family(unit), mat, hidden: false, col,
                   pos: g.attributes.position.array, idx: g.index.array,
@@ -505,7 +512,7 @@
         g.computeVertexNormals();
         g.computeBoundsTree({ indirect: true });
         mesh.material = mat; mesh.userData.part = p;
-        mesh.castShadow = mesh.receiveShadow = true;
+        mesh.castShadow = !mat.transparent; mesh.receiveShadow = true;
         p.mesh = mesh; nodes[p.name] = mesh;
         M.pickables.push(mesh);
       } else {
@@ -538,7 +545,7 @@
       drawGeo.setIndex(new THREE.BufferAttribute(full.slice(), 1));
       drawGeo.boundingSphere = null; drawGeo.computeBoundingSphere();
       const draw = new THREE.Mesh(drawGeo, mat);
-      draw.castShadow = draw.receiveShadow = true;
+      draw.castShadow = !mat.transparent; draw.receiveShadow = true;    // light goes through a clear part
       const pick = new THREE.Mesh(pickGeo, mat);
       pick.visible = false;                     // raycast only: the ray does not test visibility
       const b = { mat, parts: ps, full, draw, pick, drawGeo, pickGeo,
