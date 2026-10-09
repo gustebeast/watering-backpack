@@ -12,14 +12,25 @@ declaration those projects get is a MEASUREMENT rather than a coin flip.
 
 WHAT IT MEASURES, per candidate, in that candidate's posed frame:
 
-  overhang area   downward faces steeper than 45 deg off horizontal whose
-                  bridge span (2*area/perimeter) exceeds one bead — the
-                  project rule the overhang gate enforces. Weighted
-                  heaviest: it is the thing that actually fails a print.
-  bed area        footprint at z=0. More is better — adhesion, and it is
-                  what stops a part walking off the plate.
+  overhang area   downward-facing material steeper than 45 deg off
+                  horizontal. Weighted heaviest: it is the thing that
+                  actually fails a print.
+  bed area        footprint on the plate. More is better — adhesion, and it
+                  is what stops a part walking off.
   aspect          height / min(footprint width) — the tipping/wobble risk
                   that made a TPU pin print as a 5.9:1 tower (#1070).
+
+IT TESSELLATES rather than reading face normals. A `normalAt()` with no
+argument samples ONE point, which is meaningless on a curved face: the first
+version of this tool read each half of a spherical cat-nip ball as a single
+flat face with one normal and reported a sphere as having NO overhangs. Every
+measurement here is therefore per-triangle.
+
+It also does NOT apply the overhang gate's bridge-span filter (a span over one
+bead). That filter decides whether ONE orientation passes; this tool RANKS
+six, so counting every unsupported triangle is both symmetric across the
+candidates and the more conservative way round. Run the project's own overhang
+gate on the orientation you settle on — that is the thing with authority.
 
 WHAT IT CANNOT KNOW, which is exactly why what it produces is
 `confirmed=False`: which faces must be cosmetic, which direction the part is
@@ -55,9 +66,24 @@ ANGLE_LIMIT = 46.0      # deg off horizontal — the self-supporting limit
                         # the gate's own tolerance is used here too)
 
 
-def _span(face):
-    per = sum(e.Length() for e in face.Edges())
-    return 2.0 * face.Area() / per if per > 1e-9 else 0.0
+TESS_TOL = 0.1          # mm — tessellation chord tolerance
+BED_TOL = 0.2           # mm — a triangle this close to z=0 is ON the plate
+
+
+def _triangles(shape, tol=TESS_TOL):
+    """(unit normal z, area, min z, max z) per tessellated triangle.
+
+    Per-triangle, NOT per-face: one `normalAt()` on a sphere or cylinder
+    describes a single point of it and nothing else (see the docstring).
+    """
+    verts, tris = shape.tessellate(tol)
+    for ia, ib, ic in tris:
+        a, b, c = verts[ia], verts[ib], verts[ic]
+        n = (b - a).cross(c - a)
+        twice = n.Length
+        if twice < 1e-12:                   # degenerate sliver
+            continue
+        yield n.z / twice, twice / 2.0, min(a.z, b.z, c.z), max(a.z, b.z, c.z)
 
 
 def measure(part, rot, nozzle=0.8):
@@ -66,22 +92,15 @@ def measure(part, rot, nozzle=0.8):
     bb = posed.val().BoundingBox()
     z_bed = bb.zmin
     over = bed = 0.0
-    for f in posed.val().Faces():
-        try:
-            n = f.normalAt()
-        except Exception:                                   # noqa: BLE001
-            continue
-        nz = n.z
-        # a face sitting ON the bed is the footprint, not an overhang
-        fb = f.BoundingBox()
-        if nz < -0.999 and abs(fb.zmax - z_bed) < 1e-6:
-            bed += f.Area()
+    for nz, area, zmin, zmax in _triangles(posed.val()):
+        if nz < -0.999 and zmax - z_bed < BED_TOL:
+            bed += area                      # footprint, not an overhang
             continue
         if nz >= 0.0:
             continue
         angle = math.degrees(math.acos(min(1.0, -nz)))       # off horizontal
-        if angle < ANGLE_LIMIT and _span(f) > nozzle:
-            over += f.Area()
+        if angle < ANGLE_LIMIT:
+            over += area
     foot = min(bb.xlen, bb.ylen)
     aspect = bb.zlen / foot if foot > 1e-9 else float("inf")
     return over, bed, aspect, bb.zlen
@@ -148,14 +167,28 @@ if __name__ == "__main__":
     part = shelf.union(cq.Workplane("XY").workplane(offset=10.0)
                        .center(12.0, 0.0).rect(10.0, 16.0).extrude(4.0))
     rows = suggest(part)
-    # the OVERHANG must be measured, and measured right: printed as modelled
+    # the OVERHANG must be measured, and measured right: printed as modelled,
     # the raised 10x16 block is unsupported except where the 4-wide shelf
-    # passes under it, so 160 - 40 = 120 mm2.
+    # passes under it -> 160 - 40 = 120 mm2.
     as_modelled = [r for r in rows if r[1] is None][0]
     assert abs(as_modelled[3] - 120.0) < 1e-6, as_modelled
     # 'flip' buries the whole shelf+block underside: it must be the worst
     assert rows[-1][1] == "flip", rows[-1]
     assert rows[0][0] < rows[-1][0]
+
+    # A SPHERE HAS NO GOOD SIDE, and every orientation must say so. The
+    # face-normal version of this tool reported a ball as overhang-FREE,
+    # because one normalAt() on a sphere is one point of it (cat-nip ball).
+    ball = cq.Workplane("XY").sphere(10.0)
+    brows = suggest(ball)
+    # the unsupported region is the cap within ANGLE_LIMIT of straight down:
+    # 2*pi*R^2*(1-cos46) = 191.8 mm2. Checked against the closed form, since
+    # a number that merely looks plausible is how the sphere bug survived.
+    want = 2.0 * math.pi * 100.0 * (1.0 - math.cos(math.radians(ANGLE_LIMIT)))
+    for r in brows:
+        assert abs(r[3] - want) / want < 0.02,             "sphere cap: got %.2f, want %.2f, for %r" % (r[3], want, r[1])
+    spread = max(r[3] for r in brows) - min(r[3] for r in brows)
+    assert spread / want < 0.01,         "a sphere is isotropic; %.2f mm2 of spread is more than meshing" % spread
 
     # ASPECT, in isolation — a plain slab has no overhang in ANY orientation,
     # so nothing but tipping risk can decide, and standing it on end must lose.
