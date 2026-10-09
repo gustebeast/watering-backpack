@@ -3131,3 +3131,84 @@ clearance and re-take the sentence in the BOM; the gate then proves it.
 
 ⚠ **This is a CAD/woodwork finding and touches no copper, no firmware and no
 fab output.** The board in the cart is unaffected.
+
+
+### 57 — CLOSED: the board was plotted in Rennie Mackintosh and drawn in the CAD's default face, and 139 / 139 said it was fine
+
+The owner looked at the FreeCAD tab and said the CAD still showed the old
+font. It did.
+
+Finding 52 moved the silkscreen to **Rennie Mackintosh PSG**. That changed
+what the FAB plots. `cadkit/board_geom.py` takes a separate `silk_font` path
+for what the **CAD draws**, and nothing in this project ever passed it —
+`grep silk_font src/ elec/` returned only cadkit's own definitions. So the
+board was plotted in one face and drawn in another from finding 52 until now.
+
+**EVERY GATE PASSED THE WHOLE TIME, AND ONE OF THEM IS ABOUT EXACTLY THIS.**
+`elec/cad_geom_check.py` exists to prove the CAD draws the board that was
+routed, and its lettering hook was written because *"a part the assembly
+merely adds is a picture"*. It reported `lettering: 139 / 139` on every build.
+It counts labels by probing for **ink at each label's printed position** — and
+a label in the wrong typeface is still a label with ink in it. board_geom's
+own docstring had already said the quiet part: the lettering *"is only as true
+as the font is the one the fab's ink was plotted in."* Nobody read the face,
+so the face was free to be wrong.
+
+**Fixed in `src/silk_face.py`, and the face is NOT declared twice.** It is
+parsed out of `elec/silk.py`'s `SILK_FACE` with `ast` — that file cannot be
+imported under CPython, because it imports `cadkit.kicad_silk`, which imports
+`pcbnew`. `silk_cap` is **measured through the drawing kernel** rather than
+typed or read from OS/2: a rendered "H" at size 10 gives **0.6670**, against
+cadkit's 0.72 default. 0.72 is near the kernel default face's own 0.7158 and
+**7.9 % wrong for this one**, so passing the font without the ratio would have
+traded one wrong drawing for another. The drawn ink moved 345 → 359 faces and
+212.14 → 176.29 mm².
+
+**`tools/check_silk_face.py`, six checks, and two of them were WRONG FIRST.**
+Both deserve recording, because both were the same mistake the finding is
+about — a check that passes for the wrong reason:
+
+* **"Is `+` drawn as a plus or as the TH ligature?"** ITC's original Rennie
+  Mackintosh draws `+` as **TH** and `=` as **TT**, and both files carry the
+  same family name, so resolving the family proves nothing about which is
+  installed — "+5V" has plotted as "TH5V" on real boards with every check
+  passing. The first draft asked whether `+` stands cap-height, on the theory
+  that a ligature is a letterform and a plus sign is not. **Measured across all
+  135 installed faces, Courier Bold's perfectly plain `+` is 0.960 of cap
+  height** and Verdana Bold 0.889. The question separates nothing. Replaced
+  with the proof `elec/silk.py` already carries and already declares — the
+  **advance ratio** `+/H`, 0.9657 measured against the declared 0.97, where
+  ITC's file reads 1.42. A 46 % gap, not an overlap, and the expected number is
+  read from `SILK_FACE` rather than typed here.
+* **"Does every character the board prints draw ink?"** It does — always.
+  **OCC silently substitutes another font for a glyph the face lacks**: the PSG
+  face has no CJK and `cq.text("中", fontPath=PSG)` returns 33 faces, 9.18 mm
+  tall at size 10 against this face's 6.67 mm cap. The old check was satisfied
+  by precisely the failure it was looking for, and the substitution is finding
+  57 over again, per-character. Replaced with the font's **cmap**, which is
+  exact and does not go through the renderer.
+
+**Made to fail: `tools/check_silk_face_failures.py`, seven staged breaks, all
+seven caught**, each restored from a byte copy in a `finally`. The harness also
+found a hole in the gate: check 5 read `H._SILK_CAP`, the value the module
+*computed*, so hardcoding `silk_cap=0.72` in the `Boards(...)` call left that
+variable at the measured 0.6670 and the check passed while the drawing was
+7.9 % wrong. It reads `H._BOARDS.silk_cap` now — the object the lettering is
+actually drawn from. Case 7 stages the nastiest one, the kernel ignoring
+`fontPath` altogether, by declaring the family as "Arial": the cap ratio then
+reads 0.7158 both ways, which also identifies the kernel default face.
+
+⚠ **RESIDUAL, NAMED: the geom carries no record of the face.**
+`elec/geom/main.geom.json` has `text / side / x / y / size / angle / box` for
+all 139 labels and nothing about the typeface, so the CAD cannot read what was
+actually plotted — it reads what `elec/silk.py` *declares*, which is one
+declaration but still not the same question. It matters in one real case: if
+the .otf is not installed, the fab side falls back to KiCad's stroke font and
+says so, and the CAD would go on drawing Rennie Mackintosh and disagree with
+the board in the opposite direction. The fix is upstream — `cadkit/kicad_geom.py`
+recording the face it plotted — and is **not done here**, because it is a
+cadkit change that re-propagates to 11 consumers. `check_silk_face.py` failing
+when the face does not resolve is the stopgap.
+
+⚠ **NO COPPER, NO GERBERS, NO FIRMWARE.** This is the drawing. The board in
+the cart is unaffected and the plotted silkscreen was always correct.
