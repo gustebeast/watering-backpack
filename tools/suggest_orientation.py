@@ -15,8 +15,13 @@ WHAT IT MEASURES, per candidate, in that candidate's posed frame:
   overhang area   downward-facing material steeper than 45 deg off
                   horizontal. Weighted heaviest: it is the thing that
                   actually fails a print.
-  bed area        footprint on the plate. More is better — adhesion, and it
-                  is what stops a part walking off.
+  bed area        footprint on the plate. A candidate with essentially NO
+                  footprint is DISQUALIFIED, not merely penalised: a part
+                  touching the plate over a bead or two cannot print at all.
+                  That case is not hypothetical — a sphere laid on its side
+                  measures the LEAST overhang area of any orientation while
+                  touching the plate at a point, so cost alone ranked an
+                  unprintable candidate first (cat-nip ball).
   aspect          height / min(footprint width) — the tipping/wobble risk
                   that made a TPU pin print as a 5.9:1 tower (#1070).
 
@@ -64,6 +69,9 @@ CANDIDATES = (
 ANGLE_LIMIT = 46.0      # deg off horizontal — the self-supporting limit
                         # (46 not 45: an exactly-45 face is designed-to, so
                         # the gate's own tolerance is used here too)
+BED_MIN_BEADS = 4.0     # a footprint under this many bead-squares is no
+                        # footprint: there is nothing for a first layer to be
+NO_FOOTPRINT = 1.0e4    # cost for that — a disqualification, not a penalty
 
 
 TESS_TOL = 0.1          # mm — tessellation chord tolerance
@@ -115,9 +123,13 @@ def suggest(part, nozzle=0.8):
     with — that is the point of printing them.
     """
     rows = []
+    bed_min = BED_MIN_BEADS * nozzle * nozzle
     for rot, why in CANDIDATES:
         over, bed, aspect, h = measure(part, rot, nozzle)
         cost = over * 10.0 + max(0.0, aspect - 2.0) ** 2 * 5.0 - bed * 0.05
+        if bed < bed_min:
+            cost += NO_FOOTPRINT
+            why += " [NO FOOTPRINT: %.2f mm2 on the plate]" % bed
         rows.append((cost, rot, why, over, bed, aspect))
     rows.sort(key=lambda r: r[0])
     return rows
@@ -189,6 +201,26 @@ if __name__ == "__main__":
         assert abs(r[3] - want) / want < 0.02,             "sphere cap: got %.2f, want %.2f, for %r" % (r[3], want, r[1])
     spread = max(r[3] for r in brows) - min(r[3] for r in brows)
     assert spread / want < 0.01,         "a sphere is isotropic; %.2f mm2 of spread is more than meshing" % spread
+    # and a bare ball touches the plate at a POINT in every orientation, so
+    # every candidate must be disqualified rather than one of them winning
+    assert all(r[0] > NO_FOOTPRINT for r in brows),         "a ball has no footprint in any orientation; none should look fine"
+
+    # A DOME ON A FLAT RIM must print rim-down, and the thing that says so is
+    # the FOOTPRINT: on its side it balances on a point. This is what the
+    # cat-nip ball's hollow threaded halves exposed — there, laid on its side
+    # measured the LEAST unsupported area of all six candidates, so cost
+    # without a footprint rule ranked an unprintable orientation first.
+    dome = (cq.Workplane("XY").sphere(15.0)
+            .intersect(cq.Workplane("XY").box(40.0, 40.0, 15.0,
+                                              centered=(True, True, False))))
+    drows = suggest(dome)
+    assert drows[0][1] is None, "rim-down must win; %r did" % (drows[0][1],)
+    for r in drows:
+        if r[1] in (((0, 1, 0), 90), ((0, 1, 0), -90),
+                    ((1, 0, 0), 90), ((1, 0, 0), -90)):
+            assert r[0] > NO_FOOTPRINT,                 "a dome on its side balances on a point; %r scored %.1f" % (
+                    r[1], r[0])
+            assert "NO FOOTPRINT" in r[2], r[2]
 
     # ASPECT, in isolation — a plain slab has no overhang in ANY orientation,
     # so nothing but tipping risk can decide, and standing it on end must lose.
