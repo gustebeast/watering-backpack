@@ -483,38 +483,25 @@ class Boards:
             raise KeyError("%s %s has no way %r (it is a %s)" % (board, ref, n, p["housing"]))
         return p["ways"][int(n)], p["out"]
 
-    def _envelope_run(self, name):
-        """The mated run solid(mated=True) reserves past a side-entry mouth for footprint
-        `name` (the LONGEST registered prefix), or None."""
-        for key in sorted(self.side_plug_run, key=len, reverse=True):
-            if name.startswith(key):
-                return self.side_plug_run[key]
-        return None
-
     def way(self, board: str, ref: str, n):
-        """Where the wire on WAY `n` of connector `ref` leaves the envelope the CAD
-        reserves for the mated pair, in the board frame: the point a cable solid is
-        drawn from.
+        """Where the wire on WAY `n` of connector `ref` leaves its plug, in the board
+        frame: the point a cable solid is drawn from.
 
-        For a JST it is wire_exit()'s line -- that way's own cavity, read from the routed
-        pads (see plug()) -- carried out along the wire's direction to the face of the
-        envelope solid(mated=True) draws. For every top-entry header and for PH side
-        entry that IS wire_exit()'s point: the envelope ends at the housing's back face.
-        For XH side entry the envelope is deliberately longer than the housing (7.5
-        reserved, 2.8 of housing: cadkit.pcb.jst_xh_side_header says why), so the point
-        is 4.7 further out on the same line and a cable drawn from it starts on the
-        envelope rather than inside it. A harness that wants the wire to reach the
-        plastic runs it back along -way_dir() to wire_exit().
+        For a JST it is wire_exit()'s point -- that way's own cavity, read from the routed
+        pads (see plug()), on the back face of the seated housing. A WIRE GOES IN TO THE
+        PLASTIC, whatever room solid(mated=True) reserves behind it: for XH side entry
+        that envelope is deliberately longer than the housing (7.5 reserved, 2.8 of
+        housing: cadkit.pcb.jst_xh_side_header says why), and a cable drawn from the
+        envelope's face stopped 4.7 mm short of the plug it belongs to. The cable's first
+        millimetres are therefore inside the envelope of its own board, which is what the
+        envelope is for.
 
         For anything else it is lead_exit()'s point, moved along the pin row onto that
         way's own pad."""
         f = self.footprint(board, ref)
         p = self.plug(board, ref)
         if p is not None and str(n).isdigit() and int(n) in p["ways"]:
-            q, out = p["ways"][int(n)], p["out"]
-            run = self._envelope_run(fp_name(f["fpid"])) if p["side"] else None
-            more = max(0.0, run - p["proud"]) if run else 0.0
-            return tuple(q[i] + more * out[i] for i in range(3))
+            return tuple(p["ways"][int(n)])
         pads = f.get("pads") or {}
         if str(n) not in pads:
             raise KeyError("%s %s has no way %r in its geom file (ways: %s). Re-export the "
