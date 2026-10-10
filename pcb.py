@@ -213,31 +213,6 @@ def xh_side_length(n, *, smt=True):
     return XH_PITCH * (n - 1) + (7.5 if smt else 4.9)
 
 
-def jst_plug(n, width, depth, length, *, pitch=XH_PITCH):
-    """A crimp housing (XHP-n, PHR-n) as it LOOKS, inside the plain box a layout reserves
-    for it: `width` along the row (X, centred), `depth` across it (Z, centred), `length`
-    back from the mating face (y = 0) to where the wires leave (y = -length). Nothing
-    stands outside that box, so a clearance set against the box still holds.
-
-    What makes a block read as a JST: a square cavity a way open at the back, where each
-    crimped wire goes in (an unused way is an empty hole, as on the bench); the row of
-    lance windows on one broad face (+Z); the two rails down the other; and the corners
-    eased. Sizes are in proportion to the pitch, not off a drawing."""
-    body = _block(width, length, depth, 0.0, -length / 2.0, -depth / 2.0).edges("|Y").chamfer(0.3)
-    cav = min(0.72 * pitch, depth - 1.6)                 # the cavity, square
-    xs = [(i - (n - 1) / 2.0) * pitch for i in range(n)]
-    for x in xs:
-        body = body.cut(_block(cav, 0.45 * length, cav, x, -length + 0.45 * length / 2.0 - 0.01,
-                               -cav / 2.0))
-        # the lance window: through the broad face into the cavity
-        body = body.cut(_block(0.5 * pitch, 0.2 * length, depth / 2.0, x, -0.62 * length, 0.01))
-    # the rails on the other broad face: two shallow channels leave three lands
-    for x in (-width / 4.0, width / 4.0):
-        body = body.cut(_block(width / 4.0 - 0.6, 0.7 * length + 0.01, 0.35, x, -0.35 * length,
-                               -depth / 2.0 - 0.01))
-    return body
-
-
 def jst_xh_side_header(n, *, smt=True, mated=False, plug_run=7.5):
     """Dummy side-entry XH header (S<n>B-XH-SM4-TB by default).
 
@@ -362,7 +337,12 @@ JST_SERIES = {
                overall=None, pocket=4.2, cavity=1.5, post=0.5, rails="notch",
                top=(6.0, 8.0),
                side={False: (3.1, 2.0, 4.2, None),
-                     True: (3.75, PH_PLUG_RUN, 6.85 - PH_PLUG_RUN, PH_SIDE_D)}),
+                     # ⚠ THE SMT PART'S CONTACT AXIS IS HALF ITS HEIGHT, AND THAT IS UNREAD.
+                     # JST's drawing (ePH p.4) has it; nobody has taken it off the page.
+                     # Projects have laid cables out round "the middle of the header"
+                     # for as long as there has been one, so the housing is drawn
+                     # there too: one figure, and one place to correct it.
+                     True: (PH_SIDE_H / 2.0, PH_PLUG_RUN, 6.85 - PH_PLUG_RUN, PH_SIDE_D)}),
     "ZH": dict(housing="ZHR-%d", pitch=1.5, near=1.0, far=1.5, pocket_over=3.1,
                overall=None, pocket=3.3, cavity=1.1, post=0.4, rails=None,
                top=None,
