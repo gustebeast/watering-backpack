@@ -11,7 +11,9 @@ bearing is polished steel, a heat-set insert is brass, a belt is rubber. A proje
 names each such part's FINISH (the `materials=` callable of cadkit.web.export returns
 it, as it returns a printed part's filament), and the page and the ray tracer give the
 part that surface. A finish is a surface, not a colour: the part keeps the colour the
-build gave it, so a black-oxide screw and a zinc one are both "steel".
+build gave it, so a black-oxide screw and a zinc one are both "steel". The exceptions
+are in COLOURS: a finish that IS one material has that material's colour, whatever the
+build gave the part -- every heat-set insert is the same brass, in every project.
 
 The surfaces travel inside the exported model, so a page reads the same ones the export
 had. (metalness, roughness), as glTF means them, and optionally how much of the room the
@@ -43,6 +45,11 @@ FINISHES = {
     "screen":    (0.0, 1.0, 0.0),  # a display's face: where it is dark it stays dark,
                                   # whatever is overhead (the third number: it reflects
                                   # none of the room)
+}
+
+# a finish that is one material, and so one colour (linear, as glTF's)
+COLOURS = {
+    "brass": (0.571, 0.319, 0.073),
 }
 
 # A COMPONENT MODEL carries many colours and no names, but the libraries draw their
