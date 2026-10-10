@@ -113,6 +113,48 @@ pub fn keep_display_awake() {
     }
 }
 
+/// The visible descendant of `top` of this class under a client position of `top`, and that position in
+/// ITS client area (several webviews share the app's window: which one is the pointer over?).
+pub fn child_at(top: isize, class: &str, x: i32, y: i32) -> Option<(isize, i32, i32)> {
+    let p = client_to_screen(top, x, y);
+    children(top).into_iter().filter(|(_, c)| c == class).find_map(|(h, _)| unsafe {
+        let mut rc: RECT = std::mem::zeroed();
+        (IsWindowVisible(hwnd(h)) != 0 && GetWindowRect(hwnd(h), &mut rc) != 0 && p.0 >= rc.left && p.0 < rc.right && p.1 >= rc.top && p.1 < rc.bottom).then_some((h, p.0 - rc.left, p.1 - rc.top))
+    })
+}
+
+/// Let that process bring a window of its own in front (the desktop lets only the program in front, or
+/// one it has named, do so).
+pub fn allow_foreground(pid: u32) {
+    if pid != 0 {
+        unsafe { AllowSetForegroundWindow(pid) };
+    }
+}
+
+/// Who this program is to the taskbar: the same name every run, so its pinned icon and its window are one button.
+pub fn set_app_id(id: &str) {
+    let w: Vec<u16> = id.encode_utf16().chain([0]).collect();
+    unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(w.as_ptr()) };
+}
+
+/// THE PROGRAM IS A WINDOWS PROGRAM, NOT A CONSOLE ONE (main.rs: windows_subsystem), so that starting it
+/// from the taskbar opens no console window. Started from a terminal it still says what it has to say
+/// there: it joins the terminal it was started from, if it was given nowhere else to write.
+pub fn attach_console() {
+    use windows_sys::Win32::System::Console::*;
+    unsafe {
+        if !GetStdHandle(STD_OUTPUT_HANDLE).is_null() || AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
+            return;
+        }
+        use std::os::windows::io::IntoRawHandle;
+        if let Ok(f) = std::fs::OpenOptions::new().write(true).open("CONOUT$") {
+            let h = f.into_raw_handle();
+            SetStdHandle(STD_OUTPUT_HANDLE, h as _);
+            SetStdHandle(STD_ERROR_HANDLE, h as _);
+        }
+    }
+}
+
 pub fn class_name(h: isize) -> String {
     if h == 0 { String::new() } else { class_of(hwnd(h)) }
 }
