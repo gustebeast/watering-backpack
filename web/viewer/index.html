@@ -160,8 +160,17 @@
   const view = document.getElementById('view');
   const $ = id => document.getElementById(id);
 
+  // ── INSIDE THE DESKTOP SHELL THE PICTURE IS NOT THIS PAGE'S ──────────────────────
+  // The shell (cadkit-rt desk) lays this page, see-through, over a path tracer of its
+  // own, and sets window.cadkitNative before any of this runs. The page is then still
+  // the whole of the UI: it loads the model, picks and measures on it as ever, and says
+  // what the picture is of (nativeState). But it DRAWS NO MODEL: its canvas is clear but
+  // for its own marks, the selection tint and the measure marks. In a browser NATIVE is
+  // false and nothing here is any different.
+  const NATIVE = !!(window.cadkitNative && window.ipc);
+
   // ── renderer / scene / camera ────────────────────────────────────────────
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: NATIVE });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   // no tone curve: the part colours are display colours already, and a filmic curve
@@ -171,6 +180,11 @@
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x16181c);
+  const BACKDROP = scene.background;
+  if (NATIVE) {                                        // nothing of the page behind the model
+    scene.background = null; renderer.setClearColor(0x000000, 0);
+    document.documentElement.style.background = document.body.style.background = 'transparent';
+  }
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
@@ -1101,7 +1115,8 @@
   function setHint() {
     $('hint').textContent = mode === 'measure'
       ? 'measure: click a corner, edge or face, then another · esc clears · m leaves · drag still orbits'
-      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section · l lighting';
+      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section' +
+        (NATIVE ? '' : ' · l lighting');                 // the shell's picture has the one level
   }
 
   // ── pointer and keys ─────────────────────────────────────────────────────────────
@@ -1214,6 +1229,7 @@
   let quality = 2, autoQuality = true, composer = null, gtao = null;
   let lightDirty = true, lastSig = 0, slowFor = 0, settledAt = Infinity, traced = false;
   function setQuality(q, manual = false) {
+    if (NATIVE) q = 0;                                           // the shell's picture is the one level there
     quality = (q + LIGHT.length) % LIGHT.length;
     if (quality === 3 && !rt.ok) quality = manual ? 0 : 2;       // no tracer behind this page
     if (manual) autoQuality = false;
@@ -1419,7 +1435,98 @@
     // for seconds after anything that could be seen has stopped
     return Math.round(s * 1e4);
   }
+  // ── what the shell is told, and the marks drawn over its picture ─────────────────
+  // Everything that defines the picture goes to the shell in ONE message a frame, and
+  // only what has changed since the last: the camera as the tracer's server takes it
+  // (matrixWorld, fov, near, far) with the size this page projects onto, in device
+  // pixels; the hidden parts and the selected ones, by name; the pose of each part the
+  // rig has moved; the section plane in the CAD frame ([nx, ny, nz, c], kept where
+  // n·p + c >= 0), or null; the sun and the backdrop; and `glb`, the model file, each
+  // time one has been loaded (the shell fetches the same file).
+  const nat = { all: true, glb: '', cam: [], hidden: '', sel: null, clip: '', pose: {}, env: null,
+                marks: '', blank: false, line: '', short: '', depth: null, tmp: new THREE.Matrix4(),
+                stats(s) { nat.short = s.spp + ' samples';
+                           nat.line = 'path traced · ' + s.state + ' · ' + nat.short +
+                                      (s.gpu_ms ? ' · ' + s.gpu_ms.toFixed(1) + ' ms a frame' : ''); fpsLine(); } };
+  // The shell's status line stands where the frame rate does and is longer. In a window
+  // too narrow for it beside the title's lines it is said shorter, and not at all rather
+  // than over them.
+  function nativeLine() {
+    const title = document.createRange();
+    title.selectNodeContents(document.querySelector('.label'));
+    for (const text of [nat.line, nat.short, '']) {
+      fpsEl.textContent = text;
+      const f = fpsEl.getBoundingClientRect();
+      if (![...title.getClientRects()].some(r => r.width && r.right > f.left - 8 && r.left < f.right &&
+                                                 r.bottom > f.top && r.top < f.bottom)) break;
+    }
+  }
+  function nativeState() {
+    const m = {}, all = nat.all, dpr = devicePixelRatio;
+    nat.all = false;
+    // the glide after a drag ends in movements no pixel shows: those are not sent
+    const far = camera.position.distanceTo(controls.target) || 1;
+    const cam = [...camera.matrixWorld.elements, camera.fov, camera.near, camera.far, innerWidth * dpr, innerHeight * dpr];
+    if (all || cam.some((x, i) => Math.abs(x - nat.cam[i]) > (i > 11 && i < 15 ? 1e-6 * far : 1e-7))) {
+      nat.cam = cam;
+      m.cam = cam.slice(0, 16); [m.fov, m.near, m.far, m.w, m.h] = cam.slice(16);
+    }
+    if (all || lightDirty) {                             // something shown, hidden or cut
+      const hidden = M.list.filter(p => p.hidden).map(p => p.name), names = hidden.join('|');
+      if (all || names !== nat.hidden) { nat.hidden = names; m.hidden = hidden; }
+      const clip = sec.on ? [0, 0, 0, sec.flip ? -sec.v : sec.v] : null;
+      if (clip) clip[sec.axis] = sec.flip ? 1 : -1;
+      if (all || JSON.stringify(clip) !== nat.clip) { nat.clip = JSON.stringify(clip); m.clip = clip; }
+      lightDirty = false;
+    }
+    if (all || selOverlays !== nat.sel) { nat.sel = selOverlays; m.sel = selection.map(p => p.name); }
+    if (all) nat.pose = {};
+    for (const n in nodes) {
+      const e = nodes[n].matrix.elements, was = nat.pose[n];
+      if (was && !e.some((x, i) => Math.abs(x - was[i]) > 1e-5)) continue;
+      nat.pose[n] = e.slice();
+      (m.poses || (m.poses = {}))[n] = nat.tmp.multiplyMatrices(M.parts.matrixWorld, nodes[n].matrix).toArray();
+    }
+    if (all) {
+      nat.env = { sun: KEY_DIR.toArray(), sun_strength: key.intensity,
+                  bg: BACKDROP.clone().convertLinearToSRGB().toArray() };
+      Object.assign(m, nat.env, { glb: nat.glb });
+    }
+    for (const k in m) { m.t = 'view'; window.ipc.postMessage(JSON.stringify(m)); return true; }
+    return false;
+  }
+  // The marks alone are drawn, and only when they or what they lie on have changed. The
+  // model goes into the depth buffer first and nowhere else, so that a mark is hidden
+  // by what stands in front of it exactly as it is in the browser (a clear part hides
+  // nothing there either).
+  function nativeFrame() {
+    if (!M.parts) return;
+    const sent = nativeState();
+    const marks = [...selOverlays, meas.objs.A, meas.objs.B, meas.objs.hover, meas.objs.dim].filter(Boolean);
+    const sig = marks.map(o => o.id).join();
+    if (!marks.length && nat.blank) return;
+    if (!sent && sig === nat.marks) return;
+    nat.marks = sig; nat.blank = !marks.length;
+    if (nat.blank) { renderer.clear(); return; }
+    if (!nat.depth) nat.depth = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
+    const model = [];
+    for (const b of M.batches) if (b.draw.visible) model.push(b.draw);
+    for (const p of M.list) if (p.mesh && p.mesh.visible) model.push(p.mesh);
+    for (const o of marks) o.visible = false;
+    for (const o of model) if (o.material.transparent) o.visible = false;
+    scene.overrideMaterial = nat.depth;
+    renderer.render(scene, camera);
+    scene.overrideMaterial = null;
+    for (const o of marks) o.visible = true;
+    for (const o of model) o.visible = false;
+    const ac = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.render(scene, camera);
+    renderer.autoClear = ac;
+    for (const o of model) o.visible = true;
+  }
   function drawFrame() {
+    if (NATIVE) return nativeFrame();
     let changed = false;
     if (quality >= 1 && M.parts) {
       const sig = rigSignature();
@@ -1519,6 +1626,7 @@
     if (first) frameBox(new THREE.Box3().setFromObject(M.root));
     else { setHidden(M.list.filter(p => hiddenNames.has(p.name)), true); syncDeckUI(); }
     if (wasMode === 'measure') setMode('measure');
+    if (NATIVE) { nat.all = true; nat.glb = new URL('assembly.glb?v=' + M.key, location.href).href; }
   }
   // The local server also says when this page's own file was last edited; the page then
   // reloads itself and comes back as it was (camera, hidden parts, section, mode).
@@ -1569,6 +1677,7 @@
   const fpsEl = $('fps');
   let fpsNow = 0;
   function fpsLine() {                                  // also said at once when tracing starts or ends
+    if (NATIVE) { nativeLine(); return; }
     fpsEl.textContent = quality === 3 && (traced || rt.shown)
         ? 'ray traced · ' + rt.n + ' samples in ' + (rt.ms / 1000).toFixed(2) + ' s'
         : Math.round(fpsNow) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
@@ -1588,6 +1697,7 @@
     }
     applyRig(dt);
     controls.update();
+    if (NATIVE) { camera.updateMatrixWorld(); scene.updateMatrixWorld(); }   // no model is drawn to bring them up to date
     for (const o of selOverlays) if (o.userData.follow) o.matrix.copy(o.userData.follow.matrix);
     if (mode === 'measure' && lastMove && !down && M.geo) { setHover(snapAt(lastMove[0], lastMove[1])); lastMove = null; }
     if (meas.mid && meas.B) {
@@ -1604,7 +1714,8 @@
                     draw() { renderer.info.reset(); drawFrame(); return traced; }, M, meas, pickAt, snapAt, setHidden, setMode,
                     measureClick, between, showAll, get selection() { return selection; },
                     select(names) { selection = names.flatMap(n => M.byName.has(n) ? M.units.get(M.byName.get(n).unit) : []); drawSelection(); },
-                    selAction, loadGeo, toPx };
+                    selAction, loadGeo, toPx, NATIVE, native: nat };
+  if (NATIVE) { $('bLight').style.display = 'none'; addEventListener('resize', fpsLine); }
   setQuality(quality);
   init();
   requestAnimationFrame(tick);

@@ -47,9 +47,11 @@ cadkit/
   cq_colors.py       hex / 0..255 / name -> cq.Color, for baking colours into a STEP
   scratch.py         the fast per-part loop: cache the surroundings, rebuild one part
   lazy.py            lazy(builder): a module's solids built on first use, not on import
+  desktop/           the desktop window's path tracer (Rust), built on first use
   web/               the assembly viewer, a web page: `from cadkit.web import show`
     export.py          parts -> assembly.glb + the kernel's own geometry, for measuring
     view.py            the local server, show(), and the scratch loop's export
+    desktop.py         `py -3.12 -m cadkit.web.desktop`: the same page as a path traced window
     boards.py parts.py real part models on circuit boards
     finishes.py        what bought parts are made of: steel, brass, rubber...
     trace.py           the ray traced lighting level: pictures from a background Blender

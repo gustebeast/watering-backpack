@@ -34,7 +34,7 @@ from mathutils import Matrix, Vector
 
 MARK = "@@trace "
 C = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))      # page -> CAD
-SKY_TOP, SKY_BOTTOM = (0.888, 0.913, 0.956), (0.102, 0.117, 0.138)          # linear
+ROOM_BELOW, ROOM_ABOVE = (0.888, 0.913, 0.956), (0.102, 0.117, 0.138)       # linear
 CLEAR = 0.38                # how much of a clear filament is seen: the page's figure
 parts = {}                  # name -> object
 finishes = {}               # the model's own table: filament or finish -> (metalness, roughness)
@@ -195,7 +195,9 @@ def setup():
     sun.data.angle = 0.03                         # a slightly soft shadow edge
     sc.collection.objects.link(sun)
 
-    # the room: a sky brighter overhead; the camera itself sees the page's flat backdrop
+    # the room: BRIGHT BELOW, as off a pale floor, and dim overhead, so the sun does the
+    # lighting from above and the undersides are filled (Incoming points back along the
+    # ray, hence the mix's order); the camera itself sees the page's flat backdrop
     w = bpy.data.worlds.new("room")
     w.use_nodes = True
     nt = w.node_tree
@@ -207,8 +209,8 @@ def setup():
     ramp.inputs["From Min"].default_value = -1.0
     mix = nt.nodes.new("ShaderNodeMix")
     mix.data_type = "RGBA"
-    mix.inputs["A"].default_value = SKY_BOTTOM + (1,)
-    mix.inputs["B"].default_value = SKY_TOP + (1,)
+    mix.inputs["A"].default_value = ROOM_ABOVE + (1,)
+    mix.inputs["B"].default_value = ROOM_BELOW + (1,)
     sky = nt.nodes.new("ShaderNodeBackground")
     back = nt.nodes.new("ShaderNodeBackground")
     back.name = "backdrop"
