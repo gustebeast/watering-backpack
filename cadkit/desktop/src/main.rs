@@ -82,6 +82,8 @@ struct Args {
     dxc: Option<String>,
     /// where the window's size and place are kept between runs
     state: Option<PathBuf>,
+    /// the webview's data folder (default: webview-data beside the exe)
+    data: Option<PathBuf>,
     /// selftest: (from, to) a model folder to copy over the served one, as a rebuild would rewrite it
     recopy: Option<(PathBuf, PathBuf)>,
 }
@@ -309,7 +311,9 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
 
     // the UI: the page itself in a WebView2 child window over the whole client area, transparent. It is told
     // where it is before any of its own script runs.
-    let data_dir = std::env::current_exe().unwrap().parent().unwrap().join("webview-data");
+    // the page's own storage (it keeps its view there between runs): one folder a window, as two programs
+    // cannot share one
+    let data_dir = args.data.clone().unwrap_or_else(|| std::env::current_exe().unwrap().parent().unwrap().join("webview-data"));
     let mut ctx = wry::WebContext::new(Some(data_dir));
     let mut init = String::from("window.cadkitNative = true;\n");
     if args.selftest {
@@ -1242,7 +1246,7 @@ impl ApplicationHandler<Ev> for App {
 
 fn main() {
     let mut a = std::env::args().skip(1);
-    let mut args = Args { url: "http://127.0.0.1:8161/".into(), selftest: false, only: String::new(), out: PathBuf::from("out"), backend: None, dxc: None, state: None, recopy: None };
+    let mut args = Args { url: "http://127.0.0.1:8161/".into(), selftest: false, only: String::new(), out: PathBuf::from("out"), backend: None, dxc: None, state: None, data: None, recopy: None };
     while let Some(x) = a.next() {
         match x.as_str() {
             "--selftest" => args.selftest = true,
@@ -1250,9 +1254,10 @@ fn main() {
             "--backend" => args.backend = Some(a.next().expect("--backend dx12|vulkan")),
             "--dxc" => args.dxc = a.next(),
             "--state" => args.state = a.next().map(PathBuf::from),
+            "--data" => args.data = a.next().map(PathBuf::from),
             "--recopy" => args.recopy = Some((PathBuf::from(a.next().expect("--recopy <from> <to>")), PathBuf::from(a.next().expect("--recopy <from> <to>")))),
             "-h" | "--help" => {
-                eprintln!("usage: desk [url] [--selftest[=parts]] [--out <dir>] [--backend dx12|vulkan] [--dxc <dxcompiler.dll>] [--state <file>]     (url defaults to http://127.0.0.1:8161/)");
+                eprintln!("usage: desk [url] [--selftest[=parts]] [--out <dir>] [--backend dx12|vulkan] [--dxc <dxcompiler.dll>] [--state <file>] [--data <dir>]     (url defaults to http://127.0.0.1:8161/)");
                 return;
             }
             _ if x.starts_with("--selftest=") => {

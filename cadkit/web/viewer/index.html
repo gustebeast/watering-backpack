@@ -1508,7 +1508,9 @@
                   bg: BACKDROP.clone().convertLinearToSRGB().toArray() };
       Object.assign(m, nat.env, { glb: nat.glb });
     }
-    for (const k in m) { m.t = 'view'; window.ipc.postMessage(JSON.stringify(m)); return true; }
+    for (const k in m) { m.t = 'view'; window.ipc.postMessage(JSON.stringify(m)); keptAt = 1; return true; }
+    if (keptAt === 1) keptAt = performance.now() + 400;          // the view has stopped changing:
+    else if (keptAt > 1 && performance.now() > keptAt) { keptAt = 0; if (restored) keepState(); }   // keep it, once
     return false;
   }
   // The marks alone are drawn, and only when they or what they lie on have changed. The
@@ -1647,16 +1649,20 @@
   // The local server also says when this page's own file was last edited; the page then
   // reloads itself and comes back as it was (camera, hidden parts, section, mode).
   let pageStamp = null;
-  const KEEP = 'viewer-state';
+  // In the desktop shell it is kept ALL THE TIME and for good (KEPT), so a window that
+  // is closed, or started again on a newer program, comes back on the view it had.
+  const KEEP = 'viewer-state', KEPT = NATIVE ? localStorage : sessionStorage;
+  let keptAt = 0, restored = false;                 // nothing is kept before what was kept is back
   function keepState() {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({
+    try { KEPT.setItem(KEEP, JSON.stringify({
       cam: camera.position.toArray(), tgt: controls.target.toArray(),
       hidden: hiddenParts().map(p => p.name), deck: deckVisible, mode,
       sec: { on: sec.on, axis: sec.axis, v: sec.v, flip: sec.flip } })); } catch {}
   }
   function restoreState() {
     let s = null;
-    try { s = JSON.parse(sessionStorage.getItem(KEEP)); sessionStorage.removeItem(KEEP); } catch {}
+    restored = true;
+    try { s = JSON.parse(KEPT.getItem(KEEP)); if (!NATIVE) KEPT.removeItem(KEEP); } catch {}
     if (!s) return;
     camera.position.fromArray(s.cam); controls.target.fromArray(s.tgt); controls.update();
     restoreVis({ names: s.hidden, deck: s.deck });
