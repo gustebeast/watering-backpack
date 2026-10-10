@@ -326,6 +326,18 @@ def scratch_export(view, describe=None, colors=None, rig=None, refresh_rig=False
            parents={n: p for n, p in base.items() if n != p}, **export_kw)
     stamp = dict(describe or view.describe(), t=time.time(), scratch=True, parts=len(meshed))
     stamp.pop("own_names", None)
+    # WHOSE VIEW THIS IS, AND WHICH OF THEIRS: a model has the lead's build number, and
+    # on top of that build each agent exports its own part again and again. So a scratch
+    # view is named "build #880 + bronner 14": the 14th this worktree has made. The page
+    # shows it, small, and it is how to tell that the view on screen is the latest one.
+    try:
+        from ..agents import current_agent
+        seq = out / "scratch_n.txt"
+        n = (int(seq.read_text()) if seq.exists() else 0) + 1
+        seq.write_text(str(n))
+        stamp.update(agent=current_agent(cwd=getattr(view, "root", None)), n=n)
+    except Exception:
+        pass
     (out / "stamp.json").write_text(json.dumps(stamp))
     print("web view: %d parts in %.1f s" % (len(meshed), time.time() - t0))
     return out
