@@ -140,6 +140,19 @@ built the model, and only if Blender is found there (`CADKIT_BLENDER`, the PATH,
 usual install folders); a published page has the three drawn levels. It pauses while a
 section cut is on.
 
+**The same viewer as a desktop window, path traced throughout:**
+`py -3.12 -m cadkit.web.desktop` (Windows). It shows the SAME page, see-through, over a
+path tracer of its own (`cadkit/desktop`, Rust on wgpu, the card's ray-tracing hardware
+through DirectX 12 or Vulkan): the page stays the whole of the UI (it picks, measures and
+lists on the model as ever, and tells the tracer the camera, what is hidden, selected,
+posed and cut) and draws the model itself only in a browser. So a control added to the
+page works in both, and only what changes THE PICTURE needs a word to the tracer
+(`nativeState()` in the page, the `view` message in `desktop/src/main.rs`). Moving, it is
+a few samples a pixel, denoised; at rest it gathers to the ray traced level's picture
+(it is matched to Blender's, within about 1/255) in well under a second and then stops
+working the card. The program is built on first use with Rust's cargo and kept outside
+the project (`cadkit/web/desktop.py` says where).
+
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
 `boards=` its `cadkit.board_geom.Boards`, and every circuit board gets real part models
 in place of the footprint boxes (KiCad's library where this machine has it, else parts

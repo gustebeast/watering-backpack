@@ -67,7 +67,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if name == "/page.json":            # when the PAGE was last edited: it reloads itself
             return self._json({"t": PAGE.stat().st_mtime_ns})
         if name == "/where.json":           # which project this server is showing
-            return self._json({"dir": str(self.model_dir)})
+            return self._json({"dir": str(self.model_dir), "page": str(PAGE)})
         if name == "/trace.json":           # can this server ray trace? (?warm: get ready)
             if self.tracer.available and "warm" in self.path:
                 self.tracer.warm()
@@ -123,23 +123,30 @@ def _listening(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def _shows(port):
-    """The folder the server on `port` is showing, or None if it is not one of ours."""
+def _shows(port, same_page=False):
+    """The folder the server on `port` is showing, or None if it is not one of ours --
+    or, with `same_page`, if the page it serves is not THIS cadkit's (another copy's
+    server, which may be an older page)."""
     try:
         with urllib.request.urlopen("http://127.0.0.1:%d/where.json" % port, timeout=1.0) as r:
-            return pathlib.Path(json.loads(r.read())["dir"])
+            got = json.loads(r.read())
+        if same_page and pathlib.Path(got.get("page", "")) != PAGE:
+            return None
+        return pathlib.Path(got["dir"])
     except Exception:
         return None
 
 
-def ensure_server(model_dir, port=PORT):
+def ensure_server(model_dir, port=PORT, same_page=False):
     """(url, started): the server showing `model_dir`, started if there was none. Two
-    projects open at once each get a port of their own, counting up from `port`."""
+    projects open at once each get a port of their own, counting up from `port`.
+    `same_page`: only a server of this very cadkit will do (the desktop window's
+    program and the page it lays over its picture have to be of one version)."""
     model_dir = pathlib.Path(model_dir).resolve()
     free = None
     for p in range(port, port + PORTS):
         if _listening(p):
-            if _shows(p) == model_dir:
+            if _shows(p, same_page) == model_dir:
                 return "http://127.0.0.1:%d/" % p, False
         elif free is None:
             free = p
