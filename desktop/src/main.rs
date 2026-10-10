@@ -300,10 +300,11 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
     }
     let ((surface, config, mut r, line), backend) = got.unwrap();
     said += &format!("adapter: {line}\n");
-    // a frame may take about as long as the display shows one: ~4 ms at 240 Hz, ~8 ms at 60 to 120 Hz. The
-    // card's share of that is what the samples of a moving frame are fitted to.
+    // A MOVING FRAME GETS A THIRD OF THE CARD, not all of it: its samples are fitted to about 36% of the time
+    // the display shows a frame for (1.5 ms at 240 Hz, 3 ms at 120, 6 ms at 60). Filling the whole frame bought
+    // a little less grain while moving for a card at full power, fans and all, whenever anything moved.
     let hz = window.current_monitor().and_then(|m| m.refresh_rate_millihertz()).unwrap_or(60000) as f32 / 1000.0;
-    r.settings.budget_ms = std::env::var("DESK_BUDGET_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(if hz >= 200.0 { 3.0 } else { 6.8 });
+    r.settings.budget_ms = std::env::var("DESK_BUDGET_MS").ok().and_then(|v| v.parse().ok()).unwrap_or((360.0 / hz.max(1.0)).clamp(1.2, 6.0));
     said += &format!("display {hz:.0} Hz: a moving frame gets as many samples as the card does in {:.1} ms", r.settings.budget_ms);
 
     // the UI: the page itself in a WebView2 child window over the whole client area, transparent. It is told

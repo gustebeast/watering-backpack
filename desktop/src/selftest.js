@@ -577,6 +577,19 @@
     await wheel(cx, cy, -1); await sleep(300);
   }
 
+  // ── how long a pedal keeps the card busy: from the key going down to the picture at rest
+  async function settle() {
+    v.showAll(); await sleep(300); await rest(); await sleep(300);
+    for (const [what, ev] of [['pedal 1 pressed', 'keydown'], ['pedal 1 let go', 'keyup']]) {
+      const a = await win(), t0 = performance.now();
+      key('1', ev);
+      await sleep(150); await rest();
+      const b = await win();
+      log(`settle: ${what}: at rest ${(performance.now() - t0).toFixed(0)} ms later, after ${b.renders - a.renders} frames traced (${b.spp} of ${b.cap} samples)`);
+      await sleep(300);
+    }
+  }
+
   async function main() {
     while (!(window.viewer && viewer.M.parts && viewer.M.list.length && !$('loading'))) await sleep(100);
     v = window.viewer; M = v.M; THREE = v.THREE;
@@ -612,6 +625,7 @@
     if (want('reload')) await reload();
     if (want('motion')) await motion();
     if (want('idle')) await idle();
+    if (want('settle')) await settle();
     // ── quality: the two fixed views, native against the page's Blender tracer
     if (want('quality') || only.includes('native')) {
       const blender = !only.includes('native');

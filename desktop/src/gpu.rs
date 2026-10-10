@@ -10,6 +10,7 @@ use wgpu::util::DeviceExt;
 pub const MAX_SPP: u32 = 1024;
 /// The most samples a pixel is given in one frame.
 pub const MAX_SPF: u32 = 64;
+const STILL_MS: f64 = 12.0;     // the card's time in one frame of a picture at rest
 pub const ATROUS_PASSES: usize = 5;
 pub const IDENT: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
 
@@ -700,22 +701,25 @@ impl Renderer {
     /// card gives fewer samples at the same frame rate instead of fewer frames.
     pub fn note_frame(&mut self, changed: bool, gpu_ms: f64) {
         let b = self.settings.budget_ms as f64;
-        let step = |n: u32, ms: f64, b: f64| -> u32 {
+        let step = |n: u32, ms: f64, b: f64, up: f64| -> u32 {
             // towards the count that would just fill the budget, a part of the way each frame (one slow
             // frame is not a slow card), at once when over it
             let want = (n as f64 * (0.9 * b / ms.max(0.05))).clamp(1.0, MAX_SPF as f64);
-            let next = if ms > b { want.floor() } else { n as f64 + ((want - n as f64) * 0.25).clamp(-4.0, 4.0) };
+            let next = if ms > b { want.floor() } else { n as f64 + ((want - n as f64) * 0.25).clamp(-4.0, up) };
             (next.round() as u32).clamp(1, MAX_SPF)
         };
         if changed && b > 0.0 {
-            self.settings.spf_moving = step(self.settings.spf_moving, gpu_ms, b);
+            self.settings.spf_moving = step(self.settings.spf_moving, gpu_ms, b, 4.0);
         }
-        // at rest: start from what a moving frame takes and fill twice the budget (nothing else is waiting)
+        // AT REST THE PICTURE IS GATHERED IN LONG FRAMES, whatever the display's rate: nothing is moving,
+        // so nobody needs 240 of them a second, and every frame shown costs its denoise and its present.
+        // STILL_MS of the card a frame gets the picture to its cap in the fewest frames, and so in the
+        // least time at full power -- which is what a pedal press costs.
         let s = &mut self.settings.spf_still;
         if changed {
             *s = self.settings.spf_moving.max(1);
         } else {
-            *s = step(*s, gpu_ms, if b > 0.0 { 2.0 * b } else { 6.0 });
+            *s = step(*s, gpu_ms, STILL_MS, MAX_SPF as f64);
         }
     }
 

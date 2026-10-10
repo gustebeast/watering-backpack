@@ -1443,7 +1443,7 @@
   // rig has moved; the section plane in the CAD frame ([nx, ny, nz, c], kept where
   // n·p + c >= 0), or null; the sun and the backdrop; and `glb`, the model file, each
   // time one has been loaded (the shell fetches the same file).
-  const nat = { all: true, glb: '', cam: [], hidden: '', sel: null, clip: '', pose: {}, env: null,
+  const nat = { all: true, glb: '', cam: [], hidden: '', sel: null, clip: '', pose: {}, quiet: 0, env: null,
                 marks: '', blank: false, line: '', short: '', depth: null, tmp: new THREE.Matrix4(),
                 stats(s) { nat.short = s.spp + ' samples';
                            nat.line = 'path traced · ' + s.state + ' · ' + nat.short +
@@ -1480,13 +1480,29 @@
       lightDirty = false;
     }
     if (all || selOverlays !== nat.sel) { nat.sel = selOverlays; m.sel = selection.map(p => p.name); }
+    // THE RIG EASES TOWARDS ITS POSE FOR OVER A SECOND AFTER ANYTHING CAN BE SEEN TO MOVE,
+    // and every pose sent starts the picture again. So a part is sent while it moves by
+    // something a pixel could show (a hundredth of a millimetre at arm's length, scaled
+    // with the view), and once more, exactly, when the rig has gone quiet.
     if (all) nat.pose = {};
+    const tol = Math.max(0.01, 2e-5 * far), exact = nat.quiet === 3;
+    let moved = false, owed = false;
     for (const n in nodes) {
       const e = nodes[n].matrix.elements, was = nat.pose[n];
-      if (was && !e.some((x, i) => Math.abs(x - was[i]) > 1e-5)) continue;
+      if (was) {
+        let d = 0, turn = 0;
+        for (let i = 0; i < 12; i++) if (i % 4 !== 3) turn = Math.max(turn, Math.abs(e[i] - was[i]));
+        for (let i = 12; i < 15; i++) d = Math.max(d, Math.abs(e[i] - was[i]));
+        if (d <= tol && turn <= 1e-4) {
+          if (!exact) { owed = owed || d > 0 || turn > 0; continue; }
+        } else moved = true;
+      }
       nat.pose[n] = e.slice();
       (m.poses || (m.poses = {}))[n] = nat.tmp.multiplyMatrices(M.parts.matrixWorld, nodes[n].matrix).toArray();
     }
+    // quiet counts the frames since anything moved visibly: the exact poses go on the
+    // third, once, and what the rig still creeps by after that is never sent
+    nat.quiet = moved ? 0 : owed || nat.quiet ? nat.quiet + 1 : 0;
     if (all) {
       nat.env = { sun: KEY_DIR.toArray(), sun_strength: key.intensity,
                   bg: BACKDROP.clone().convertLinearToSRGB().toArray() };
