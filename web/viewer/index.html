@@ -96,6 +96,7 @@
            padding: 0 6px 0 12px; margin-top: 4px; border: 1px solid transparent; border-bottom: 0;
            border-radius: 8px 8px 0 0; cursor: pointer; opacity: .62; font-size: 13px; }
     .tab:hover { opacity: .9; background: #1c1f25; }
+    .tab.drag { opacity: 1; background: #1c1f25; border-color: #4d84b8; cursor: grabbing; }
     .tab.on { opacity: 1; background: #16181c; border-color: #333842; color: #e6eaf0;
               box-shadow: 0 1px 0 #16181c; }
     .tab .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1769,7 +1770,42 @@
     tabStore('viewer-tabs', TABS.open);
     if (key === TABKEY) tabGo(TABS.open[Math.min(i, TABS.open.length - 1)]); else tabsDraw();
   }
+  // A TAB IS DRAGGED ALONG THE STRIP TO ANOTHER PLACE IN IT: it changes places with a
+  // neighbour as the pointer passes that one's middle, and where it is let go is told to
+  // `done` (the tabs' keys, in their new order). A press that does not travel is a click.
+  let tabDrag = false, tabDropped = 0;
+  function tabsDrag(strip, done) {
+    strip.onpointerdown = e => {
+      const tab = e.target.closest('.tab');
+      if (!tab || e.button !== 0 || e.target.closest('.x')) return;
+      const x0 = e.clientX;
+      const move = e => {
+        if (!tabDrag && Math.abs(e.clientX - x0) < 6) return;
+        tabDrag = true;
+        tab.classList.add('drag');
+        for (const o of strip.querySelectorAll('.tab')) {
+          if (o === tab) continue;
+          const r = o.getBoundingClientRect(), mid = r.left + r.width / 2;
+          const after = tab.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING;
+          if (after && e.clientX > mid) { o.after(tab); break; }
+          if (!after && e.clientX < mid) { o.before(tab); break; }
+        }
+      };
+      const up = () => {
+        removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+        removeEventListener('pointercancel', up);
+        if (!tabDrag) return;
+        tabDrag = false; tabDropped = performance.now();
+        tab.classList.remove('drag');
+        done([...strip.querySelectorAll('.tab')].map(t => t.dataset.k));
+      };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+      addEventListener('pointercancel', up);
+    };
+  }
+  const tabClicked = () => performance.now() - tabDropped > 80;     // not the click a drop ends in
   function tabsDraw() {
+    if (tabDrag) return;
     const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls;
                                      if (text != null) e.textContent = text; return e; };
     const by = new Map(TABS.rows.map(r => [r.key, r]));
@@ -1787,9 +1823,15 @@
         x.onclick = e => { e.stopPropagation(); tabClose(key); };
         tab.append(x);
       }
-      tab.onclick = () => tabGo(key);
+      tab.dataset.k = key;
+      tab.onclick = () => { if (tabClicked()) tabGo(key); };
       strip.append(tab);
     }
+    tabsDrag(strip, keys => {
+      TABS.open = keys.concat(TABS.open.filter(k => !keys.includes(k)));
+      tabStore('viewer-tabs', TABS.open);
+      tabsDraw();
+    });
     const plus = mk('div', TABS.list ? 'on' : '', '+');
     plus.id = 'tabplus'; plus.title = 'projects';
     plus.onclick = () => { TABS.list = !TABS.list; tabsDraw(); };

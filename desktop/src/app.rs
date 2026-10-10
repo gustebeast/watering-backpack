@@ -358,6 +358,16 @@ impl App {
                     self.close_tab(i);
                 }
             }
+            "order" => {
+                // the tabs, dragged into another order: the one shown stays the one shown
+                let ids: Vec<u64> = v["ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default();
+                let shown = s.active.map(|i| s.tabs[i].id);
+                s.tabs.sort_by_key(|t| ids.iter().position(|&i| i == t.id as u64).unwrap_or(usize::MAX));
+                s.active = shown.and_then(|a| s.tabs.iter().position(|t| t.id == a));
+                s.pushed = String::new();
+                self.strip_push();
+                self.save_session();
+            }
             "plus" => {
                 let on = !s.list;
                 self.show_list(on);
