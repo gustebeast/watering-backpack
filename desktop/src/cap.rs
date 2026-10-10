@@ -187,3 +187,31 @@ pub fn type_button(down: bool) {
         SendInput(1, &i, std::mem::size_of::<INPUT>() as i32);
     }
 }
+
+/// The pointer moved to a place on the desktop through the input queue, as a mouse moves it (SetCursorPos
+/// moves it too, but no device is heard to have moved: a program listening for raw input hears nothing).
+pub fn type_move(p: (i32, i32)) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+    unsafe {
+        let (x0, y0, w, h) = (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        let mut i: INPUT = std::mem::zeroed();
+        i.r#type = INPUT_MOUSE;
+        // (0..65535 across the whole desktop, to the middle of the pixel)
+        i.Anonymous.mi.dx = (((p.0 - x0) as f64 + 0.5) * 65536.0 / w.max(1) as f64) as i32;
+        i.Anonymous.mi.dy = (((p.1 - y0) as f64 + 0.5) * 65536.0 / h.max(1) as f64) as i32;
+        i.Anonymous.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendInput(1, &i, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+/// The wheel turned by notches (away from the hand: positive) through the input queue, where the pointer is.
+pub fn type_wheel(notches: i32) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+    unsafe {
+        let mut i: INPUT = std::mem::zeroed();
+        i.r#type = INPUT_MOUSE;
+        i.Anonymous.mi.mouseData = (120 * notches) as u32;
+        i.Anonymous.mi.dwFlags = MOUSEEVENTF_WHEEL;
+        SendInput(1, &i, std::mem::size_of::<INPUT>() as i32);
+    }
+}

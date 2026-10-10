@@ -7,6 +7,8 @@
 //! Options: --out <dir>; --backend dx12|vulkan (default: dx12 if it can trace, which needs the dxcompiler.dll
 //! of an installed Windows SDK, or --dxc <path>; else vulkan); --state <file> where the window's place is kept
 //! (default: desk-window.json beside the exe).
+//! DESK_TRACE=1 in the environment: every message, frame and key the shell sees, with its time, written to
+//! trace.txt in the --out folder at the end.
 //!
 //! What the page sends (window.ipc.postMessage, JSON, at most one a frame, only what changed):
 //!   {t:"view", cam:[16], fov, near, far, w, h,      the page camera's matrixWorld; the size it projects onto
@@ -36,6 +38,19 @@ use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
+/// DESK_TRACE=1: what happened when (ms since the epoch, as the page's clock has it too), kept in memory
+/// and written to <out>/trace.txt at the end. For finding out who waits for whom.
+static TRACE: std::sync::Mutex<Option<Vec<(f64, String)>>> = std::sync::Mutex::new(None);
+
+fn tr(f: impl FnOnce() -> String) {
+    if let Ok(mut t) = TRACE.lock() {
+        if let Some(v) = t.as_mut() {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64() * 1e3).unwrap_or(0.0);
+            v.push((now % 1e7, f()));
+        }
+    }
+}
+
 enum Ev {
     Ipc(String),
     /// (url, the model or why not, ms to fetch and read)
@@ -55,6 +70,8 @@ struct Gfx {
     window: Arc<Window>,
     hwnd: isize,
     backend: String,
+    /// how long the view must have stood still before the picture is refined: see redraw
+    hold: Duration,
 }
 
 /// The webview covers the whole client area (DESK_WV_FRAC=0.8 leaves the right fifth bare: a control for captures).
@@ -150,6 +167,7 @@ struct Test {
     kept: HashMap<String, Vec<u8>>,
     done: bool,
     snap: Option<Snap>,
+    pings: Vec<f64>,
 }
 
 struct App {
@@ -166,6 +184,8 @@ struct App {
     rigid: bool,
     start: Instant,
     last_msg: Instant,
+    /// when to go on refining the picture, if that was put off
+    refine_at: Option<Instant>,
     last_present: Instant,
     t_dirty: Instant,
     converge_ms: f64,
@@ -333,6 +353,7 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
             }
         })
         .with_ipc_handler(move |req: wry::http::Request<String>| {
+            tr(|| format!("ipc in {}", kind(req.body())));
             let _ = proxy.send_event(Ev::Ipc(req.into_body()));
         })
         .build_as_child(&*window)
@@ -344,7 +365,16 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
     }
     // the keys are the page's: it has the keyboard from the start
     let _ = webview.focus();
-    (Gfx { webview, _ctx: ctx, surface, config, r, window, hwnd, backend }, said)
+    let hold = Duration::from_secs_f32(2.5 / hz.max(1.0));
+    (Gfx { webview, _ctx: ctx, surface, config, r, window, hwnd, backend, hold }, said)
+}
+
+/// A message's kind, for the trace.
+fn kind(body: &str) -> String {
+    if body.ends_with("\"t\":\"view\"}") {
+        return format!("view{}", if body.contains("\"poses\"") { "+poses" } else { "" });
+    }
+    body.chars().take(24).collect()
 }
 
 fn acquire(g: &Gfx) -> Option<wgpu::SurfaceTexture> {
@@ -524,8 +554,16 @@ impl App {
             rigid = false;
         }
         self.touch(rigid);
-        // straight away: one frame per message
-        self.redraw();
+        // THE FRAME IS DRAWN WHEN THE WINDOW'S QUEUE IS EMPTY (a redraw request: the desktop hands it out
+        // after every message and all input waiting for this thread), not here inside the message. Drawn
+        // here, a frame a message with a frame taking as long as the page takes to say the next, this
+        // thread never once found its queue empty while anything moved, and so never took its INPUT. And
+        // input left untaken here holds up the page's: see listen_device_events in main. It also means
+        // messages that arrive during a frame make ONE frame, of the newest view, instead of a queue of
+        // frames each later than the last when the card is slower than the page.
+        if let Some(g) = self.gfx.as_ref() {
+            g.window.request_redraw();
+        }
     }
 
     fn redraw(&mut self) {
@@ -548,6 +586,14 @@ impl App {
         if !changed && g.r.n >= gpu::MAX_SPP {
             return;
         }
+        // REFINING WAITS FOR THE VIEW TO STOP (two and a half of the display's frames with nothing new from
+        // the page). A moving frame is done a moment before the page says the next view; a refining frame
+        // begun in that moment kept the window's thread, and the view after it, waiting for a picture that
+        // was thrown away at once: a moving frame in every few was lost to one.
+        if !changed && self.last_msg.elapsed() < g.hold {
+            self.refine_at = Some(self.last_msg + g.hold);
+            return;
+        }
         let t0 = Instant::now();
         let Some(frame) = acquire(g) else { return };
         let view = frame.texture.create_view(&Default::default());
@@ -559,6 +605,7 @@ impl App {
         let gm = t1.elapsed().as_secs_f64() * 1e3;
         g.r.note_frame(changed, gm);
         g.r.queue.present(frame);
+        tr(|| format!("frame {:.2} ms (gpu {gm:.2}){}", t0.elapsed().as_secs_f64() * 1e3, if changed { "" } else { " still" }));
         self.presents += 1;
         let now = Instant::now();
         self.last_present = now;
@@ -698,6 +745,53 @@ impl App {
             "Tquality" => self.t_quality(id, &v),
             "Tkey" => self.t_key(id, &v),
             "Tsize" => self.t_size(id, &v),
+            "Tdrag" => {
+                // a drag by the pointer itself (the desktop's input queue, as a hand's): taken to the start,
+                // the button down, moved in steps, the button up, and put back. Only while in front.
+                // `wheel`: no button; the wheel turned instead, a notch every `ms`, n/2 in and n/2 back out.
+                if let Some(g) = self.gfx.as_ref() {
+                    let (hwnd, proxy) = (g.hwnd, self.proxy.clone());
+                    let p = |k: &str| v[k].as_f64().unwrap_or(0.0);
+                    let (a, b) = (cap::client_to_screen(hwnd, p("x0") as i32, p("y0") as i32), cap::client_to_screen(hwnd, p("x1") as i32, p("y1") as i32));
+                    let (n, step, wheel) = (v["n"].as_u64().unwrap_or(100) as i32, v["ms"].as_u64().unwrap_or(4), v["wheel"].as_bool().unwrap_or(false));
+                    std::thread::spawn(move || {
+                        let ok = cap::foreground() == hwnd;
+                        if ok {
+                            let was = cap::cursor();
+                            cap::type_move(a);
+                            std::thread::sleep(Duration::from_millis(60));
+                            if !wheel {
+                                cap::type_button(true);
+                                tr(|| "typed button down".into());
+                            }
+                            for i in 1..=n {
+                                if wheel {
+                                    cap::type_wheel(if i <= n / 2 { 1 } else { -1 });
+                                } else {
+                                    cap::type_move((a.0 + (b.0 - a.0) * i / n, a.1 + (b.1 - a.1) * i / n));
+                                }
+                                std::thread::sleep(Duration::from_millis(step));
+                            }
+                            if !wheel {
+                                cap::type_button(false);
+                                tr(|| "typed button up".into());
+                            }
+                            std::thread::sleep(Duration::from_millis(60));
+                            cap::set_cursor(was);
+                        }
+                        let _ = proxy.send_event(Ev::Done(id, json!(ok).to_string()));
+                    });
+                }
+            }
+            // how long a message from the page waits before it is read here: the page says when it sent it
+            "Tping" => {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64() * 1e3).unwrap_or(0.0);
+                self.t.pings.push(now - v["at"].as_f64().unwrap_or(now));
+            }
+            "Tpings" => {
+                let s = summ(&std::mem::take(&mut self.t.pings));
+                self.resume(id, &json!(s).to_string());
+            }
             "Tdbl" => {
                 // a double-click by the pointer itself (the desktop's input queue): the pointer is taken to
                 // the place, clicked twice, and put back. Only while this window is in front.
@@ -1036,6 +1130,7 @@ impl App {
                     2 => {
                         if cap::foreground() == hwnd {
                             cap::type_key(vk, down);
+                            tr(|| format!("typed key {vk:#x} {}", if down { "down" } else { "up" }));
                             sent += 1;
                         } else {
                             skipped += 1;
@@ -1145,7 +1240,10 @@ impl ApplicationHandler<Ev> for App {
 
     fn user_event(&mut self, _: &ActiveEventLoop, ev: Ev) {
         match ev {
-            Ev::Ipc(body) => self.on_ipc(&body),
+            Ev::Ipc(body) => {
+                tr(|| format!("ipc handled {}", kind(&body)));
+                self.on_ipc(&body)
+            }
             Ev::Model(url, r, ms) => self.on_model(url, r, ms),
             Ev::Done(id, r) => self.resume(id, &r),
             Ev::Title(t) => {
@@ -1171,13 +1269,31 @@ impl ApplicationHandler<Ev> for App {
                 event_loop.exit();
             }
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(if self.args.selftest { 5 } else { 100 })));
+        let now = Instant::now();
+        let mut wake = now + Duration::from_millis(if self.args.selftest { 5 } else { 100 });
+        if let Some(t) = self.refine_at {
+            if t <= now {
+                self.refine_at = None;
+                if let Some(g) = self.gfx.as_ref() {
+                    g.window.request_redraw();
+                }
+            } else {
+                wake = wake.min(t);
+            }
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         let Some(g) = self.gfx.as_mut() else { return };
         if id != g.window.id() {
             return;
+        }
+        match &event {
+            WindowEvent::KeyboardInput { event, .. } => tr(|| format!("shell key {:?} {:?} repeat {}", event.physical_key, event.state, event.repeat)),
+            WindowEvent::Focused(f) => tr(|| format!("shell focused {f}")),
+            WindowEvent::MouseInput { state, .. } => tr(|| format!("shell mouse button {state:?}")),
+            _ => {}
         }
         match event {
             WindowEvent::CloseRequested => {
@@ -1202,8 +1318,12 @@ impl ApplicationHandler<Ev> for App {
             }
             WindowEvent::Moved(_) => self.note_place(),
             // the keys are the page's: when the window is given the keyboard it passes it on
+            // (only when the shell's own window holds it: handing it over while the page already has it, or
+            // on every key, takes the keyboard from the page and gives it back for nothing)
             WindowEvent::Focused(true) => {
-                let _ = g.webview.focus();
+                if cap::focus_of(g.hwnd) == g.hwnd {
+                    let _ = g.webview.focus();
+                }
             }
             WindowEvent::ModifiersChanged(m) => {
                 self.ctrl = m.state().control_key();
@@ -1236,7 +1356,9 @@ impl ApplicationHandler<Ev> for App {
                     );
                     let _ = g.webview.evaluate_script(&js);
                 }
-                let _ = g.webview.focus();
+                if event.state.is_pressed() && !event.repeat && cap::focus_of(g.hwnd) == g.hwnd {
+                    let _ = g.webview.focus();
+                }
             }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
@@ -1267,11 +1389,21 @@ fn main() {
             _ => args.url = x,
         }
     }
+    if std::env::var("DESK_TRACE").is_ok_and(|v| v == "1") {
+        *TRACE.lock().unwrap() = Some(vec![]);
+    }
     if args.selftest {
         std::fs::create_dir_all(&args.out).unwrap();
         cap::keep_display_awake();
     }
     let event_loop = EventLoop::<Ev>::with_user_event().build().unwrap();
+    // NO RAW INPUT. winit asks the desktop for every key and mouse report as raw input (WM_INPUT, for its
+    // device events, which nothing here uses), delivered to this thread even while the page has the
+    // keyboard. The desktop holds a key's ordinary message back until its raw one has been taken, and
+    // the pointer's behind it: with this thread drawing and not taking input, a key pressed during a drag
+    // reached the page half a second late, and then one event every half second (the desktop's patience
+    // with a thread that does not answer): no key-up, no mouse-up, a pedal stuck down and the camera dead.
+    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
     let now = Instant::now();
     let mut app = App {
         args,
@@ -1287,6 +1419,7 @@ fn main() {
         rigid: false,
         start: now,
         last_msg: now,
+        refine_at: None,
         last_present: now,
         t_dirty: now,
         converge_ms: 0.0,
@@ -1306,6 +1439,10 @@ fn main() {
     };
     event_loop.run_app(&mut app).unwrap();
     app.save_place();
+    if let Some(t) = TRACE.lock().unwrap().take() {
+        let text: String = t.iter().map(|(at, s)| format!("{at:.1} {s}\n")).collect();
+        let _ = std::fs::write(app.args.out.join("trace.txt"), text);
+    }
     // drop the webview (and its browser processes) before the window goes away
     drop(app.gfx.take());
     println!("closed");

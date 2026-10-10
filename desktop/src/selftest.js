@@ -590,6 +590,115 @@
     }
   }
 
+  // ── the camera moved WHILE a pedal is down: what the page and the tracer each manage
+  async function pedalcam() {
+    v.showAll(); await sleep(300); await rest(); await sleep(300);
+    async function orbit(what) {
+      const gaps = []; let last = 0, on = true;
+      const tick = t => { if (last) gaps.push(t - last); last = t; if (on) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      const a = await win(), t0 = performance.now();
+      await drag(cx - 150, cy, cx + 150, cy + 40, 200);
+      const ms = performance.now() - t0, b = await win();
+      on = false;
+      gaps.sort((x, y) => x - y);
+      log(`pedalcam: ${what}: ${b.renders - a.renders} frames traced in ${ms.toFixed(0)} ms (${((b.renders - a.renders) * 1000 / ms).toFixed(0)} a second); the page's own frames: ${gaps.length}, median ${gaps[gaps.length >> 1].toFixed(1)} ms apart, 95% within ${gaps[Math.floor(gaps.length * 0.95)].toFixed(1)}, worst ${gaps[gaps.length - 1].toFixed(1)}`);
+      await rest(); await sleep(200);
+    }
+    await orbit('orbit, no pedal');
+    key('1', 'keydown'); await sleep(2500);
+    await orbit('orbit with pedal 1 held (settled)');
+    key('1', 'keyup'); await sleep(2500);
+    key('1', 'keydown');
+    await orbit('orbit begun as pedal 1 goes down');
+    key('1', 'keyup'); await sleep(50);
+    await orbit('orbit begun as pedal 1 comes back');
+    await sleep(1500);
+    // ...and with a part selected, whose tint the page draws over the picture
+    await click(cx, cy); await sleep(300);
+    log(`pedalcam: selected ${J(selUnits())}`);
+    await orbit('orbit, a part selected, no pedal');
+    key('1', 'keydown'); await sleep(2500);
+    await orbit('orbit, a part selected, pedal 1 held');
+    key('1', 'keyup'); await sleep(100);
+    await orbit('orbit, a part selected, as pedal 1 comes back');
+    key('Escape'); await sleep(1500);
+  }
+
+  // ── the same with REAL messages: the mouse dragging while the key goes down, repeats and comes up
+  // (where 2, "the hand": the pointer and the keys go through the desktop's own input queue, which is the
+  // only way to see what a person gets: the page's input can be held up there by the shell and by nothing
+  // a posted message meets. `wheel`: the wheel is turned, in and back out, instead of the drag.)
+  async function realcam(where = 0, keys = ['1'], wheel = false) {
+    if (where === 2 && !(await win()).foreground) { log(`hand (${keys.join(' and ')}${wheel ? ', wheel' : ''}): NOT RUN: this window is not in front, and typed keys go to whatever is (run --selftest=hand by itself)`); return; }
+    v.showAll(); await sleep(300); await rest(); await sleep(300);
+    const vk = { 1: 0x31, q: 0x51 };
+    const evs = [], T = () => performance.timeOrigin + performance.now();   // the shell's clock
+    let moves = 0, wheels = 0;
+    const note = e => evs.push([T(), e.type, e.key || '', e.repeat ? 'r' : '', e.isTrusted ? 't' : 's']);
+    const count = e => { if (e.type === 'wheel') wheels++; else moves++; };
+    const heard = ['keydown', 'keyup', 'pointerdown', 'pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'focus'];
+    for (const t of heard) addEventListener(t, note, true);
+    for (const t of ['pointermove', 'wheel']) addEventListener(t, count, true);
+    // each page frame: how far the camera has gone so far (degrees round its target, mm towards or away
+    // from it, each summed frame to frame), how many controls are lit, how many moves have come
+    const cam = [], gaps = []; let last = 0, on = true, az = null, far = 0, turn = 0, dolly = 0, nf = 0;
+    const tick = t => {
+      if (last) gaps.push(t - last); last = t;
+      const a = v.controls.getAzimuthalAngle() * 180 / Math.PI, f = v.camera.position.distanceTo(v.controls.target);
+      if (az !== null) { const da = Math.abs(a - az); turn += Math.min(da, 360 - da); dolly += Math.abs(f - far); }
+      az = a; far = f;
+      cam.push([turn, dolly, document.querySelectorAll('.pedal.on:not(#deckbtn)').length, moves + wheels]);
+      if (++nf % 8 === 0) post({ t: 'Tping', at: T() });
+      if (on) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    await call('Tpings');
+    const a = await win(), T0 = T();
+    const d = wheel ? call('Tdrag', { x0: cx, y0: cy, x1: cx, y1: cy, n: 24, ms: 100, wheel: true })
+            : where === 2 ? call('Tdrag', { x0: cx - 300, y0: cy, x1: cx + 300, y1: cy + 60, n: 300, ms: 8 })
+            : drag(cx - 300, cy, cx + 300, cy + 60, 600);            // 2.4 s of it
+    await sleep(600);
+    // the keys down, held 0.8 s (repeating as a held key does), and up
+    const ops = [];
+    for (let i = 0; i < 24; i++) for (const k of keys) ops.push([where, vk[k], 1, i ? Math.round(33 / keys.length) : 5]);
+    for (const k of keys) ops.push([where, vk[k], 0, 25]);
+    const Tk = T(), kr = await call('Tkey', { ops }), Tu = T() - 25;   // (the last key-up is followed by a 25 ms wait)
+    const dr = await d, Td = T();
+    await sleep(300);
+    const st = await win(), ms = T() - T0, lag = await call('Tpings');
+    on = false;
+    for (const t of heard) removeEventListener(t, note, true);
+    for (const t of ['pointermove', 'wheel']) removeEventListener(t, count, true);
+    gaps.sort((x, y) => x - y);
+    const lit = cam.map((c, i) => c[2] > 0 ? i : -1).filter(i => i >= 0), k0 = lit.length ? lit[0] : -1, k1 = lit.length ? lit[lit.length - 1] : -1;
+    const went = (i, j) => i < 0 || j < 0 ? '?' : (wheel ? (cam[j][1] - cam[i][1]).toFixed(1) + ' mm' : (cam[j][0] - cam[i][0]).toFixed(1) + ' deg') + ` (${cam[j][3] - cam[i][3]} ${wheel ? 'wheel events' : 'pointer moves'})`;
+    const first = (type, k) => evs.find(e => e[1] === type && (k === undefined || e[2] === k) && e[3] !== 'r');
+    const rel = (e, since) => e ? (e[0] - since).toFixed(0) + ' ms' : 'NEVER';
+    const stuck = k1 === cam.length - 1;
+    log(`hand (${['keys posted to the page', 'keys posted to the shell window', 'pointer and keys through the input queue, as a hand'][where]}): ${wheel ? 'the wheel turned for 2.4 s' : 'a 2.4 s drag'}, ${keys.join(' and ')} held 0.8 s inside it`);
+    log(`    keys ${J(kr)}; ${wheel ? 'wheel' : 'drag'} ${J(dr)}; foreground ${st.foreground}, the keyboard with ${st.focus_class}${st.focus_is_shell ? ' (the shell)' : ''}`);
+    log(`    ${st.renders - a.renders} frames traced in ${ms.toFixed(0)} ms; page frames ${gaps.length}, median ${gaps[gaps.length >> 1].toFixed(1)} ms apart, 95% within ${gaps[Math.floor(gaps.length * 0.95)].toFixed(1)}, worst ${gaps[gaps.length - 1].toFixed(1)}; a message from the page waits for the shell, ms: ${lag}`);
+    log('    ' + keys.map(k => `keydown ${k} ${rel(first('keydown', k), Tk)} after it was asked for, keyup ${k} ${rel(first('keyup', k), Tu)} after the typing ended`).join('; ') +
+        `; repeats ${evs.filter(e => e[3] === 'r').length} of ${23 * keys.length}` +
+        (wheel ? `; wheel events ${wheels} of 24` : `; pointerdown ${rel(first('pointerdown'), T0)} after the drag was asked for, pointerup ${rel(first('pointerup'), Td)} after it was done (it is told 60 ms after the button comes up); pointer moves ${moves}`));
+    log(`    controls lit from page frame ${k0} to ${k1} of ${cam.length}${stuck ? ' (STILL LIT at the end)' : ''}; the camera went ${went(0, k0)} before, ${went(k0, k1)} while lit, ${went(k1, cam.length - 1)} after`);
+    const odd = evs.filter(e => !['keydown', 'keyup', 'pointerdown', 'pointerup', 'lostpointercapture'].includes(e[1]) || e[4] !== 't');
+    if (odd.length) log(`    other events: ${J(odd.slice(0, 20).map(e => [e[0] - T0, ...e.slice(1)]))}`);
+    const bad = [];
+    for (const k of keys) {
+      const dn = first('keydown', k), up = first('keyup', k);
+      if (!dn || dn[0] - Tk > 60) bad.push(`keydown ${k} late or lost`);
+      if (!up || up[0] - Tu > 60) bad.push(`keyup ${k} late or lost`);
+    }
+    if (!wheel && !first('pointerup')) bad.push('no pointerup');
+    if (k0 < 0 || stuck) bad.push(k0 < 0 ? 'nothing lit' : 'a control stuck lit');
+    const c = wheel ? 1 : 0;
+    if (k0 >= 0 && !(cam[k0][c] > 1 && cam[k1][c] - cam[k0][c] > 1 && cam[cam.length - 1][c] - cam[k1][c] > 1)) bad.push('the camera stopped');
+    log(`    ${bad.length ? 'FAILED: ' + bad.join(', ') : 'ok'}`);
+    for (const k of keys) key(k, 'keyup');
+    await sleep(1500);
+  }
+
   async function main() {
     while (!(window.viewer && viewer.M.parts && viewer.M.list.length && !$('loading'))) await sleep(100);
     v = window.viewer; M = v.M; THREE = v.THREE;
@@ -626,6 +735,11 @@
     if (want('motion')) await motion();
     if (want('idle')) await idle();
     if (want('settle')) await settle();
+    if (want('pedalcam')) await pedalcam();
+    if (want('realcam')) { await realcam(0); await realcam(1); }
+    if (want('hand') || only.includes('hand1')) await realcam(2);
+    if (want('hand')) { await realcam(2, ['q']); await realcam(2, ['1', 'q']); await realcam(2, ['1'], true); }
+    if (only.includes('handloop')) for (let i = 0; i < 3; i++) { await realcam(2); await realcam(2, ['1', 'q']); }
     // ── quality: the two fixed views, native against the page's Blender tracer
     if (want('quality') || only.includes('native')) {
       const blender = !only.includes('native');
