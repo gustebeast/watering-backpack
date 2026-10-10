@@ -186,7 +186,7 @@ generator for any board whose geometry comes from the mechanical design.
 |---|---|---|
 | `cadkit/kicad_geom.py` | KiCad's Python (`pcbnew`) | routed `.kicad_pcb` → `<board>.geom.json`: outline polygon, cutouts, thickness, every footprint's position / rotation / side / **F.Fab body box** / through-hole pad extent, and board-level silkscreen text |
 | `cadkit/kicad_silk.py` | KiCad's Python | prints the board's name + revision, test-pad nets, connector pinouts and (with `silk_refs` / `--refs`) a designator beside each part, each only where it fits; cannot move copper. All of it reaches the CAD: `kicad_geom.py` exports the lettering and `Boards.silk()` draws it |
-| `cadkit/board_geom.py` | your CAD Python (CadQuery) | `Boards(geom_dir)`: `solid()`, `solid(mated=True)`, `plate()`, `bodies()`, `silk()`, `mouth()`, `lead_exit()`, `tails()`, `holes()`; plus the shared part tables `HEIGHT`, `TAIL`, `THT_LEGS`, `PANEL` |
+| `cadkit/board_geom.py` | your CAD Python (CadQuery) | `Boards(geom_dir)`: `solid()`, `solid(mated=True)`, `plate()`, `bodies()`, `silk()`, `mouth()`, `lead_exit()`, `plug()` / `wire_exit()` / `way()` (a JST's crimp housing and where each way's wire leaves it), `tails()`, `holes()`; plus the shared part tables `HEIGHT`, `TAIL`, `THT_LEGS`, `PANEL` |
 | `cadkit/board_check.py` | your CAD Python | `check(name, solid, geom)`: every routed part present, not mirrored, cutouts match |
 | `cadkit/pcbflow/` | both (see §0) | **makes** the board: generator helpers, layout, autoroute, DRC, repair, verify, fab package |
 | `cadkit/pcb.py` | your CAD Python | the plastic: `pcb_cradle` (one-screw drop-in mount), drawing-accurate JST XH / PH headers with tails and mated plugs |

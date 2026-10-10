@@ -26,6 +26,17 @@ cadkit.web.parts. What the model replaces is then cut off the board's solid. Any
 that fails keeps its box, and the run says how many did and why (set WEB_BOARDS_WHY to
 have each named). A machine without KiCad's models gets the drawn parts and boxes.
 
+A JST HEADER ALSO GETS ITS PLUG. Every XH / PH / ZH header that got a model is shown
+mated: the crimp housing (XHP-n, PHR-n, ZHR-n) seated in it, a part of its own named
+<board part>__<ref>_plug, so it is selected and hidden with its board like the header is
+and can be picked out by name. It is Boards.plug_solid(): the same record
+Boards.wire_exit() answers from, so a wire drawn to that point ends in the drawn cavity.
+No plug is drawn where the project says nothing is plugged in (Boards(unmated=...)), or
+where the assembly already has a part of its own standing where the plug would (a cable
+drawn with its housing). And the room the CAD reserves for a mated side-entry plug -- a
+block past the header's mouth, on the board's solid -- is cut away with the header's box:
+it is a clearance envelope, right for the gates and not a thing to look at.
+
 THE PLACEMENT RULE is KiCad's (pcbnew/exporters/step, getModelLocation), in the board
 frame geom.json uses (centred, +Y up, underside at z = 0):
     board <- T(x, y, top ? thickness : 0) . Rz(rot) . [bottom: Rx(180)]
@@ -50,6 +61,8 @@ SEP = "__"                    # <board part>__<ref> names a component's own part
 LOOSE = 0.25                  # how far outside its F.Fab box a hand-drawn body may stand
 ENVELOPE = 1.2                # ...and a package envelope drawn with its leads
 PLUG = 9.0                    # a mated side-entry header: its plug's reach past the mouth
+PLUG_PART = "_plug"           # <board part>__<ref>_plug names a header's crimp housing
+PLUG_RGB = WP.CREAM           # natural nylon, like the header it is seated in
 BACK = 0.8                    # ...and how far its back may stand off the F.Fab box
 
 
@@ -342,6 +355,28 @@ def _own_part(f, h, t, pose, panel, edge=None):
         return None
 
 
+def _plug_part(boards, board, ref, pose):
+    """The crimp housing seated in JST header `ref` (Boards.plug_solid), meshed where the
+    board is: a mesh_shape() result of ONE colour (the export gives it PLUG_RGB and the
+    nylon finish), or None for a part there is no housing for."""
+    from .export import mesh_shape, ANGULAR, _topods
+    from OCP.gp import gp_Trsf
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    try:
+        solid = boards.plug_solid(board, ref)
+        if solid is None:
+            return None
+        R, tr = pose[:3, :3], pose[:3, 3]
+        trsf = gp_Trsf()
+        trsf.SetValues(R[0, 0], R[0, 1], R[0, 2], tr[0], R[1, 0], R[1, 1], R[1, 2], tr[1],
+                       R[2, 0], R[2, 1], R[2, 2], tr[2])
+        placed = BRepBuilderAPI_Transform(_topods(solid), trsf, True).Shape()
+        return mesh_shape(placed, MODEL_TOLERANCE, ANGULAR, copy=False)
+    except Exception as exc:
+        print("web boards: %s %s -- its plug could not be drawn: %s" % (board, ref, exc))
+        return None
+
+
 def _has(points, p, tol=0.01):
     return bool((np.abs(points - p).max(axis=1) < tol).any()) if len(points) else False
 
@@ -379,7 +414,11 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
             if pose is not None:
                 found.append((board, pose, name))
                 break
-    stats = {"boards": 0, "models": 0, "kept": {}}
+    stats = {"boards": 0, "models": 0, "kept": {}, "plugs": 0, "theirs": 0}
+    why = bool(os.environ.get("WEB_BOARDS_WHY"))
+    # every part's box, to tell a plug the project already draws from an empty header
+    boxes_of = {n: (m["pos"].min(0), m["pos"].max(0)) for n, m in meshed.items()
+                if SEP not in n and len(m.get("pos", ())) and "inst" not in m}
 
     def keep(why):
         stats["kept"][why] = stats["kept"].get(why, 0) + 1
@@ -416,6 +455,72 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
         sv = meshed[solid_name]["verts"]
         local = _apply(np.linalg.inv(pose), sv.astype(float))    # the solid's corners, board frame
         cut, added, drawn = [], 0, 0
+
+        def mate(f, h, on_board=True):
+            """Header `f` got its model: clear the room the CAD reserved for its plug off
+            the board's solid, and seat the plug itself."""
+            try:
+                rec = boards.plug(board, f["ref"]) if hasattr(boards, "plug") else None
+            except Exception as exc:
+                log("web boards: %s %s -- no plug (%s)" % (solid_name, f["ref"], exc))
+                return
+            if rec is None:
+                return
+            if rec["side"] and on_board:
+                # THE MATED ENVELOPE, past the mouth: as wide as the header, as far as any
+                # project reserves (PLUG), from the board's face up. A board drawn by hand
+                # unions one such block per connector into ONE solid along a row, and its
+                # corners then say nothing about where one connector's part of it ends --
+                # so the room is cleared by where the routed board says the mouth is
+                fx0, fx1, fy0, fy1 = f["fab"]
+                ox, oy = rec["out"][0], rec["out"][1]
+                # (`face` is the mouth's place along `out`; 0.02 back from it, so no
+                # skin of the block is left standing on the header's own cut)
+                face, sgn = rec["face"], (ox if abs(ox) > 0.5 else oy)
+                a, b = sorted((sgn * (face - 0.02), sgn * (face + PLUG)))
+                if abs(ox) > 0.5:
+                    bx0, bx1, by0, by1 = a, b, fy0 - 0.5, fy1 + 0.5
+                else:
+                    bx0, bx1, by0, by1 = fx0 - 0.5, fx1 + 0.5, a, b
+                top = max(h or 0.0, 8.0)
+                cut.append((bx0, bx1, by0, by1) + ((-top - 0.05, -0.005) if f["side"] == "B"
+                                                    else (t + 0.005, t + top + 0.05)))
+            if (board, f["ref"]) in getattr(boards, "UNMATED", ()):
+                return
+            pm = _plug_part(boards, board, f["ref"], pose)
+            if pm is None:
+                return
+            # IS THE PLUG ALREADY THERE? A project that draws a cable with its housing has
+            # a part standing where this one would: something about a plug's size that
+            # fills most of the room the plug takes OUTSIDE its header (a project draws
+            # its housing in front of the mouth, not down in the pocket) and is as broad
+            # as the housing there, along the row and across it -- which a wire that ends
+            # in the plug is not, though its box can cover the same room.
+            lo, hi = pm["pos"].min(0), pm["pos"].max(0)
+            whole = float(np.prod(hi - lo))
+            out_w = pose[:3, :3] @ np.array(rec["out"])
+            back = float((_apply(pose, np.array([rec["o"]]))[0] * out_w).sum())
+            shown = pm["pos"][(pm["pos"].astype(float) @ out_w) > back - rec["proud"] - 0.01]
+            lo, hi = shown.min(0), shown.max(0)
+            vol = float(np.prod(hi - lo))
+            across = [pose[:3, :3] @ np.array(rec[k]) for k in ("row", "up")]
+            need = [float(np.ptp(shown.astype(float) @ a)) for a in across]
+            for cand, (clo, chi) in boxes_of.items():
+                if cand in used or cand == solid_name:
+                    continue
+                both = float(np.prod(np.clip(np.minimum(hi, chi) - np.maximum(lo, clo), 0.0, None)))
+                if both > 0.5 * vol and float(np.prod(chi - clo)) < 8.0 * whole:
+                    q = meshed[cand]["pos"].astype(float)
+                    q = q[((q > lo - 0.2) & (q < hi + 0.2)).all(axis=1)]
+                    if len(q) < 4 or any(float(np.ptp(q @ a)) < 0.7 * n for a, n in zip(across, need)):
+                        continue
+                    # the assembly has its own part where the plug goes: that is the plug
+                    stats["theirs"] += 1
+                    if why:
+                        log("  plug is the project's: %s %s <- %s" % (solid_name, f["ref"], cand))
+                    return
+            meshed[solid_name + SEP + f["ref"] + PLUG_PART] = pm
+            stats["plugs"] += 1
         for f in g["footprints"]:
             ms = _models(f)
             if not f.get("fab") or not (ms or WP.knows(f["fpid"].split(":")[-1])):
@@ -486,6 +591,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                         used.add(best[1])
                         stats["models"] += 1
                         stats["drawn"] = stats.get("drawn", 0) + 1
+                        mate(f, best[2], on_board=False)
                         continue
                 if len(on) < 2:
                     keep("not drawn on this instance")
@@ -521,6 +627,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                           else (t + 0.005, max(hi[2], t + h) + 0.05))
                 cut.append((min(x0, lo[0]) - 0.02, max(x1, hi[0]) + 0.02,
                             min(y0, lo[1]) - 0.02, max(y1, hi[1]) + 0.02, z0, z1))
+                mate(f, h)
                 continue
             mm = model_mesh(path)
             if mm is None:
@@ -550,45 +657,61 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                 a0, a1, b0, b1 = f["tht"]
                 cut.append((a0 - 0.02, a1 + 0.02, b0 - 0.02, b1 + 0.02,
                             (t + 0.005, t + 30.0) if back else (-30.0, -0.005)))
+            mate(f, h)
         counts[board] = counts.get(board, [0, 0])
         counts[board][0] += 1
         counts[board][1] += added
         if not added:
             continue
         try:
-            boxes = None
-            for c in cut:
-                if len(c) == 5:
-                    x0, x1, y0, y1, (z0, z1) = c
-                else:
-                    x0, x1, y0, y1, z0, z1 = c
-                b = cq.Workplane("XY").box(x1 - x0, y1 - y0, z1 - z0).translate(
-                    ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
-                boxes = b if boxes is None else boxes.add(b)
-            tool = cq.Compound.makeCompound([s for s in boxes.vals()])
+            # CUTTERS THAT OVERLAP ONE ANOTHER ARE CUT ONE AT A TIME. Given a compound of
+            # overlapping boxes OCCT returns a VALID solid with only some of them taken
+            # out, and nothing about it says so: a tee came back 367 mm3 lighter where
+            # 3350 should have gone, and its headers stood inside blocks of board-green
+            # (a header's own box, its tails' box and its plug's room all overlap). So
+            # the boxes that touch nothing else go as one compound, the rest singly.
+            norm = [(c[0], c[1], c[2], c[3], c[4][0], c[4][1]) if len(c) == 5 else tuple(c)
+                    for c in cut]
+
+            def apart(p, q):
+                return (p[1] <= q[0] or q[1] <= p[0] or p[3] <= q[2] or q[3] <= p[2]
+                        or p[5] <= q[4] or q[5] <= p[4])
+
+            free = [c for i, c in enumerate(norm)
+                    if all(apart(c, q) for j, q in enumerate(norm) if j != i)]
+            singly = [c for c in norm if c not in free]
             R, tr = pose[:3, :3], pose[:3, 3]
             from OCP.gp import gp_Trsf
             trsf = gp_Trsf()
             trsf.SetValues(R[0, 0], R[0, 1], R[0, 2], tr[0], R[1, 0], R[1, 1], R[1, 2], tr[1],
                            R[2, 0], R[2, 1], R[2, 2], tr[2])
             from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
-            placed = cq.Shape.cast(BRepBuilderAPI_Transform(tool.wrapped, trsf, True).Shape())
+
+            def placed_box(c):
+                x0, x1, y0, y1, z0, z1 = c
+                b = cq.Workplane("XY").box(x1 - x0, y1 - y0, z1 - z0).translate(
+                    ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)).val()
+                return cq.Shape.cast(BRepBuilderAPI_Transform(b.wrapped, trsf, True).Shape())
+
             # a COPY is cut: OCCT writes to a boolean's operands, and the gates key their
             # pair caches on the caller's shape byte for byte
             from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
             solid = cq.Shape.cast(BRepBuilderAPI_Copy(_topods(shape_of(solid_name)), True, False).Shape())
             v0 = solid.Volume()
-            trimmed = solid.cut(placed)
-            if not trimmed.isValid() or trimmed.Volume() > v0 - 1e-3:
-                # OCCT returns the operand untouched when the cutters overlap one
-                # another (they do where hand-drawn bodies stand close): one at a time
-                trimmed = solid
-                for b in placed.Solids():
-                    nxt = trimmed.cut(b)
-                    if nxt.isValid() and nxt.Volume() <= trimmed.Volume() + 1e-6:
-                        trimmed = nxt
-                if trimmed.Volume() > v0 - 1e-3:
-                    log("web boards: %s -- nothing came away under its models" % solid_name)
+            trimmed = solid
+            if free:
+                tool = cq.Compound.makeCompound([placed_box(c) for c in free])
+                nxt = solid.cut(tool)
+                if nxt.isValid() and nxt.Volume() <= v0 + 1e-6:
+                    trimmed = nxt
+                else:
+                    singly = free + singly
+            for c in singly:
+                nxt = trimmed.cut(placed_box(c))
+                if nxt.isValid() and nxt.Volume() <= trimmed.Volume() + 1e-6:
+                    trimmed = nxt
+            if trimmed.Volume() > v0 - 1e-3:
+                log("web boards: %s -- nothing came away under its models" % solid_name)
             new = mesh_shape(trimmed.wrapped)
             if new is not None:
                 meshed[solid_name] = new
@@ -601,4 +724,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
     log("web boards: %d board(s) carry %d part model(s), %d of them drawn here [%s]; boxes kept: %s"
         % (stats["boards"], stats["models"], stats.get("drawn", 0),
            ", ".join("%s x%d: %d" % (b, n, k) for b, (n, k) in sorted(counts.items())), kept))
+    log("web boards: %d JST plug(s) seated in their headers%s"
+        % (stats["plugs"], ", %d more are parts of the project's own" % stats["theirs"]
+           if stats["theirs"] else ""))
     return models_geo

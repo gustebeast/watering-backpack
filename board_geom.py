@@ -13,6 +13,8 @@ the lead leave).
     pcb   = BOARDS.solid("controller")           # laminate + every part body + THT tails
     env   = BOARDS.solid("controller", mated=True)   # ...with plugs seated: what to clear
     m     = BOARDS.mouth("controller", "J1")     # a panel connector's mouth, board frame
+    p, d  = BOARDS.wire_exit("controller", "J3", 2)  # where way 2's wire leaves J3's plug
+    plug  = BOARDS.plug_solid("controller", "J3")    # ...and the crimp housing it leaves
     ink   = BOARDS.ink("controller")             # the lettering, both faces, its own part
 
 `cadkit/board_check.py` then closes the loop: it probes the solid your project actually
@@ -294,7 +296,7 @@ class Boards:
     def __init__(self, geom_dir, *, height=None, tail=None, tht_legs=None, panel=None,
                  xh_mated_h=XH_MATED_H, ph_mated_h=PH_MATED_H, tht_tail=THT_TAIL,
                  side_plug_run=None, silk_font=None, silk_cap=SILK_CAP,
-                 silk_subst=None):
+                 silk_subst=None, unmated=()):
         self.geom_dir = os.fspath(geom_dir)
         self.HEIGHT = dict(HEIGHT, **(height or {}))
         self.TAIL = dict(TAIL, **(tail or {}))
@@ -305,6 +307,9 @@ class Boards:
         self.silk_font = os.fspath(silk_font) if silk_font else None
         self.silk_cap = silk_cap
         self.silk_subst = dict(silk_subst or {})
+        # connectors nothing is plugged into, as (board, ref): the viewer draws the
+        # header and no housing in it (cadkit.web.boards)
+        self.UNMATED = {tuple(u) for u in unmated}
         self._cache = {}
 
     # ── reading ──────────────────────────────────────────────────────────────────
@@ -355,16 +360,161 @@ class Boards:
                 if lab["side"] == side and lab.get("kind") != "ref"]
 
     # ── where things are ─────────────────────────────────────────────────────────
-    def way(self, board: str, ref: str, n):
-        """Where the wire on WAY `n` of connector `ref` leaves it, in the board frame:
-        lead_exit()'s point, moved along the pin row onto that way's own pad.
+    def plug(self, board: str, ref: str):
+        """The crimp housing seated in JST header `ref`, in the board frame -- THE ONE
+        PLACE that says where a plug is and where each of its wires leaves it. None for a
+        part cadkit.pcb.JST_SERIES has no numbers for (then way() falls back to
+        lead_exit(), as it always did).
 
-        The pad is READ from the routed board (the geom file's `pads`), not rebuilt from
-        a pitch and the footprint's rotation. That arithmetic is right until a footprint
-        numbers its ways from the other end, and then it is wrong by a mirror image --
-        every conductor exactly on a contact, the wrong one, which no clearance check
-        can see (five lever boards and a leg joint were drawn that way)."""
+            housing   "XHP-8", "PHR-4", "ZHR-4": what to order and crimp
+            ways      {way number: (x, y, z)} the centre of that way's wire cavity ON THE
+                      HOUSING'S BACK FACE -- where the insulation enters the plastic
+            out       unit vector a wire leaves along: the board's normal off a top-entry
+                      header, out of the mouth in the board's plane off a side-entry one
+            row       unit vector along the row, way 1 toward way n
+            up        unit vector to the housing's rail side (cadkit.pcb.JST_SERIES `near`)
+            o         the middle of the row on the back face
+            length, proud   the housing along `out`, and how much of it shows
+
+        EVERY WAY IS ON ITS OWN PAD, READ from the routed board (the geom file's `pads`),
+        not rebuilt from a pitch and the footprint's rotation. That arithmetic is right
+        until a footprint numbers its ways from the other end, and then it is wrong by a
+        mirror image -- every conductor exactly on a contact, the wrong one, which no
+        clearance check can see (five lever boards and a leg joint were drawn that way).
+        The MOUTH of a side-entry part is read off the geometry too: the pad row is at
+        its back, so the mouth is the F.Fab edge on the other side of the body from the
+        pads. Everything else -- how far the housing stands proud, how high its contact
+        axis is -- is cadkit.pcb.JST_SERIES, which also says where each number is from.
+
+        cadkit.pcb.jst_housing draws the housing from the same record (plug_solid), so
+        the drawn cavity is centred on `ways[n]` by construction."""
         f = self.footprint(board, ref)
+        name = fp_name(f["fpid"])
+        part = _pcb.jst_part(name)
+        if part is None or not f.get("fab"):
+            return None
+        s = _pcb.JST_SERIES[part["series"]]
+        pads, n = f.get("pads") or {}, part["n"]
+        gone = [k for k in range(1, n + 1) if str(k) not in pads]
+        if gone:
+            raise KeyError("%s %s (%s) has no way %s in its geom file (ways: %s). Re-export "
+                           "the board with cadkit/kicad_geom.py if `pads` is missing altogether"
+                           % (board, ref, name, gone, ", ".join(sorted(pads)) or "none exported"))
+        P = [pads[str(k)] for k in range(1, n + 1)]
+        ux, uy = P[-1][0] - P[0][0], P[-1][1] - P[0][1]
+        span = math.hypot(ux, uy)
+        if abs(span - (n - 1) * s["pitch"]) > 0.05:
+            raise ValueError("%s %s: ways 1..%d span %.2f on the routed board, not the %.2f "
+                             "of a %s at %.1f pitch" % (board, ref, n, span,
+                                                        (n - 1) * s["pitch"], name, s["pitch"]))
+        ux, uy = ux / span, uy / span
+        vx, vy = -uy, ux                                  # across the row, in the board's plane
+        x0, x1, y0, y1 = f["fab"]
+        cx, cy = sum(q[0] for q in P) / n, sum(q[1] for q in P) / n
+        # the body's centre from the pad row, across it: which way the body is off-centre
+        off = ((x0 + x1) / 2.0 - cx) * vx + ((y0 + y1) / 2.0 - cy) * vy
+        if abs(off) < 0.05:
+            raise ValueError("%s %s: the pad row sits mid-body, so which side is the mouth "
+                             "(or the rail wall) cannot be read from the geometry" % (board, ref))
+        sg = 1.0 if off > 0 else -1.0
+        t = self.load(board)["thickness_mm"]
+        nz = -1.0 if f["side"] == "B" else 1.0
+        z0 = 0.0 if f["side"] == "B" else t
+        if not part["side"]:
+            mated = {"XH": self.xh_mated_h, "PH": self.ph_mated_h}[part["series"]]
+            header = s["top"][0]
+            out, up = (0.0, 0.0, nz), (-sg * vx, -sg * vy, 0.0)     # rails: the pads' side
+            ways = {k + 1: (q[0], q[1], z0 + nz * mated) for k, q in enumerate(P)}
+            proud, length = mated - header, mated - (header - s["pocket"]) - _pcb.JST_FIT
+            face = None
+        else:
+            axis, proud, pocket, _body = s["side"][part["smt"]]
+            mx, my = sg * vx, sg * vy                             # out of the mouth
+            face = max(x * mx + y * my for x in (x0, x1) for y in (y0, y1))
+            out, up = (mx, my, 0.0), (0.0, 0.0, nz)
+            ways = {}
+            for k, q in enumerate(P):
+                d = face + proud - (q[0] * mx + q[1] * my)
+                ways[k + 1] = (q[0] + d * mx, q[1] + d * my, z0 + nz * axis)
+            length = proud + pocket - _pcb.JST_FIT
+        a, b = ways[1], ways[n]
+        return dict(part, housing=s["housing"] % n, ways=ways, out=out, up=up,
+                    row=(ux, uy, 0.0), o=tuple((a[i] + b[i]) / 2.0 for i in range(3)),
+                    length=length, proud=proud, face=face)
+
+    def plug_solid(self, board: str, ref: str):
+        """plug()'s housing as a solid in the board frame (solid()'s), or None: the part
+        the viewer shows seated in the header. Place it with the board, like ink()."""
+        p = self.plug(board, ref)
+        if p is None:
+            return None
+        o, out, up = p["o"], p["out"], p["up"]
+        back = tuple(-c for c in out)                             # the housing's own +Y
+        ex = (back[1] * up[2] - back[2] * up[1], back[2] * up[0] - back[0] * up[2],
+              back[0] * up[1] - back[1] * up[0])                  # +-row: the housing is symmetric
+        xs = [sum((p["ways"][k][i] - o[i]) * ex[i] for i in range(3))
+              for k in range(1, p["n"] + 1)]
+        h = _pcb.jst_housing(p["series"], p["length"], xs)
+        loc = cq.Location(cq.Plane(origin=o, xDir=ex, normal=up))
+        return cq.Workplane("XY").newObject([v.moved(loc) for v in h.vals()])
+
+    def wire_exit(self, board: str, ref: str, n):
+        """(point, direction) for WAY `n` of JST connector `ref`, in the board frame: the
+        centre of that way's wire cavity on the back face of the seated crimp housing, and
+        the unit vector the wire leaves along. plug() is the computation; this is the
+        question a harness asks of it. Raises for a part plug() has no numbers for.
+
+        IN THE WORLD: a board is placed by moving solid() (or a hand-drawn board) with an
+        ordinary translate / rotate, and the point goes through the SAME move -- push it
+        through the call that places the board, or, for a board whose pose is the sum of
+        a module's worth of moves, read the pose off the placed solid:
+
+            p, d = BOARDS.wire_exit("motor_ctrl", "J1", 3)
+            mark = cq.Workplane("XY").add(cq.Vertex.makeVertex(*p))
+            world = cadkit.board_check.place(placed_board, BOARDS.load("motor_ctrl"), mark)
+
+        The direction is a vector: move it by the rotation alone (the difference of two
+        placed points)."""
+        p = self.plug(board, ref)
+        if p is None:
+            raise KeyError("%s %s (%s) is not a JST header cadkit.pcb.JST_SERIES has a "
+                           "housing for" % (board, ref, self.footprint(board, ref)["fpid"]))
+        if int(n) not in p["ways"]:
+            raise KeyError("%s %s has no way %r (it is a %s)" % (board, ref, n, p["housing"]))
+        return p["ways"][int(n)], p["out"]
+
+    def _envelope_run(self, name):
+        """The mated run solid(mated=True) reserves past a side-entry mouth for footprint
+        `name` (the LONGEST registered prefix), or None."""
+        for key in sorted(self.side_plug_run, key=len, reverse=True):
+            if name.startswith(key):
+                return self.side_plug_run[key]
+        return None
+
+    def way(self, board: str, ref: str, n):
+        """Where the wire on WAY `n` of connector `ref` leaves the envelope the CAD
+        reserves for the mated pair, in the board frame: the point a cable solid is
+        drawn from.
+
+        For a JST it is wire_exit()'s line -- that way's own cavity, read from the routed
+        pads (see plug()) -- carried out along the wire's direction to the face of the
+        envelope solid(mated=True) draws. For every top-entry header and for PH side
+        entry that IS wire_exit()'s point: the envelope ends at the housing's back face.
+        For XH side entry the envelope is deliberately longer than the housing (7.5
+        reserved, 2.8 of housing: cadkit.pcb.jst_xh_side_header says why), so the point
+        is 4.7 further out on the same line and a cable drawn from it starts on the
+        envelope rather than inside it. A harness that wants the wire to reach the
+        plastic runs it back along -way_dir() to wire_exit().
+
+        For anything else it is lead_exit()'s point, moved along the pin row onto that
+        way's own pad."""
+        f = self.footprint(board, ref)
+        p = self.plug(board, ref)
+        if p is not None and str(n).isdigit() and int(n) in p["ways"]:
+            q, out = p["ways"][int(n)], p["out"]
+            run = self._envelope_run(fp_name(f["fpid"])) if p["side"] else None
+            more = max(0.0, run - p["proud"]) if run else 0.0
+            return tuple(q[i] + more * out[i] for i in range(3))
         pads = f.get("pads") or {}
         if str(n) not in pads:
             raise KeyError("%s %s has no way %r in its geom file (ways: %s). Re-export the "
@@ -381,8 +531,11 @@ class Boards:
         """The direction a wire travels LEAVING connector `ref`, in the board frame: up
         off a top-entry part, out of the mouth in the board's plane off a side-entry one.
         A lead drawn into a side-entry housing along the board normal goes through its
-        body."""
+        body. A JST's is plug()'s `out`."""
         f = self.footprint(board, ref)
+        p = self.plug(board, ref)
+        if p is not None:
+            return p["out"]
         if "Horizontal" not in f["fpid"]:
             return (0.0, 0.0, 1.0)
         ax, _lo, _hi, _o, towards_hi = self._side_mouth(board, f)
