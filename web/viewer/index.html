@@ -1629,11 +1629,16 @@
     document.title = $('title').textContent = about.title || 'Assembly';
     $('subtitle').textContent = about.subtitle ? about.subtitle + ' · ' : '';
     $('deckhint').style.display = rig && rig.deck_prefixes ? '' : 'none';
-    // a scratch view is not a build: its number would be the surroundings', not its own
-    const buildN = stamp && stamp.scratch ? null : about.build != null ? about.build : rig && rig.build;
-    $('build').textContent = [buildN != null ? 'build #' + buildN : '',
+    // WHICH MODEL THIS IS, small, top right: the build's number, and for an agent's
+    // scratch view the build it stands on plus whose view and which of theirs
+    // ("build #880 + bronner 14"), so a glance says whether what is on screen is the latest
+    const scratch = stamp && stamp.scratch;
+    const buildN = scratch ? stamp.build : about.build != null ? about.build : rig && rig.build;
+    const whose = scratch && stamp.agent ? ' + ' + stamp.agent + (stamp.n ? ' ' + stamp.n : '') : '';
+    $('build').textContent = [buildN != null ? 'build #' + buildN + whose : whose.slice(3),
                               stamp ? 'local · ' + new Date(stamp.t * 1000).toLocaleTimeString() : '']
                              .filter(Boolean).join(' · ');
+    $('build').title = whose ? `build #${buildN} is the model the rest is from; over it, ${stamp.agent}'s own parts, as that worktree last made them (its view number ${stamp.n})` : '';
     disposeModel();
     curCarr = null; curPress = null;
     buildModel(gltf);
