@@ -461,8 +461,13 @@ def _desktop(out):
 
 
 def _open(url, new, open_browser, out=None):
+    """Say where the model is. A BUILD NEVER OPENS A BROWSER TAB (`out` given: it prints
+    the address, and an open page or the desktop app's tab takes the new model by itself)
+    unless CADKIT_VIEWER=browser asks for one; `py -m cadkit.web.view`, run by hand, does."""
     in_app = _desktop(out) if out is not None else False
-    print("web view: %s%s" % (url, "   (in the desktop app)" if in_app else "" if new else "   (an open page reloads itself)"))
+    print("web view: %s%s" % (url, "   (in the desktop app)" if in_app else "   (an open page reloads itself)"))
+    if out is not None and os.environ.get("CADKIT_VIEWER") != "browser":
+        return
     if new and open_browser and not in_app:
         import webbrowser
         webbrowser.open(url)
