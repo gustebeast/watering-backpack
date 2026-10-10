@@ -312,8 +312,9 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
     """parts = [(name, pos float32 (n,3), tri uint32 (m,3), (r, g, b, a), col)]: `col`
     is None, or uint8 (n,4) per-vertex colour (linear, as glTF's COLOR_0), and then the
     part's material is plain white under it. A part whose `mats` entry is a filament
-    takes that filament's colour in place of its own."""
-    from .finishes import FILAMENTS, surfaces
+    takes that filament's colour in place of its own, and so does one whose finish is a
+    single material (finishes.COLOURS: brass)."""
+    from .finishes import COLOURS, FILAMENTS, surfaces
     buf = bytearray()
     views, accessors, meshes, nodes, materials, mat_ix = [], [], [], [], [], {}
 
@@ -328,6 +329,8 @@ def write_glb(parts, out: pathlib.Path, extras=None, units=None, mats=None) -> N
     for name, pos, tri, rgba, col in parts:
         if col is None and mats and mats.get(name) in FILAMENTS:
             rgba = tuple(FILAMENTS[mats[name]][0]) + (1.0,)
+        elif col is None and mats and mats.get(name) in COLOURS:
+            rgba = tuple(COLOURS[mats[name]]) + (1.0,)
         key = (1.0, 1.0, 1.0, 1.0) if col is not None else tuple(round(float(c), 4) for c in rgba)
         if key not in mat_ix:
             mat_ix[key] = len(materials)
