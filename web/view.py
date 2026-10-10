@@ -4,8 +4,11 @@
     show(parts)                      # [(name, solid, colour)] -> the page, in a browser tab
     show("assembly.step")            # or the assembly file a build already wrote
 
-`show()` meshes the parts into <project>/.webview/, starts a small server there if one
-is not running, and opens the page the first time. An open page watches the model's
+`show()` meshes the parts into <project>/.webview/, tells THE server of the project
+(one server for every project on this machine, on one port: started if none is running;
+each project is a path under it, http://127.0.0.1:8137/p/<project>/, and a tab in the
+page), and opens the page the first time. It also tells the desktop app, if that is
+running (cadkit.web.desktop); with CADKIT_VIEWER=desktop the app is where it is shown. An open page watches the model's
 stamp and reloads it by itself, keeping the camera and whatever is hidden, so after the
 first call the loop is: build, look. It never raises: trouble with the viewer must not
 cost a build.
@@ -21,7 +24,6 @@ the model, and that folder is a web site.
 from __future__ import annotations
 
 import argparse
-import functools
 import http.server
 import json
 import os
@@ -32,84 +34,318 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 from .export import PAGE, export, rig_names, step_parts
 from .trace import Tracer
 
-PORT = 8137
-PORTS = 20                      # how many ports up from PORT a project may land on
+# ONE SERVER, ONE PORT, for every project and worktree on this machine. Each project is
+# a PATH under it (/p/<key>/), not a port of its own. CADKIT_VIEW_PORT moves it (checks).
+PORT = int(os.environ.get("CADKIT_VIEW_PORT") or 8137)
+PROTO = 2                       # what the server answers; an older one is replaced
 # what the server takes from the model folder; everything else is the page's own
 MODEL_FILES = ("assembly.glb", "assembly.geo.json", "rig.json", "stamp.json")
 
 
+# ── the projects the server knows ─────────────────────────────────────────────────
+def _store():
+    """Where the list of projects is kept: the desktop app's own list
+    (<home>/data/projects.json), so the app and the page show the same projects."""
+    try:
+        from .desktop import home
+        return home() / "data" / "projects.json"
+    except Exception:
+        return None
+
+
+def _whose(title, folder):
+    """A copy of a project in a folder of its own (a worktree: public-steel-guitar-bronner
+    beside public-steel-guitar) builds a model with the same title, so its tab says whose
+    it is: what the folder's name has after the title ("Public Steel Guitar · bronner")."""
+    name = _project_name(folder)
+    want = sum(c.isalnum() for c in title or "")
+    slug = lambda s: "".join(c.lower() for c in s if c.isalnum())
+    if not want or not slug(name).startswith(slug(title)):
+        return title
+    at = next((i for i in range(len(name) + 1) if sum(c.isalnum() for c in name[:i]) == want), len(name))
+    rest = name[at:].strip("-_. ")
+    return "%s · %s" % (title, rest) if rest else title
+
+
+def _project_name(folder):
+    """A project's folder name: a model folder is <project>/.webview."""
+    folder = pathlib.Path(folder)
+    return folder.parent.name if folder.name.startswith(".") else folder.name
+
+
+def _model_title(folder):
+    """The title the model's own file gives it (asset.extras.title), or None."""
+    try:
+        with open(pathlib.Path(folder) / "assembly.glb", "rb") as f:
+            head = f.read(20)
+            n = int.from_bytes(head[12:16], "little")
+            if head[:4] != b"glTF" or n > 64 << 20:
+                return None
+            t = json.loads(f.read(n)).get("asset", {}).get("extras", {}).get("title")
+        return t.strip() or None if isinstance(t, str) else None
+    except Exception:
+        return None
+
+
+def _mtime(path):
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
+class _Projects:
+    """key -> model folder. The list is the file's (re-read each time: the desktop app
+    writes it too); the key of a project is its folder's name, made unlike any other's,
+    and is written into the list so that it never changes."""
+
+    def __init__(self, store=None):
+        import threading
+        self.store, self.lock = store, threading.Lock()
+        self.rows, self.fresh, self.titles = [], set(), {}
+
+    def _read(self):
+        if self.store is not None:
+            try:
+                rows = json.loads(self.store.read_text(encoding="utf-8"))
+                if isinstance(rows, list):
+                    self.rows = [r for r in rows if isinstance(r, dict) and r.get("dir")]
+            except Exception:
+                pass
+        taken, changed = {r["key"] for r in self.rows if r.get("key")}, False
+        for r in self.rows:
+            if not r.get("key"):
+                base = "".join(c if c.isalnum() or c in "-_." else "-"
+                               for c in _project_name(r["dir"]).lower()).strip("-.") or "project"
+                key, n = base, 1
+                while key in taken:
+                    n += 1
+                    key = "%s-%d" % (base, n)
+                r["key"] = key
+                taken.add(key)
+                changed = True
+        return changed
+
+    def _write(self):
+        if self.store is None:
+            return
+        try:
+            self.store.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.store.with_suffix(".tmp%d" % os.getpid())
+            tmp.write_text(json.dumps(self.rows, indent=2), encoding="utf-8")
+            os.replace(tmp, self.store)
+        except OSError:
+            pass
+
+    def _title(self, folder):
+        t = _mtime(pathlib.Path(folder) / "assembly.glb")
+        was = self.titles.get(folder)
+        if was is None or was[0] != t:
+            was = self.titles[folder] = (t, _whose(_model_title(folder), folder) if t else None)
+        return was[1]
+
+    def open(self, folder):
+        """(key, first time this server hears of it)."""
+        folder = str(pathlib.Path(folder).resolve())
+        with self.lock:
+            self._read()
+            row = next((r for r in self.rows if os.path.normcase(r["dir"]) == os.path.normcase(folder)), None)
+            if row is None:
+                row = {"dir": folder}
+                self.rows.append(row)
+            row["name"] = self._title(folder) or _project_name(folder)
+            row["opened"] = time.time()
+            self._read_keys_only()
+            self._write()
+            new = row["key"] not in self.fresh
+            self.fresh.add(row["key"])
+            return row["key"], new
+
+    def _read_keys_only(self):
+        store, self.store = self.store, None            # (keys for the rows in hand, the file not read again)
+        try:
+            self._read()
+        finally:
+            self.store = store
+
+    def folder(self, key):
+        with self.lock:
+            if not any(r.get("key") == key for r in self.rows):
+                if self._read():
+                    self._write()
+            return next((pathlib.Path(r["dir"]) for r in self.rows if r.get("key") == key), None)
+
+    def listing(self):
+        """What the page's tab strip shows: the model's time found now, newest first."""
+        with self.lock:
+            if self._read():
+                self._write()
+            out = []
+            for r in self.rows:
+                d = pathlib.Path(r["dir"])
+                built = _mtime(d / "assembly.glb")
+                out.append({"key": r["key"], "dir": r["dir"], "folder": _project_name(d),
+                            "name": (self._title(r["dir"]) if built else None) or r.get("name") or _project_name(d),
+                            "built": built, "missing": built is None, "opened": r.get("opened", 0),
+                            "stamp": _mtime(d / "stamp.json") or built})
+            out.sort(key=lambda x: -(x["built"] or -1))
+            return out
+
+
 # ── the server ────────────────────────────────────────────────────────────────────
-class _Handler(http.server.SimpleHTTPRequestHandler):
-    model_dir = None            # set by serve()
-    tracer = None               # the ray tracer behind the page's top lighting level
+class _Handler(http.server.BaseHTTPRequestHandler):
+    projects = None             # set by serve()
+    pinned = None               # serve(model_dir): that one model at the root, as a published site has it
+    tracers = {}                # model folder -> the ray tracer behind the page's top lighting level
+    dev_page = None             # /dev/...: the page from this file instead (work on the page itself)
+    protocol_version = "HTTP/1.0"
 
-    def translate_path(self, path):
-        name = path.split("?", 1)[0].split("#", 1)[0].lstrip("/")
-        if name in MODEL_FILES:
-            return str(self.model_dir / name)
-        return super().translate_path(path)
-
-    def _json(self, obj):
-        body = json.dumps(obj).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+    def _send(self, code, kind, body):
+        self.send_response(code)
+        self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _json(self, obj, code=200):
+        self._send(code, "application/json", json.dumps(obj).encode())
+
+    def _file(self, path, kind):
+        try:
+            with open(path, "rb") as f:
+                size = os.fstat(f.fileno()).st_size
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(size))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                shutil.copyfileobj(f, self.wfile, 1 << 20)
+        except OSError:
+            self.send_error(404)
+
+    def _own(self):
+        """Is this one of cadkit's own callers (or typed into the address bar)? A page of
+        another site can make a browser send a GET here; a browser says so, and it is
+        not answered: only /open, /dev and /quit change anything, and only these ask."""
+        site = self.headers.get("Sec-Fetch-Site")
+        return site in (None, "none", "same-origin") and (self.headers.get("Origin") is None or site == "same-origin")
+
+    def _tracer(self, folder):
+        t = self.tracers.get(folder)
+        if t is None:
+            t = self.tracers[folder] = Tracer(folder)
+        return t
+
+    def _where(self, path):
+        """(model folder or None, the name asked for there, the page file) of a path."""
+        dev = path.startswith("/dev/") and self.dev_page is not None
+        page = self.dev_page if dev else PAGE
+        if path.startswith("/dev/"):
+            path = path[4:]
+        if path.startswith("/p/"):
+            key, _, name = path[3:].partition("/")
+            return self.projects.folder(key), name, page
+        return self.pinned, path.lstrip("/"), page
 
     def do_GET(self):
-        name = self.path.split("?", 1)[0]
-        if name == "/page.json":            # when the PAGE was last edited: it reloads itself
-            return self._json({"t": PAGE.stat().st_mtime_ns})
-        if name == "/where.json":           # which project this server is showing
-            return self._json({"dir": str(self.model_dir), "page": str(PAGE)})
-        if name == "/trace.json":           # can this server ray trace? (?warm: get ready)
-            if self.tracer.available and "warm" in self.path:
-                self.tracer.warm()
-            return self._json({"available": self.tracer.available})
-        super().do_GET()
+        path, _, query = self.path.partition("?")
+        q = dict(urllib.parse.parse_qsl(query))
+        if path in ("/open", "/dev", "/quit"):
+            if not self._own():
+                return self._json({"error": "not for web pages"}, 403)
+            if path == "/quit":
+                self._json({"ok": True})
+                import threading
+                return threading.Thread(target=self.server.shutdown, daemon=True).start()
+            if path == "/dev":
+                page = pathlib.Path(q.get("page", ""))
+                if not (page.is_absolute() and page.is_file() and page.suffix == ".html"):
+                    return self._json({"error": "not a page file: %s" % page}, 400)
+                type(self).dev_page = page
+                return self._json({"ok": True, "page": str(page)})
+            folder = pathlib.Path(q.get("dir", ""))
+            if not (folder.is_absolute() and (folder / "assembly.glb").is_file()):
+                return self._json({"error": "no model (assembly.glb) in %s" % folder}, 400)
+            key, new = self.projects.open(folder)
+            return self._json({"key": key, "new": new, "path": "/p/%s/" % key})
+        if path in ("/projects.json", "/dev/projects.json"):
+            return self._json({"proto": PROTO, "projects": self.projects.listing()})
+        folder, name, page = self._where(path)
+        if folder is None:
+            if path == "/where.json":       # which server this is (ensure_server asks)
+                return self._json({"server": "cadkit.web.view", "proto": PROTO, "page": str(PAGE),
+                                   "page_t": PAGE.stat().st_mtime_ns, "pid": os.getpid()})
+            if path in ("/", "/dev/", "/index.html"):
+                # an old address (the server's root): the project opened last
+                rows = sorted(self.projects.listing(), key=lambda r: -r["opened"])
+                rows = [r for r in rows if not r["missing"]]
+                if rows:
+                    self.send_response(302)
+                    self.send_header("Location", "%sp/%s/" % ("/dev/" if path == "/dev/" else "/", rows[0]["key"]))
+                    self.send_header("Content-Length", "0")
+                    return self.end_headers()
+                return self._send(200, "text/html; charset=utf-8",
+                                  b"<body style='background:#16181c;color:#c9ced6;font:14px system-ui;padding:24px'>"
+                                  b"cadkit viewer: no project has shown itself here yet (a build's show() does)")
+            return self.send_error(404)
+        if name in ("", "index.html"):
+            return self._file(page, "text/html; charset=utf-8")
+        if name == "page.json":             # when the PAGE was last edited: it reloads itself
+            return self._json({"t": page.stat().st_mtime_ns})
+        if name == "where.json":            # which project this address is showing
+            return self._json({"dir": str(folder), "page": str(page), "proto": PROTO,
+                               "page_t": page.stat().st_mtime_ns, "pid": os.getpid(), "pinned": folder == self.pinned})
+        if name == "trace.json":            # can this server ray trace? (?warm: get ready)
+            t = self._tracer(folder)
+            if t.available and "warm" in query:
+                t.warm()
+            return self._json({"available": t.available})
+        if name in MODEL_FILES:
+            return self._file(folder / name, "model/gltf-binary" if name.endswith(".glb") else "application/json")
+        self.send_error(404)
+
+    do_HEAD = do_GET
 
     def do_POST(self):
         # ONE THING IS POSTED: a view to ray trace. Only as JSON, which another site's
         # page cannot send here without asking first, and nothing in it names a file.
-        if self.path.split("?", 1)[0] != "/trace" or not self.tracer.available                 or self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+        folder, name, _ = self._where(self.path.split("?", 1)[0])
+        if name != "trace" or folder is None or not self._tracer(folder).available \
+                or self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             return self.send_error(404)
         try:
             n = int(self.headers.get("Content-Length", 0))
             if not 0 < n < 4_000_000:
                 return self.send_error(400)
-            body = self.tracer.picture(json.loads(self.rfile.read(n)))
+            body = self._tracer(folder).picture(json.loads(self.rfile.read(n)))
         except Exception as e:
             return self.send_error(503, "ray tracing failed: %s" % str(e)[:200])
         if body is None:                    # overtaken by a newer view
             self.send_response(204)
             return self.end_headers()
-        self.send_response(200)
-        self.send_header("Content-Type", "image/jpeg")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
+        self._send(200, "image/jpeg", body)
 
     def log_message(self, fmt, *args):
         pass
 
 
-def serve(model_dir, port=PORT):
-    """Serve the page with the model in `model_dir`, in the foreground."""
-    _Handler.model_dir = pathlib.Path(model_dir).resolve()
-    _Handler.tracer = Tracer(_Handler.model_dir)
-    handler = functools.partial(_Handler, directory=str(PAGE.parent))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    print("web view: http://127.0.0.1:%d/   (model from %s)" % (port, _Handler.model_dir))
+def serve(model_dir=None, port=PORT):
+    """The server, in the foreground. Without `model_dir`: THE server, every project a
+    path under it (/p/<key>/), told of each by ensure_server. With one: that model
+    alone at the root, as a published folder has it (the desktop program's checks)."""
+    _Handler.projects = _Projects(None if model_dir else _store())
+    if model_dir:
+        _Handler.pinned = pathlib.Path(model_dir).resolve()
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+    print("web view: http://127.0.0.1:%d/   (%s)" % (port, "model from %s" % _Handler.pinned if model_dir else "every project"))
     sys.stdout.flush()
     try:
         srv.serve_forever()
@@ -123,49 +359,81 @@ def _listening(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def _shows(port, same_page=False):
-    """The folder the server on `port` is showing, or None if it is not one of ours --
-    or, with `same_page`, if the page it serves is not THIS cadkit's (another copy's
-    server, which may be an older page)."""
+def _ask(port, path, timeout=2.0):
+    """A GET to the server on `port`: its JSON answer, or None."""
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/where.json" % port, timeout=1.0) as r:
-            got = json.loads(r.read())
-        if same_page and pathlib.Path(got.get("page", "")) != PAGE:
-            return None
-        return pathlib.Path(got["dir"])
+        with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path), timeout=timeout) as r:
+            return json.loads(r.read())
     except Exception:
         return None
 
 
-def ensure_server(model_dir, port=PORT, same_page=False):
-    """(url, started): the server showing `model_dir`, started if there was none. Two
-    projects open at once each get a port of their own, counting up from `port`.
-    `same_page`: only a server of this very cadkit will do (the desktop window's
-    program and the page it lays over its picture have to be of one version)."""
-    model_dir = pathlib.Path(model_dir).resolve()
-    free = None
-    for p in range(port, port + PORTS):
-        if _listening(p):
-            if _shows(p, same_page) == model_dir:
-                return "http://127.0.0.1:%d/" % p, False
-        elif free is None:
-            free = p
-    if free is None:
-        raise RuntimeError("no free port in %d..%d" % (port, port + PORTS - 1))
-    flags = 0
-    if os.name == "nt":
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    package_parent = pathlib.Path(__file__).resolve().parents[2]
-    subprocess.Popen([sys.executable, "-m", "cadkit.web.view", "--serve",
-                      "--dir", str(model_dir), "--port", str(free)],
-                     cwd=str(package_parent), stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=flags, close_fds=True)
+def _stop(port, info):
+    """Have the cadkit server on `port` end, and wait until the port is free."""
+    if info.get("proto", 0) >= 2 and not info.get("pinned") and "dir" not in info:
+        _ask(port, "/quit")
+    elif os.name == "nt":
+        # a server from before there was one for all: it has no way to be asked. It said
+        # it is cadkit's (where.json); the process listening there is ended.
+        out = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            f = line.split()
+            if len(f) >= 5 and f[1] == "127.0.0.1:%d" % port and f[3] == "LISTENING" and f[4].isdigit():
+                subprocess.run(["taskkill", "/PID", f[4], "/F"], capture_output=True)
     for _ in range(50):
-        if _listening(free):
-            return "http://127.0.0.1:%d/" % free, True
+        if not _listening(port):
+            return True
         time.sleep(0.1)
-    raise RuntimeError("the web view's server did not come up on port %d" % free)
+    return False
+
+
+def ensure_server(model_dir, port=PORT, same_page=False, restart=False):
+    """(url, new): `model_dir` shown by THE server, which is started only if none is
+    running; otherwise this project JOINS it. `new`: the server had not shown this
+    project before (so: open a browser tab for it). There is one port; nothing walks
+    to another. A server that answers there but is not up to this cadkit is replaced:
+    one from before (a port a project), one of an older protocol, one whose page is
+    older than this cadkit's -- or, with `same_page`, is not this cadkit's very page."""
+    model_dir = pathlib.Path(model_dir).resolve()
+    info = _ask(port, "/where.json") if _listening(port) else None
+    if info is not None:
+        old = info.get("proto", 0) < PROTO or "dir" in info
+        if not old and pathlib.Path(info.get("page", "")) != PAGE:
+            try:
+                theirs = pathlib.Path(info["page"]).read_bytes()
+            except OSError:
+                theirs = None
+            if theirs != PAGE.read_bytes():
+                if same_page or info.get("page_t", 0) < PAGE.stat().st_mtime_ns:
+                    old = True
+                else:
+                    print("web view: the server shows the page of %s, which is newer than this cadkit's "
+                          "(`py -m cadkit.web.view --restart` serves this one)" % info["page"])
+        if old or restart:
+            if not _stop(port, info):
+                raise RuntimeError("the older web view server on port %d did not end" % port)
+            info = None
+    elif _listening(port):
+        raise RuntimeError("port %d is held by something that is not cadkit's web view" % port)
+    if info is None:
+        flags = 0
+        if os.name == "nt":
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        package_parent = pathlib.Path(__file__).resolve().parents[2]
+        subprocess.Popen([sys.executable, "-m", "cadkit.web.view", "--serve", "--port", str(port)],
+                         cwd=str(package_parent), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags, close_fds=True)
+        for _ in range(50):
+            if _listening(port):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("the web view's server did not come up on port %d" % port)
+    got = _ask(port, "/open?" + urllib.parse.urlencode({"dir": str(model_dir)}), timeout=5.0)
+    if not got or "key" not in got:
+        raise RuntimeError("the web view's server did not take %s: %s" % (model_dir, got))
+    return "http://127.0.0.1:%d%s" % (port, got["path"]), bool(got["new"])
 
 
 def _model_dir(root=None):
@@ -178,9 +446,24 @@ def _model_dir(root=None):
     return out
 
 
-def _open(url, started, open_browser):
-    print("web view: %s%s" % (url, "" if started else "   (an open page reloads itself)"))
-    if started and open_browser:
+def _desktop(out):
+    """The desktop app is told the model in `out` is new (it shows it in the project's
+    tab, if it is running). True: it is ALSO where the project is to be looked at
+    (CADKIT_VIEWER=desktop), so no browser tab is opened. Never raises, never waits."""
+    try:
+        from . import desktop
+        if os.environ.get("CADKIT_VIEWER", "").lower() == "desktop":
+            return desktop.open_project(out, focus=False, launch=True)
+        desktop.notify(out)
+    except Exception:
+        pass
+    return False
+
+
+def _open(url, new, open_browser, out=None):
+    in_app = _desktop(out) if out is not None else False
+    print("web view: %s%s" % (url, "   (in the desktop app)" if in_app else "" if new else "   (an open page reloads itself)"))
+    if new and open_browser and not in_app:
         import webbrowser
         webbrowser.open(url)
 
@@ -205,7 +488,7 @@ def show(source, root=None, title=None, open_browser=True, port=PORT, **export_k
         export(parts, out, extras=extras, **export_kw)
         (out / "stamp.json").write_text(json.dumps({"t": time.time(), "parts": len(parts)}))
         url, started = ensure_server(out, port)
-        _open(url, started, open_browser)
+        _open(url, started, open_browser, out)
         return True
     except Exception as exc:                          # the viewer never costs a build
         print("[web view] not refreshed: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
@@ -226,7 +509,7 @@ def show_exported(folder, root=None, open_browser=True, port=PORT):
                 n += 1
         (out / "stamp.json").write_text(json.dumps({"t": time.time(), "files": n}))
         url, started = ensure_server(out, port)
-        _open(url, started, open_browser)
+        _open(url, started, open_browser, out)
         return True
     except Exception as exc:                          # the viewer never costs a build
         print("[web view] not refreshed: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
@@ -348,7 +631,7 @@ def scratch_show(view, open_browser=True, port=PORT, **kw):
     try:
         out = scratch_export(view, **kw)
         url, started = ensure_server(out, port)
-        _open(url, started, open_browser)
+        _open(url, started, open_browser, out)
         return True
     except SystemExit:
         raise
@@ -359,16 +642,28 @@ def scratch_show(view, open_browser=True, port=PORT, **kw):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="the cadkit web viewer's local server")
-    ap.add_argument("--serve", action="store_true", help="serve --dir in the foreground")
+    ap.add_argument("--serve", action="store_true",
+                    help="the server, in the foreground (with --dir: that one model, at the root)")
     ap.add_argument("--dir", default=None, help="the model folder (default: ./.webview)")
     ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--restart", action="store_true",
+                    help="end the running server and start this cadkit's in its place")
+    ap.add_argument("--dev", action="store_true",
+                    help="work on the page: the same server shows THIS cadkit's page file under /dev/, "
+                         "reloading it on every edit")
     a = ap.parse_args(argv)
-    model_dir = pathlib.Path(a.dir) if a.dir else _model_dir()
     if a.serve:
-        serve(model_dir, a.port)
+        serve(a.dir, a.port)
         return 0
-    url, started = ensure_server(model_dir, a.port)
-    _open(url, started, True)
+    model_dir = pathlib.Path(a.dir) if a.dir else _model_dir()
+    url, new = ensure_server(model_dir, a.port, restart=a.restart)
+    if a.dev:
+        got = _ask(a.port, "/dev?" + urllib.parse.urlencode({"page": str(PAGE)}))
+        if not got or not got.get("ok"):
+            raise SystemExit("web view: the server did not take the page: %s" % got)
+        url = url.replace("/p/", "/dev/p/", 1)
+        new = True
+    _open(url, new, True)
     return 0
 
 

@@ -69,6 +69,8 @@ struct Globals {
     sun: [f32; 4],
     bg: [f32; 4],
     clip: [f32; 4],
+    off: [u32; 2],
+    pad: [u32; 2],
 }
 
 #[repr(C)]
@@ -131,6 +133,16 @@ struct Targets {
     bg_blit: wgpu::BindGroup,
 }
 
+/// A model on the card that is not the one being drawn: see Renderer::park.
+pub struct Parked(SceneGpu);
+
+impl Parked {
+    /// what it holds of the card's memory, roughly: its buffers (the BLASes are about as much again)
+    pub fn bytes(&self) -> u64 {
+        self.0.idx_buf.size() + self.0.vattr_buf.size() + self.0.parts_buf.size() + self.0.motion_buf.size()
+    }
+}
+
 /// The model on the card.
 struct SceneGpu {
     parts_buf: wgpu::Buffer,
@@ -178,6 +190,8 @@ pub struct Renderer {
     pub linear_out: bool,
     /// what shows the surface decodes it with a plain 2.4 power (Vulkan on an HDR desktop): encode to suit
     pub power_out: bool,
+    /// rows of the surface ABOVE the picture (the tabbed app's tab strip): the picture is shown below them
+    pub top: u32,
     pub n: u32,
     frame: u32,
     parity: usize,
@@ -308,6 +322,7 @@ impl Renderer {
             n_dispatches: 0,
             linear_out: surface_format.is_srgb(),
             power_out: false,
+            top: 0,
             n: 0,
             frame: 0,
             parity: 0,
@@ -437,6 +452,25 @@ impl Renderer {
         s.parts[i].flags = f;
         s.parts_dirty = true;
         true
+    }
+
+    /// The model taken OFF THE RENDERER BUT LEFT ON THE CARD (the tabbed app: the tab is no longer the one
+    /// shown), with all that was said about its parts. Put back with `unpark`, it is the picture it was
+    /// without a file read or a BLAS built.
+    pub fn park(&mut self) -> Option<Parked> {
+        self.targets = None;
+        self.invalidate();
+        self.scene.take().map(Parked)
+    }
+
+    /// Returns the ms it took (the picture's buffers are made again: they name the model's).
+    pub fn unpark(&mut self, p: Parked) -> f64 {
+        let t0 = Instant::now();
+        self.scene = Some(p.0);
+        let (w, h) = self.size;
+        self.targets = None;
+        self.resize(w, h);
+        t0.elapsed().as_secs_f64() * 1e3
     }
 
     /// (parts hidden, parts not where the file has them, parts selected)
@@ -569,11 +603,13 @@ impl Renderer {
             hist_w,
             max_hist: s.max_hist,
             near: cam.near,
-            surf: [sw, sh],
+            surf: [sw, sh.saturating_sub(self.top).max(1)],
             vsize: [vsize.0, vsize.1],
             sun: [l.sun.x, l.sun.y, l.sun.z, l.sun_strength],
             bg: [l.bg[0], l.bg[1], l.bg[2], 1.0],
             clip: l.clip.unwrap_or([0.0; 4]),
+            off: [0, self.top.min(sh.saturating_sub(1))],
+            pad: [0; 2],
         };
         self.last_globals = g;
         self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));

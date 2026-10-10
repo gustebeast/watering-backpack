@@ -1,9 +1,26 @@
 //! The desktop viewer: the REAL web viewer page (cadkit/web/viewer/index.html), transparent, in a WebView2
 //! over a native path tracer in one window. The page is the whole UI and says what the picture is of; this
 //! draws the picture.
-//!   desk.exe [url]              interactive (default http://127.0.0.1:8161/)
-//!   desk.exe [url] --selftest   drives the page through its own controls, captures into ./out, exits
-//!                               (--selftest=quality,idle,...: only those parts of it)
+//!   desk.exe                    THE APP (installed as CadkitViewer.exe): one window, a tab a project
+//!   desk.exe <url>              one page of a cadkit server (py -m cadkit.web.view --serve), no tabs
+//!   desk.exe [url] --selftest   that one page driven through its own controls, captures into ./out, exits
+//!                               (--selftest=quality,idle,...: only those parts of it; url defaults to
+//!                               http://127.0.0.1:8161/)
+//!
+//! THE APP stands on its own: no Python, no server. It serves each tab's page itself (the page built into
+//! this program, tabs.rs) with the files of the project's model folder read from disk, under an address of
+//! the project's own; reads the model for its picture from the same folder; and remembers, in a `data`
+//! folder beside the folder the program is in (<home>/app/CadkitViewer.exe -> <home>/data), the tabs that
+//! were open, every project ever opened, and the window's place. There is ONE of it: it listens on
+//! 127.0.0.1:8136 (door.rs), a second start hands over what it was asked to open and ends, and a build
+//! (cadkit.web.view.show) says through the same door that a project has a new model.
+//!   --open <model folder>   that project's tab, in front      --data-root <dir>   the data folder
+//!   --page <file>           the viewer page from this file, for working on the page (it reloads on edit)
+//!   --probe                 answers /test/... through the door too (state, captures, input): for checks
+//! One content webview a tab, made when the tab is first shown and hidden while another is; ONE renderer.
+//! A tab that is left keeps its model ON THE CARD (the last few: KEEP_SCENES), so coming back to it is a
+//! picture at once; its page is then asked to say its whole state again.
+//!
 //! Options: --out <dir>; --backend dx12|vulkan (default: dx12 if it can trace, which needs the dxcompiler.dll
 //! of an installed Windows SDK, or --dxc <path>; else vulkan); --state <file> where the window's place is kept
 //! (default: desk-window.json beside the exe).
@@ -17,17 +34,24 @@
 //!    clip:[nx,ny,nz,c]|null,                        section plane, CAD frame, kept where n.p + c >= 0
 //!    sun:[3], sun_strength, bg:[3],                 as the Blender tracer's request has them
 //!    glb:"http://.../assembly.glb?v=..."}           the model file, whenever the page has (re)loaded one
+// (no console window when it is started from the taskbar; see cap::attach_console)
+#![windows_subsystem = "windows"]
+
+mod app;
 mod cap;
 mod dda;
+mod door;
 mod gpu;
 mod http;
 mod scene;
+mod tabs;
 
+use app::APP_TITLE;
 use glam::Vec3;
 use gpu::{Camera, Renderer};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -37,6 +61,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
+
+/// The program's version, and when this copy of it was built (build.rs): what /ping answers.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("CADKIT_BUILT"));
 
 /// DESK_TRACE=1: what happened when (ms since the epoch, as the page's clock has it too), kept in memory
 /// and written to <out>/trace.txt at the end. For finding out who waits for whom.
@@ -59,11 +86,20 @@ enum Ev {
     Done(u64, String),
     /// the page's title has changed
     Title(String),
+    /// the app: a message from the page of the tab with this id
+    TabIpc(u64, String),
+    /// the app: a message from the tab strip
+    Strip(String),
+    /// the app: a request through the control door
+    Door(door::Req),
 }
 
 struct Gfx {
-    webview: wry::WebView,
-    _ctx: wry::WebContext,
+    /// the one page of a cadkit server (None in the app: there the pages are the tabs')
+    webview: Option<wry::WebView>,
+    /// the app's tab strip and projects list
+    strip: Option<wry::WebView>,
+    ctx: wry::WebContext,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     r: Renderer,
@@ -80,6 +116,10 @@ fn wv_rect(w: u32, h: u32) -> wry::Rect {
     wry::Rect { position: wry::dpi::PhysicalPosition::new(0, 0).into(), size: wry::dpi::PhysicalSize::new((w as f64 * frac) as u32, h).into() }
 }
 
+fn rect(x: u32, y: u32, w: u32, h: u32) -> wry::Rect {
+    wry::Rect { position: wry::dpi::PhysicalPosition::new(x, y).into(), size: wry::dpi::PhysicalSize::new(w.max(1), h.max(1)).into() }
+}
+
 fn hwnd_of(w: &Window) -> isize {
     match w.window_handle().unwrap().as_raw() {
         RawWindowHandle::Win32(h) => h.hwnd.get(),
@@ -88,7 +128,16 @@ fn hwnd_of(w: &Window) -> isize {
 }
 
 struct Args {
-    url: String,
+    /// the page of a cadkit server, shown alone; None: the tabbed app
+    url: Option<String>,
+    /// app: a model folder whose tab to open, in front
+    open: Option<String>,
+    /// app: where it keeps what it remembers (default: `data` beside the folder the program is in)
+    data_root: Option<PathBuf>,
+    /// app: the viewer page from this file instead of the one built in
+    page: Option<PathBuf>,
+    /// app: /test/... is answered through the door, and the window stays above others (for captures)
+    probe: bool,
     selftest: bool,
     /// the parts of the selftest to run (empty: all)
     only: String,
@@ -120,6 +169,151 @@ struct View {
     hidden: HashSet<String>,
     sel: HashSet<String>,
     poses: HashMap<String, [f32; 12]>,
+}
+
+/// A tab's half of the picture while another tab is the one shown: what its page has said, and its model,
+/// left on the card (see KEEP_SCENES).
+#[derive(Default)]
+struct Held {
+    view: View,
+    names: HashMap<String, usize>,
+    part_names: Vec<String>,
+    glb_have: String,
+    look: Option<gpu::Look>,
+    scene: Option<gpu::Parked>,
+}
+
+struct Tab {
+    id: u64,
+    /// the project's model folder
+    dir: PathBuf,
+    title: String,
+    /// its page: made when the tab is first shown
+    webview: Option<wry::WebView>,
+    shown: bool,
+    /// its model has been built again since the tab was last looked at
+    dot: bool,
+    /// the model's stamp (tabs::stamp) when the tab was last looked at
+    seen: u128,
+    held: Held,
+    used: Instant,
+}
+
+/// How long a change of tab took, for the log and the checks.
+struct Switch {
+    to: u64,
+    t0: Instant,
+    /// its model was still on the card
+    kept: bool,
+    unpark_ms: f64,
+    first_ms: Option<f64>,
+    rest_ms: Option<f64>,
+}
+
+/// HOW MANY MODELS ARE KEPT ON THE CARD besides the one shown. A kept one comes back in the time of one
+/// frame (its buffers and its ray-tracing structures are as they were); one that was let go is read from
+/// disk and built again, a second or so for a large assembly. Each costs the card its triangles twice
+/// over (a few hundred MB for the largest here), so: the last three left, and no more however many tabs.
+const KEEP_SCENES: usize = 3;
+
+/// The tabbed app's own state (None when the program shows one page of a server).
+struct Shell {
+    data: PathBuf,
+    tabs: Vec<Tab>,
+    active: Option<usize>,
+    /// the projects list is up (always, while no tab is open)
+    list: bool,
+    /// every project ever opened: [{dir, name, opened}]
+    projects: Vec<Value>,
+    /// a model's title, read once per build of it: dir -> (the model file's time, title)
+    titles: HashMap<String, (u128, String)>,
+    next_id: u64,
+    /// the strip's height, device px
+    top: u32,
+    poll_t: Instant,
+    switch: Option<Switch>,
+    last_switch: Value,
+    /// the strip's page is up, and what it was last told
+    ready: bool,
+    pushed: String,
+    note: String,
+    /// a capture a probe has asked for, taken once the picture is at rest
+    pshot: Option<(String, door::Req, Instant)>,
+}
+
+impl Shell {
+    fn title(&mut self, dir: &Path) -> String {
+        let (k, t) = (dir.to_string_lossy().to_lowercase(), tabs::glb_time(dir));
+        match self.titles.get(&k) {
+            Some((at, name)) if *at == t => name.clone(),
+            _ => {
+                let name = tabs::title(dir);
+                self.titles.insert(k, (t, name.clone()));
+                name
+            }
+        }
+    }
+}
+
+/// The page that is the UI now: the server's one page, or the active tab's.
+fn page_of<'a>(g: &'a Gfx, shell: &'a Option<Shell>) -> Option<&'a wry::WebView> {
+    match shell {
+        Some(s) => s.active.and_then(|i| s.tabs[i].webview.as_ref()),
+        None => g.webview.as_ref(),
+    }
+}
+
+/// Where the app's webviews stand: the strip along the top (the whole window while the list is up), the
+/// active tab's page under it, every other page hidden. A hidden page draws no frames and sends nothing.
+fn layout(g: &Gfx, s: &mut Shell) {
+    let (w, h) = (g.config.width, g.config.height);
+    if let Some(strip) = &g.strip {
+        let _ = strip.set_bounds(if s.list { rect(0, 0, w, h) } else { rect(0, 0, w, s.top) });
+    }
+    let (active, list, top) = (s.active, s.list, s.top);
+    for (i, t) in s.tabs.iter_mut().enumerate() {
+        let Some(wv) = &t.webview else { continue };
+        let on = active == Some(i) && !list;
+        if on {
+            let _ = wv.set_bounds(rect(0, top, w, h.saturating_sub(top)));
+        }
+        if on != t.shown {
+            let _ = wv.set_visible(on);
+            t.shown = on;
+        }
+    }
+}
+
+/// What the app puts into each tab's page before the page's own script: that it is in the shell, and the
+/// app's own keys (the page has the keyboard: they are caught there, before the page's handlers, and handed over).
+const APP_INIT: &str = "window.cadkitNative = true;
+addEventListener('keydown', e => {
+  if (e.ctrlKey && !e.altKey && (e.key === 'Tab' || e.key.toLowerCase() === 'w')) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    window.ipc.postMessage(JSON.stringify({ t: 'Akey', k: e.key === 'Tab' ? (e.shiftKey ? 'prev' : 'next') : 'close' }));
+  }
+}, true);
+";
+
+/// A tab's page: the viewer page from this program, the project's files from its folder, under the
+/// project's own address (tabs::respond, tabs::url). The files are read off the window's thread.
+fn tab_view(g: &mut Gfx, proxy: &EventLoopProxy<Ev>, id: u64, dir: &Path, page: Option<&Path>, at: wry::Rect) -> Result<wry::WebView, String> {
+    let (d, p, proxy) = (dir.to_path_buf(), page.map(Path::to_path_buf), proxy.clone());
+    wry::WebViewBuilder::new_with_web_context(&mut g.ctx)
+        .with_bounds(at)
+        .with_transparent(true)
+        .with_initialization_script(APP_INIT)
+        .with_asynchronous_custom_protocol("cadkit".into(), move |_, req, responder| {
+            let (d, p) = (d.clone(), p.clone());
+            std::thread::spawn(move || responder.respond(tabs::respond(&d, p.as_deref(), &req)));
+        })
+        .with_url(tabs::url(dir))
+        .with_ipc_handler(move |req: wry::http::Request<String>| {
+            tr(|| format!("ipc in tab {id} {}", kind(req.body())));
+            let _ = proxy.send_event(Ev::TabIpc(id, req.into_body()));
+        })
+        .build_as_child(&*g.window)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Default)]
@@ -173,6 +367,8 @@ struct Test {
 struct App {
     args: Args,
     proxy: EventLoopProxy<Ev>,
+    /// (before gfx: the tabs' webviews go before the window does)
+    shell: Option<Shell>,
     gfx: Option<Gfx>,
     view: View,
     names: HashMap<String, usize>,
@@ -212,7 +408,20 @@ fn state_file(args: &Args) -> Option<PathBuf> {
     if args.selftest {
         return None; // the selftest's window is where its captures expect it
     }
+    if args.url.is_none() {
+        return Some(data_root(args).join("window.json"));
+    }
     Some(std::env::current_exe().ok()?.parent()?.join("desk-window.json"))
+}
+
+/// Where the app keeps what it remembers: BESIDE THE PROGRAM (<home>/app/CadkitViewer.exe -> <home>/data),
+/// not at a place worked out from the environment, which a packaged Python and the desktop do not agree on.
+fn data_root(args: &Args) -> PathBuf {
+    if let Some(d) = &args.data_root {
+        return d.clone();
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    exe.parent().and_then(|p| p.parent()).unwrap_or(Path::new(".")).join("data")
 }
 
 /// One way of getting pictures out of the card. Err: why not.
@@ -279,7 +488,16 @@ fn try_backend(window: &Arc<Window>, which: &str, args: &Args, size: PhysicalSiz
 
 fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>) -> (Gfx, String) {
     // with_clip_children(false) is REQUIRED: with WS_CLIPCHILDREN the picture under the webview is white
-    let mut attrs = Window::default_attributes().with_title("cadkit desk").with_inner_size(PhysicalSize::new(1280u32, 800u32)).with_clip_children(false);
+    let app = args.url.is_none();
+    let mut attrs = Window::default_attributes().with_title(if app { APP_TITLE } else { "cadkit desk" }).with_inner_size(PhysicalSize::new(1280u32, 800u32)).with_clip_children(false);
+    // the program's own icon (build.rs puts it in the file): on the window, and on its taskbar button
+    use winit::platform::windows::IconExtWindows;
+    if let Ok(icon) = winit::window::Icon::from_resource(1, None) {
+        attrs = attrs.with_window_icon(Some(icon.clone())).with_taskbar_icon(Some(icon));
+    }
+    if args.probe {
+        attrs = attrs.with_window_level(WindowLevel::AlwaysOnTop);
+    }
     let mut said = String::new();
     if args.selftest && args.state.is_none() {
         attrs = attrs.with_position(PhysicalPosition::new(60, 60)).with_window_level(WindowLevel::AlwaysOnTop);
@@ -333,8 +551,31 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
     // where it is before any of its own script runs.
     // the page's own storage (it keeps its view there between runs): one folder a window, as two programs
     // cannot share one
-    let data_dir = args.data.clone().unwrap_or_else(|| std::env::current_exe().unwrap().parent().unwrap().join("webview-data"));
+    let data_dir = args.data.clone().unwrap_or_else(|| if app { data_root(args).join("webview") } else { std::env::current_exe().unwrap().parent().unwrap().join("webview-data") });
     let mut ctx = wry::WebContext::new(Some(data_dir));
+    if app {
+        // THE APP: no page yet (the tabs bring theirs), the strip along the top, the picture below it
+        let top = (tabs::STRIP_CSS_PX * window.scale_factor()).round() as u32;
+        r.top = top;
+        r.resize(size.width, size.height.saturating_sub(top));
+        let strip = wry::WebViewBuilder::new_with_web_context(&mut ctx)
+            .with_bounds(rect(0, 0, size.width, size.height))
+            .with_background_color((0x16, 0x18, 0x1c, 255))
+            .with_html(tabs::STRIP)
+            .with_ipc_handler(move |req: wry::http::Request<String>| {
+                let _ = proxy.send_event(Ev::Strip(req.into_body()));
+            })
+            .build_as_child(&*window)
+            .expect("WebView2 creation failed (is the WebView2 runtime installed?)");
+        if args.probe {
+            match dda::init(hwnd) {
+                Ok(s) | Err(s) => said += &format!("\n{s}"),
+            }
+        }
+        let _ = strip.focus();
+        let hold = Duration::from_secs_f32(2.5 / hz.max(1.0));
+        return (Gfx { webview: None, strip: Some(strip), ctx, surface, config, r, window, hwnd, backend, hold }, said);
+    }
     let mut init = String::from("window.cadkitNative = true;\n");
     if args.selftest {
         init += &format!("window.__tOnly = {};
@@ -345,7 +586,7 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
         .with_bounds(wv_rect(size.width, size.height))
         .with_transparent(true)
         .with_initialization_script(init)
-        .with_url(&args.url)
+        .with_url(args.url.as_deref().unwrap_or(""))
         .with_document_title_changed_handler({
             let proxy = proxy.clone();
             move |t| {
@@ -366,7 +607,7 @@ fn init_gfx(event_loop: &ActiveEventLoop, args: &Args, proxy: EventLoopProxy<Ev>
     // the keys are the page's: it has the keyboard from the start
     let _ = webview.focus();
     let hold = Duration::from_secs_f32(2.5 / hz.max(1.0));
-    (Gfx { webview, _ctx: ctx, surface, config, r, window, hwnd, backend, hold }, said)
+    (Gfx { webview: Some(webview), strip: None, ctx, surface, config, r, window, hwnd, backend, hold }, said)
 }
 
 /// A message's kind, for the trace.
@@ -432,13 +673,20 @@ fn bbox(px: &[u8], w: u32, h: u32, bg: [u8; 3]) -> Option<[u32; 4]> {
 impl App {
     fn say(&mut self, s: String) {
         println!("{s}");
+        // (the app is started from the taskbar, with nobody to read that: it keeps a log beside its data)
+        if let Some(sh) = &self.shell {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(sh.data.join("log.txt")) {
+                let _ = writeln!(f, "{s}");
+            }
+        }
         self.t.log.push_str(&s);
         self.t.log.push('\n');
     }
 
     fn eval(&self, js: &str) {
-        if let Some(g) = &self.gfx {
-            let _ = g.webview.evaluate_script(js);
+        if let Some(wv) = self.gfx.as_ref().and_then(|g| page_of(g, &self.shell)) {
+            let _ = wv.evaluate_script(js);
         }
     }
 
@@ -447,7 +695,18 @@ impl App {
     }
 
     /// The model the page shows: fetched from the server the page came from, off this thread.
+    /// In the app there is no server: it is read from the active tab's folder, and told apart not by the
+    /// page's address for it but by the folder and the file's own time, so that it can be read as soon as
+    /// the tab is shown, without waiting for the page to have read it too and say so.
     fn fetch_model(&mut self, url: String) {
+        let (url, file) = match self.shell.as_ref() {
+            Some(s) => {
+                let Some(i) = s.active else { return };
+                let d = &s.tabs[i].dir;
+                (format!("{}|{}", d.display(), tabs::glb_time(d)), Some(d.join("assembly.glb")))
+            }
+            None => (url, None),
+        };
         if url == self.glb_want {
             return;
         }
@@ -456,7 +715,11 @@ impl App {
         let proxy = self.proxy.clone();
         std::thread::spawn(move || {
             let t = Instant::now();
-            let r = http::get(&url).and_then(|b| scene::load(&b));
+            let bytes = match &file {
+                Some(f) => std::fs::read(f).map_err(|e| format!("{}: {e}", f.display())),
+                None => http::get(&url),
+            };
+            let r = bytes.and_then(|b| scene::load(&b));
             let _ = proxy.send_event(Ev::Model(url, r, t.elapsed().as_secs_f64() * 1e3));
         });
     }
@@ -470,6 +733,10 @@ impl App {
             Ok(s) => s,
             Err(e) => {
                 self.say(format!("model: {e}"));
+                if self.shell.is_some() {
+                    // (a file read while a build was still writing it: asked for again when the page says so)
+                    self.glb_want = self.glb_have.clone();
+                }
                 return;
             }
         };
@@ -486,6 +753,9 @@ impl App {
             }
         }
         self.glb_have = url;
+        if let Some(sw) = self.shell.as_mut().and_then(|s| s.switch.as_mut()) {
+            sw.unpark_ms = ms + up + blas; // (not kept: this is what it cost to have it again)
+        }
         let s = format!("model: {} parts, {} triangles; fetched and read in {ms:.0} ms, uploaded in {up:.0} ms, BLAS built in {blas:.0} ms", sc.parts.len(), sc.indices.len() / 3);
         self.say(s);
         self.touch(false);
@@ -571,6 +841,9 @@ impl App {
         if g.window.is_minimized() == Some(true) {
             return; // nothing to show it on: drawn when the window is back
         }
+        if self.shell.as_ref().is_some_and(|s| s.list) {
+            return; // the projects list covers the picture: drawn when the list is put away
+        }
         let changed = self.dirty;
         let Some(cam) = self.view.cam.filter(|_| g.r.has_scene()) else {
             // nothing to trace yet: the backdrop
@@ -579,6 +852,12 @@ impl App {
                     g.r.clear(&frame.texture.create_view(&Default::default()));
                     g.r.queue.present(frame);
                     self.stat_frames += 1;
+                    // (the app may stand like this for good, with no tab open: the backdrop is drawn
+                    // once, not again and again until a model comes)
+                    if self.shell.is_some() {
+                        self.dirty = false;
+                        self.last_present = Instant::now();
+                    }
                 }
             }
             return;
@@ -622,10 +901,25 @@ impl App {
                 m.spf.push(spf as f64);
             }
         }
-        if g.r.n >= gpu::MAX_SPP {
+        let rest = g.r.n >= gpu::MAX_SPP;
+        if rest {
             self.converge_ms = (now - self.t_dirty).as_secs_f64() * 1e3;
         } else {
             g.window.request_redraw();
+        }
+        // a change of tab: when its first picture was on screen, and when its resting one
+        if let Some(s) = self.shell.as_mut() {
+            if let Some(sw) = s.switch.as_mut() {
+                let ms = (now - sw.t0).as_secs_f64() * 1e3;
+                sw.first_ms.get_or_insert(ms);
+                if rest && sw.rest_ms.is_none() {
+                    sw.rest_ms = Some(ms);
+                    s.last_switch = json!({"to": sw.to, "kept_on_card": sw.kept, "model_ms": sw.unpark_ms, "first_frame_ms": sw.first_ms, "rest_ms": ms});
+                    let line = format!("tab {}: first picture {:.0} ms after the switch, at rest after {ms:.0} ms ({})", sw.to, sw.first_ms.unwrap_or(0.0), if sw.kept { format!("its model was on the card: back in {:.1} ms", sw.unpark_ms) } else { format!("its model read and built again: {:.0} ms", sw.unpark_ms) });
+                    s.switch = None;
+                    self.say(line);
+                }
+            }
         }
         if changed && self.t.snap.as_mut().is_some_and(|s| {
             s.left = s.left.saturating_sub(1);
@@ -700,7 +994,8 @@ impl App {
         self.stat_frames = 0;
         self.stat_gpu = 0.0;
         if js != self.stat_last {
-            let _ = g.webview.evaluate_script(&js);
+            let Some(wv) = page_of(g, &self.shell) else { return };
+            let _ = wv.evaluate_script(&js);
             self.stat_last = js;
             self.stat_sent += 1;
         }
@@ -834,8 +1129,8 @@ impl App {
                 self.resume(id, "null");
             }
             "Tfocus" => {
-                if let Some(g) = self.gfx.as_ref() {
-                    let _ = if v["who"].as_str() == Some("shell") { g.webview.focus_parent() } else { g.webview.focus() };
+                if let Some(wv) = self.gfx.as_ref().and_then(|g| page_of(g, &self.shell)) {
+                    let _ = if v["who"].as_str() == Some("shell") { wv.focus_parent() } else { wv.focus() };
                 }
                 self.resume(id, "null");
             }
@@ -893,6 +1188,9 @@ impl App {
 
     fn quiet(&self) -> bool {
         let Some(g) = self.gfx.as_ref() else { return false };
+        if self.shell.as_ref().is_some_and(|s| s.list) {
+            return self.last_present.elapsed() > Duration::from_millis(250); // (nothing is drawn under the list)
+        }
         let conv = !g.r.has_scene() || self.view.cam.is_none() || g.r.n >= gpu::MAX_SPP;
         conv && !self.dirty && self.loading == 0 && self.last_msg.elapsed() > Duration::from_millis(500) && self.last_present.elapsed() > Duration::from_millis(250)
     }
@@ -1086,7 +1384,7 @@ impl App {
 
     /// The folder the page came from, with its slash.
     fn base(&self) -> String {
-        let u = self.args.url.split(['?', '#']).next().unwrap_or("");
+        let u = self.args.url.as_deref().unwrap_or("").split(['?', '#']).next().unwrap_or("");
         match u.rfind('/') {
             Some(i) if i > 7 => u[..=i].to_string(),
             _ => format!("{u}/"),
@@ -1236,9 +1534,10 @@ impl ApplicationHandler<Ev> for App {
         self.gfx = Some(g);
         self.say(said);
         self.start = Instant::now();
+        self.app_start();
     }
 
-    fn user_event(&mut self, _: &ActiveEventLoop, ev: Ev) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, ev: Ev) {
         match ev {
             Ev::Ipc(body) => {
                 tr(|| format!("ipc handled {}", kind(&body)));
@@ -1251,6 +1550,9 @@ impl ApplicationHandler<Ev> for App {
                     g.window.set_title(if t.is_empty() { "cadkit desk" } else { &t });
                 }
             }
+            Ev::TabIpc(id, body) => self.on_tab_ipc(id, &body),
+            Ev::Strip(body) => self.on_strip(&body),
+            Ev::Door(r) => self.on_door(event_loop, r),
         }
     }
 
@@ -1260,7 +1562,7 @@ impl ApplicationHandler<Ev> for App {
         }
         self.push_stats();
         // a change that could not be drawn when it came (the window was minimised): drawn once it can be
-        if self.dirty && self.gfx.as_ref().is_some_and(|g| g.window.is_minimized() != Some(true)) && self.last_present.elapsed() > Duration::from_millis(100) {
+        if self.dirty && self.gfx.as_ref().is_some_and(|g| g.window.is_minimized() != Some(true)) && !self.shell.as_ref().is_some_and(|s| s.list) && self.last_present.elapsed() > Duration::from_millis(100) {
             self.redraw();
         }
         if self.args.selftest && !self.quit {
@@ -1269,8 +1571,14 @@ impl ApplicationHandler<Ev> for App {
                 event_loop.exit();
             }
         }
+        if self.shell.as_ref().is_some_and(|s| s.poll_t.elapsed() > Duration::from_secs(1)) {
+            self.poll_projects();
+        }
+        if self.args.probe {
+            self.probe_tick();
+        }
         let now = Instant::now();
-        let mut wake = now + Duration::from_millis(if self.args.selftest { 5 } else { 100 });
+        let mut wake = now + Duration::from_millis(if self.args.selftest || self.args.probe { 5 } else { 100 });
         if let Some(t) = self.refine_at {
             if t <= now {
                 self.refine_at = None;
@@ -1297,6 +1605,7 @@ impl ApplicationHandler<Ev> for App {
         }
         match event {
             WindowEvent::CloseRequested => {
+                self.save_session();
                 self.save_place();
                 event_loop.exit()
             }
@@ -1307,8 +1616,14 @@ impl ApplicationHandler<Ev> for App {
                         g.config.width = s.width;
                         g.config.height = s.height;
                         g.surface.configure(&g.r.device, &g.config);
-                        g.r.resize(s.width, s.height);
-                        let _ = g.webview.set_bounds(wv_rect(s.width, s.height));
+                        // (the app's picture is the window less the tab strip)
+                        g.r.resize(s.width, s.height.saturating_sub(g.r.top));
+                        if let Some(wv) = &g.webview {
+                            let _ = wv.set_bounds(wv_rect(s.width, s.height));
+                        }
+                        if let Some(sh) = self.shell.as_mut() {
+                            layout(g, sh);
+                        }
                         self.resizes += 1;
                     }
                     self.touch(false);
@@ -1317,12 +1632,27 @@ impl ApplicationHandler<Ev> for App {
                 }
             }
             WindowEvent::Moved(_) => self.note_place(),
+            // another screen's scale: the strip is as many of ITS pixels high (the resize that follows
+            // lays everything out again)
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                if let Some(sh) = self.shell.as_mut() {
+                    sh.top = (tabs::STRIP_CSS_PX * scale_factor).round() as u32;
+                    g.r.top = sh.top;
+                    g.r.resize(g.config.width, g.config.height.saturating_sub(sh.top));
+                    layout(g, sh);
+                    self.touch(false);
+                }
+            }
             // the keys are the page's: when the window is given the keyboard it passes it on
             // (only when the shell's own window holds it: handing it over while the page already has it, or
             // on every key, takes the keyboard from the page and gives it back for nothing)
             WindowEvent::Focused(true) => {
                 if cap::focus_of(g.hwnd) == g.hwnd {
-                    let _ = g.webview.focus();
+                    if self.shell.is_some() {
+                        self.focus_ui();
+                    } else if let Some(wv) = &g.webview {
+                        let _ = wv.focus();
+                    }
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
@@ -1334,6 +1664,17 @@ impl ApplicationHandler<Ev> for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 use winit::keyboard::{Key, NamedKey, PhysicalKey};
                 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+                // the app's own keys, when it is the shell's window that has the keyboard
+                if self.shell.is_some() && self.ctrl && event.state.is_pressed() && !event.repeat {
+                    let k = match event.key_without_modifiers() {
+                        Key::Named(NamedKey::Tab) => Some(if self.shift { "prev" } else { "next" }),
+                        Key::Character(c) if c.eq_ignore_ascii_case("w") => Some("close"),
+                        _ => None,
+                    };
+                    if let Some(k) = k {
+                        return self.app_key(k);
+                    }
+                }
                 let key = match event.key_without_modifiers() {
                     Key::Character(c) => Some(c.to_string()),
                     Key::Named(NamedKey::Space) => Some(" ".to_string()),
@@ -1354,10 +1695,16 @@ impl ApplicationHandler<Ev> for App {
                         self.shift,
                         event.repeat
                     );
-                    let _ = g.webview.evaluate_script(&js);
+                    if let Some(wv) = page_of(g, &self.shell) {
+                        let _ = wv.evaluate_script(&js);
+                    }
                 }
                 if event.state.is_pressed() && !event.repeat && cap::focus_of(g.hwnd) == g.hwnd {
-                    let _ = g.webview.focus();
+                    if self.shell.is_some() {
+                        self.focus_ui();
+                    } else if let Some(wv) = &g.webview {
+                        let _ = wv.focus();
+                    }
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(),
@@ -1366,9 +1713,28 @@ impl ApplicationHandler<Ev> for App {
     }
 }
 
+/// The app, before it has a window: IS ONE RUNNING ALREADY? Then it is told what this start was asked to
+/// open (or just to come forward), and this one ends. True: that was done.
+fn hand_over(args: &Args, port: u16) -> bool {
+    let Some(pong) = door::ask(port, "/ping", Duration::from_secs(2)).and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return false };
+    if pong["app"] != "cadkit-desktop" {
+        return false;
+    }
+    // (this start has the desktop's leave to come in front; the running one is given it)
+    cap::allow_foreground(pong["pid"].as_u64().unwrap_or(0) as u32);
+    let path = match &args.open {
+        Some(d) => format!("/open?dir={}&focus=1", door::encode(&std::path::absolute(d).unwrap_or(PathBuf::from(d)).to_string_lossy())),
+        None => "/open?focus=1".to_string(),
+    };
+    let r = door::ask(port, &path, Duration::from_secs(15));
+    println!("cadkit desktop is running already (pid {}): {}", pong["pid"], r.as_deref().unwrap_or("it did not answer"));
+    r.is_some()
+}
+
 fn main() {
+    cap::attach_console();
     let mut a = std::env::args().skip(1);
-    let mut args = Args { url: "http://127.0.0.1:8161/".into(), selftest: false, only: String::new(), out: PathBuf::from("out"), backend: None, dxc: None, state: None, data: None, recopy: None };
+    let mut args = Args { url: None, open: None, data_root: None, page: None, probe: false, selftest: false, only: String::new(), out: PathBuf::from("out"), backend: None, dxc: None, state: None, data: None, recopy: None };
     while let Some(x) = a.next() {
         match x.as_str() {
             "--selftest" => args.selftest = true,
@@ -1378,16 +1744,33 @@ fn main() {
             "--state" => args.state = a.next().map(PathBuf::from),
             "--data" => args.data = a.next().map(PathBuf::from),
             "--recopy" => args.recopy = Some((PathBuf::from(a.next().expect("--recopy <from> <to>")), PathBuf::from(a.next().expect("--recopy <from> <to>")))),
+            "--open" => args.open = a.next(),
+            "--data-root" => args.data_root = a.next().map(PathBuf::from),
+            "--page" => args.page = a.next().map(PathBuf::from),
+            "--probe" => args.probe = true,
             "-h" | "--help" => {
-                eprintln!("usage: desk [url] [--selftest[=parts]] [--out <dir>] [--backend dx12|vulkan] [--dxc <dxcompiler.dll>] [--state <file>] [--data <dir>]     (url defaults to http://127.0.0.1:8161/)");
+                eprintln!("usage: desk                    the app: [--open <model folder>] [--data-root <dir>] [--page <index.html>] [--probe]\n       desk <url> | --selftest[=parts] [url]     one page of a cadkit server (url defaults to http://127.0.0.1:8161/)\n       either: [--out <dir>] [--backend dx12|vulkan] [--dxc <dxcompiler.dll>] [--state <file>] [--data <dir>]");
                 return;
             }
             _ if x.starts_with("--selftest=") => {
                 args.selftest = true;
                 args.only = x["--selftest=".len()..].to_string();
             }
-            _ => args.url = x,
+            _ => args.url = Some(x),
         }
+    }
+    if args.selftest && args.url.is_none() {
+        args.url = Some("http://127.0.0.1:8161/".into());
+    }
+    let app = args.url.is_none();
+    let port = door::port();
+    if app {
+        if hand_over(&args, port) {
+            cap::end_process(0);
+        }
+        // ONE BUTTON ON THE TASKBAR: the pinned icon and the running window are the same thing to the
+        // desktop when the program says who it is, the same every run
+        cap::set_app_id("cadkit.viewer");
     }
     if std::env::var("DESK_TRACE").is_ok_and(|v| v == "1") {
         *TRACE.lock().unwrap() = Some(vec![]);
@@ -1405,9 +1788,29 @@ fn main() {
     // with a thread that does not answer): no key-up, no mouse-up, a pedal stuck down and the camera dead.
     event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
     let now = Instant::now();
+    let shell = app.then(|| {
+        let data = data_root(&args);
+        let _ = std::fs::create_dir_all(&data);
+        // the log starts again when it has grown long
+        if std::fs::metadata(data.join("log.txt")).is_ok_and(|m| m.len() > 1 << 20) {
+            let _ = std::fs::remove_file(data.join("log.txt"));
+        }
+        let mut note = String::new();
+        let ping = json!({"app": "cadkit-desktop", "version": VERSION, "pid": std::process::id(), "exe": std::env::current_exe().unwrap_or_default().to_string_lossy(), "data": data.to_string_lossy(), "probe": args.probe}).to_string();
+        let proxy = event_loop.create_proxy();
+        if let Err(e) = door::listen(port, ping, args.probe, move |r| proxy.send_event(Ev::Door(r)).is_ok()) {
+            // (two started in the same moment: the other has the door by now)
+            if hand_over(&args, port) {
+                cap::end_process(0);
+            }
+            note = format!("the door is shut ({e}): builds cannot reach this window");
+        }
+        Shell { data, tabs: vec![], active: None, list: true, projects: vec![], titles: HashMap::new(), next_id: 0, top: 0, poll_t: now, switch: None, last_switch: Value::Null, ready: false, pushed: String::new(), note, pshot: None }
+    });
     let mut app = App {
         args,
         proxy: event_loop.create_proxy(),
+        shell,
         gfx: None,
         view: View::default(),
         names: HashMap::new(),
@@ -1438,12 +1841,14 @@ fn main() {
         place: [0; 4],
     };
     event_loop.run_app(&mut app).unwrap();
+    app.save_session();
     app.save_place();
     if let Some(t) = TRACE.lock().unwrap().take() {
         let text: String = t.iter().map(|(at, s)| format!("{at:.1} {s}\n")).collect();
         let _ = std::fs::write(app.args.out.join("trace.txt"), text);
     }
     // drop the webview (and its browser processes) before the window goes away
+    drop(app.shell.take());
     drop(app.gfx.take());
     println!("closed");
     use std::io::Write;

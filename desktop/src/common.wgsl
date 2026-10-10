@@ -23,6 +23,8 @@ struct Globals {
   sun: vec4f,       // xyz towards the sun (CAD frame), w strength
   bg: vec4f,        // backdrop, linear
   clip: vec4f,      // section plane: kept where dot(xyz, p) + w >= 0
+  off: vec2u,       // where on the surface the picture's first pixel is (the tabbed app: below its tab strip)
+  pad: vec2u,
 }
 
 struct Guide {

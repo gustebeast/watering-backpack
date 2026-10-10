@@ -10,7 +10,7 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let uv = pos.xy / vec2f(G.surf);
+  let uv = (pos.xy - vec2f(G.off)) / vec2f(G.surf);
   let q = min(vec2u(uv * vec2f(G.size)), G.size - 1u);
   let c = unpack4x8unorm(outp[q.y * G.size.x + q.x]).rgb;
   // (flags bit 3: the surface encodes sRGB itself, so it is handed the linear value)

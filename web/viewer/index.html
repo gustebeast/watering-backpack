@@ -10,10 +10,10 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #16181c;
                  color: #c9ced6; font: 14px/1.4 system-ui, sans-serif; }
     #view { position: fixed; inset: 0; }
-    .label { position: fixed; left: 16px; top: 14px; opacity: .9; pointer-events: none; }
+    .label { position: fixed; left: 16px; top: calc(14px + var(--tabs, 0px)); opacity: .9; pointer-events: none; }
     .label b { color: #e6eaf0; }
     .label .sub { opacity: .6; font-size: 12px; }
-    #build { position: fixed; right: 16px; top: 14px; opacity: .5; font-variant-numeric: tabular-nums; }
+    #build { position: fixed; right: 16px; top: calc(14px + var(--tabs, 0px)); opacity: .5; font-variant-numeric: tabular-nums; }
     .hint { position: fixed; left: 16px; bottom: 14px; opacity: .5; font-size: 12px; max-width: 46vw; }
     /* control legend / buttons — two rows (5 pedals, 5 knee levers) */
     #controls { position: fixed; right: 16px; bottom: 14px;
@@ -36,14 +36,14 @@
     .pedal .t .na { opacity: .45; font-style: italic; }
     .pedal.on .t { color: #e6eaf0; }
     #deckbtn { min-width: 0; align-self: flex-end; }
-    #fps { position: fixed; right: 16px; top: 34px; opacity: .35; font-size: 11px;
+    #fps { position: fixed; right: 16px; top: calc(34px + var(--tabs, 0px)); opacity: .35; font-size: 11px;
            font-variant-numeric: tabular-nums; text-align: right; }
     #loading { position: fixed; inset: 0; display: grid; place-items: center;
                background: #16181c; transition: opacity .4s; }
 
     /* ── inspection tools: select / hide / measure ─────────────────────────── */
-    #tools { position: fixed; left: 16px; top: 62px; display: flex; flex-direction: column;
-             gap: 8px; align-items: flex-start; max-height: calc(100vh - 150px); }
+    #tools { position: fixed; left: 16px; top: calc(62px + var(--tabs, 0px)); display: flex; flex-direction: column;
+             gap: 8px; align-items: flex-start; max-height: calc(100vh - 150px - var(--tabs, 0px)); }
     .bar { display: flex; gap: 6px; flex-wrap: wrap; }
     .btn { padding: 4px 9px; border: 1px solid #333842; border-radius: 7px; background: #1c1f25;
            cursor: pointer; user-select: none; font-size: 12px; color: #c9ced6; }
@@ -81,9 +81,47 @@
                 background: rgba(18, 20, 24, .9); border: 1px solid #6b5a1e; color: #ffe08a;
                 padding: 1px 6px; border-radius: 5px; font-size: 13px;
                 font-variant-numeric: tabular-nums; display: none; }
-    #status { position: fixed; right: 16px; top: 52px; font-size: 11px; opacity: .55;
+    #status { position: fixed; right: 16px; top: calc(52px + var(--tabs, 0px)); font-size: 11px; opacity: .55;
               max-width: 44vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
               pointer-events: none; text-align: right; }
+
+    /* ── tabs: one project each, on cadkit's local server only (see TABS in the script).
+       The desktop app's strip (cadkit/desktop/src/tabs.html) is dressed the same. ── */
+    #tabstrip, #projects { display: none; }
+    body.tabs { --tabs: 34px; }
+    body.tabs #tabstrip { position: fixed; left: 0; right: 0; top: 0; height: 34px; z-index: 60;
+             box-sizing: border-box; display: flex; align-items: stretch; background: #101216;
+             border-bottom: 1px solid #2a2e36; padding: 0 4px; user-select: none; }
+    .tab { display: flex; align-items: center; gap: 7px; min-width: 60px; max-width: 240px;
+           padding: 0 6px 0 12px; margin-top: 4px; border: 1px solid transparent; border-bottom: 0;
+           border-radius: 8px 8px 0 0; cursor: pointer; opacity: .62; font-size: 13px; }
+    .tab:hover { opacity: .9; background: #1c1f25; }
+    .tab.on { opacity: 1; background: #16181c; border-color: #333842; color: #e6eaf0;
+              box-shadow: 0 1px 0 #16181c; }
+    .tab .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: #4d84b8; flex: none; display: none; }
+    .tab.new .dot { display: block; }
+    .tab .x { flex: none; width: 18px; height: 18px; line-height: 17px; text-align: center;
+              border-radius: 5px; opacity: .5; font-size: 14px; }
+    .tab .x:hover { opacity: 1; background: #333842; }
+    #tabplus { align-self: center; width: 26px; height: 24px; line-height: 22px; margin-left: 4px;
+               text-align: center; border-radius: 6px; cursor: pointer; opacity: .6; font-size: 17px; }
+    #tabplus:hover, #tabplus.on { opacity: 1; background: #23405a; }
+    body.tabs.list #projects { display: block; position: fixed; inset: 34px 0 0 0; z-index: 59;
+             overflow-y: auto; padding: 22px 28px 28px; background: #16181c; }
+    #projects h1 { font-size: 15px; font-weight: 600; color: #e6eaf0; margin: 0 0 4px; }
+    #projects .sub { opacity: .55; font-size: 12px; margin-bottom: 16px; }
+    .proj { display: flex; align-items: baseline; gap: 14px; max-width: 980px; padding: 9px 12px;
+            border: 1px solid #333842; border-radius: 8px; background: #1c1f25; margin-bottom: 6px;
+            cursor: pointer; }
+    .proj:hover { border-color: #4d84b8; }
+    .proj b { color: #e6eaf0; font-weight: 600; white-space: nowrap; }
+    .proj .dir { flex: 1; min-width: 0; opacity: .5; font-size: 12px; overflow: hidden; white-space: nowrap;
+                 text-overflow: ellipsis; direction: rtl; text-align: left; }
+    .proj .when { opacity: .7; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .proj .is { font-size: 11px; opacity: .6; text-transform: uppercase; letter-spacing: .06em; }
+    .proj.missing { opacity: .4; cursor: default; }
+    .proj.missing:hover { border-color: #333842; }
   </style>
   <script type="importmap">
   { "imports": {
@@ -95,6 +133,8 @@
 </head>
 <body>
   <div id="view"></div>
+  <div id="tabstrip"></div>
+  <div id="projects"><h1>Projects</h1><div class="sub">every project shown on this machine, the one built last first</div><div id="projrows"></div></div>
   <div class="label"><b id="title">Assembly</b>
     <div class="sub"><span id="subtitle"></span><span id="keys"></span><span id="deckhint"><b>space</b> = <span id="deckstate">hide deck</span> (and what comes off with it)</span></div>
   </div>
@@ -168,6 +208,11 @@
   // for its own marks, the selection tint and the measure marks. In a browser NATIVE is
   // false and nothing here is any different.
   const NATIVE = !!(window.cadkitNative && window.ipc);
+  // The page of ONE PROJECT AMONG SEVERAL on cadkit's local server (see TABS, below) is at
+  // <server>/p/<key>/. Anywhere else (a published folder, the desktop app) TABKEY is null.
+  const TABAT = !NATIVE && new URLSearchParams(location.search).get('tabs') !== '0' &&
+                location.pathname.match(/^(.*\/)p\/([^/]+)\/(?:index\.html)?$/);
+  const TABBASE = TABAT ? TABAT[1] : null, TABKEY = TABAT ? decodeURIComponent(TABAT[2]) : null;
 
   // ── renderer / scene / camera ────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: NATIVE });
@@ -1627,6 +1672,7 @@
     // what the export says the model IS: its name, a line about it, its build number
     const about = (gltf.asset && gltf.asset.extras) || {};
     document.title = $('title').textContent = about.title || 'Assembly';
+    if (about.tabs === false) tabsOff();                // this model is published alone
     $('subtitle').textContent = about.subtitle ? about.subtitle + ' · ' : '';
     $('deckhint').style.display = rig && rig.deck_prefixes ? '' : 'none';
     // WHICH MODEL THIS IS, small, top right: the build's number, and for an agent's
@@ -1656,7 +1702,7 @@
   let pageStamp = null;
   // In the desktop shell it is kept ALL THE TIME and for good (KEPT), so a window that
   // is closed, or started again on a newer program, comes back on the view it had.
-  const KEEP = 'viewer-state', KEPT = NATIVE ? localStorage : sessionStorage;
+  const KEEP = 'viewer-state' + (TABKEY ? ':' + TABKEY : ''), KEPT = NATIVE ? localStorage : sessionStorage;
   let keptAt = 0, restored = false;                 // nothing is kept before what was kept is back
   function keepState() {
     try { KEPT.setItem(KEEP, JSON.stringify({
@@ -1667,14 +1713,16 @@
   function restoreState() {
     let s = null;
     restored = true;
-    try { s = JSON.parse(KEPT.getItem(KEEP)); if (!NATIVE) KEPT.removeItem(KEEP); } catch {}
+    try { s = JSON.parse(KEPT.getItem(KEEP)); if (!NATIVE && !TABKEY) KEPT.removeItem(KEEP); } catch {}
     if (!s) return;
     camera.position.fromArray(s.cam); controls.target.fromArray(s.tgt); controls.update();
     restoreVis({ names: s.hidden, deck: s.deck });
     if (s.sec.on) setSection(true, s.sec.axis, s.sec.v, s.sec.flip);
     if (s.mode === 'measure') setMode('measure');
   }
+  let watchT = 0;                                   // the wait until the next look, while there is one
   async function watch() {
+    watchT = 0;
     if (!stamp) return;
     const pg = await fetchJSON('page.json?t=' + Date.now());
     if (pg) {
@@ -1683,10 +1731,128 @@
     }
     const s = await fetchJSON('stamp.json?t=' + Date.now());
     if (s && s.t !== stamp.t) { $('status').textContent = 'reloading…'; try { await load(false); } catch (e) { console.error(e); } }
-    setTimeout(watch, 1500);
+    watchT = setTimeout(watch, 1500);
+  }
+  // The desktop app is TOLD when a project has been built again (and when its tab is
+  // brought back): the look is taken now, not at the end of the wait.
+  if (NATIVE) nat.check = () => { if (watchT) { clearTimeout(watchT); watch(); } };
+  // ── TABS: ONE PROJECT EACH, ON CADKIT'S LOCAL SERVER ──────────────────────────────
+  // The local server (cadkit.web.view) shows every project of this machine, each at
+  // <server>/p/<key>/, and lists them at <server>/projects.json. A page at such an
+  // address shows a tab strip along its top: the projects open in this browser tab,
+  // the one shown marked, a dot on one built again since it was last looked at, and a
+  // "+" for the list of all of them. A change of tab is a change of address (the
+  // address IS the tab: a link opens the right project), and each tab comes back on
+  // the view it was left with.
+  // EVERYWHERE ELSE THERE IS NO STRIP AND NOTHING IS ASKED FOR: a published folder
+  // (index.html beside its assembly.glb, on any static host) is not at such an
+  // address, so it only ever shows the one model it ships with. Also off: with
+  // ?tabs=0 in the address; when the model says so (export(extras={"tabs": False}));
+  // when no projects.json answers; and in the desktop app, which has its own strip.
+  const TABS = { on: false, list: false, rows: [], open: [], seen: {}, since: 0 };
+  const tabStore = (k, v) => { try { if (v === undefined) return JSON.parse(sessionStorage.getItem(k));
+                                     sessionStorage.setItem(k, JSON.stringify(v)); } catch {} return null; };
+  function tabsOff() {
+    TABS.on = false; TABS.never = true;
+    document.body.classList.remove('tabs', 'list');
+  }
+  function tabGo(key) {
+    if (restored) keepState();
+    if (!TABS.open.includes(key)) TABS.open.push(key);
+    tabStore('viewer-tabs', TABS.open);
+    if (key === TABKEY) { TABS.list = false; tabsDraw(); return; }
+    location.href = TABBASE + 'p/' + encodeURIComponent(key) + '/';
+  }
+  function tabClose(key) {
+    const i = TABS.open.indexOf(key);
+    TABS.open.splice(i, 1);
+    tabStore('viewer-tabs', TABS.open);
+    if (key === TABKEY) tabGo(TABS.open[Math.min(i, TABS.open.length - 1)]); else tabsDraw();
+  }
+  function tabsDraw() {
+    const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls;
+                                     if (text != null) e.textContent = text; return e; };
+    const by = new Map(TABS.rows.map(r => [r.key, r]));
+    const strip = $('tabstrip');
+    strip.textContent = '';
+    for (const key of TABS.open) {
+      const r = by.get(key);
+      if (!r) continue;
+      const fresh = key !== TABKEY && r.stamp !== TABS.seen[key];
+      const tab = mk('div', 'tab' + (key === TABKEY && !TABS.list ? ' on' : '') + (fresh ? ' new' : ''));
+      tab.title = r.dir + (fresh ? '\nbuilt again since it was last looked at' : '');
+      tab.append(mk('span', 'dot'), mk('span', 'name', r.name));
+      if (TABS.open.length > 1) {
+        const x = mk('span', 'x', '×');
+        x.onclick = e => { e.stopPropagation(); tabClose(key); };
+        tab.append(x);
+      }
+      tab.onclick = () => tabGo(key);
+      strip.append(tab);
+    }
+    const plus = mk('div', TABS.list ? 'on' : '', '+');
+    plus.id = 'tabplus'; plus.title = 'projects';
+    plus.onclick = () => { TABS.list = !TABS.list; tabsDraw(); };
+    strip.append(plus);
+    document.body.classList.toggle('list', TABS.list);
+    const rows = $('projrows');
+    rows.textContent = '';
+    if (!TABS.list) return;
+    const when = t => {
+      if (!t) return 'no model';
+      const d = new Date(t * 1000), now = new Date();
+      const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) -
+                               new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+      const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return 'built ' + (days === 0 ? 'today ' + hm : days === 1 ? 'yesterday ' + hm
+           : d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) + ' ' + hm);
+    };
+    for (const r of TABS.rows) {
+      const row = mk('div', 'proj' + (r.missing ? ' missing' : ''));
+      row.title = r.missing ? 'its folder, or the model in it, is gone' : r.dir;
+      row.append(mk('b', '', r.name), mk('span', 'dir', '\u200e' + r.dir),
+                 mk('span', 'is', r.missing ? 'missing' : TABS.open.includes(r.key) ? 'open' : ''),
+                 mk('span', 'when', when(r.built)));
+      if (!r.missing) row.onclick = () => tabGo(r.key);
+      rows.append(row);
+    }
+  }
+  async function tabsPoll(first) {
+    const r = await fetchJSON(TABBASE + 'projects.json?t=' + Date.now());
+    if (!r || !Array.isArray(r.projects)) { if (first) return false; }
+    else {
+      TABS.rows = r.projects;
+      // a project that has shown itself since this strip came up gets a tab (and its dot)
+      for (const p of r.projects)
+        if (p.opened > TABS.since && !p.missing && !TABS.open.includes(p.key)) TABS.open.push(p.key);
+      TABS.since = Math.max(TABS.since, ...r.projects.map(p => p.opened));
+      const me = r.projects.find(p => p.key === TABKEY);
+      if (me) TABS.seen[TABKEY] = me.stamp;             // the one shown is being looked at
+      tabStore('viewer-tabs', TABS.open); tabStore('viewer-seen', TABS.seen); tabStore('viewer-since', TABS.since);
+      if (TABS.on || first) tabsDraw();
+    }
+    if (TABS.on || first) setTimeout(tabsPoll, 2000);
+    return true;
+  }
+  async function tabsInit() {
+    if (!TABKEY) return;
+    TABS.open = tabStore('viewer-tabs') || [];
+    TABS.seen = tabStore('viewer-seen') || {};
+    TABS.since = tabStore('viewer-since') || Infinity;  // (the first answer says what "since" is)
+    if (!TABS.open.includes(TABKEY)) TABS.open.push(TABKEY);
+    if (TABS.since === Infinity) TABS.since = -1e308, TABS.first = true;
+    const r = await fetchJSON(TABBASE + 'projects.json?t=' + Date.now());
+    if (!r || !Array.isArray(r.projects)) return;       // no such thing here: a plain static site
+    if (TABS.first) TABS.since = Math.max(0, ...r.projects.map(p => p.opened));
+    if (TABS.never) return;
+    TABS.on = true;
+    document.body.classList.add('tabs');
+    addEventListener('pagehide', () => { if (restored) keepState(); });
+    await tabsPoll(true);
   }
   async function init() {
     setHint();
+    tabsInit();
     try {
       await load(true);
       await rtLoad();
