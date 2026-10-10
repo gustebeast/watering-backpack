@@ -300,3 +300,142 @@ def jst_ph_side_header(n, *, mated=False, plug_run=PH_PLUG_RUN):
     if mated:
         body = body.union(_block(L, plug_run, PH_SIDE_H, 0.0, -plug_run / 2, 0.0))
     return body
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# JST CRIMP HOUSINGS (XHP-n, PHR-n, ZHR-n) AND WHERE THEIR WIRES LEAVE
+# ════════════════════════════════════════════════════════════════════════════
+# ONE TABLE for the plug a header is mated with, read by three things that must agree:
+# the housing drawn in the viewer (jst_housing below, placed by cadkit.web.boards),
+# cadkit.board_geom.Boards.plug / wire_exit / way (where each wire leaves each plug) and
+# the side-entry SMT headers cadkit.web.parts draws (KiCad's library has no model of
+# them, so their pocket is cut from the same numbers and the plug seats in it).
+#
+# WHERE EACH NUMBER IS FROM. Three grades, and the list below says which:
+#   [JST]    JST's own drawing, as already cited in this file (eXH, ePH) or in the
+#            project that first used the part (eZR, for the ZR/ZH pair).
+#   [KiCad]  measured off KiCad's library model of the mating header
+#            (Connector_JST.3dshapes, generated from JST's drawings): the POCKET the
+#            housing goes into -- its depth, and how far its two broad walls stand from
+#            the pin axis. JST dimensions the outside of a housing, not the pocket.
+#   [est]    an estimate, to be replaced when the drawing is read or a part is measured.
+# The housing's LENGTH is not taken from a drawing at all: it is what reaches from the
+# pocket's floor to the back face, and the back face is where the drawings put it (the
+# mated height, the mated length). So what shows -- how far the plug stands proud, and
+# where its wires leave -- is as true as the drawing figure behind it, even where the
+# length hidden inside the shroud is not.
+#
+#   pitch        [JST]
+#   near, far    [KiCad] the pocket's broad walls from the PIN AXIS: `near` is the wall the
+#                housing's rails pass through (XH: two slots; PH: one wide notch), and the
+#                pins stand nearer it. On a top-entry header that is the side of the body
+#                the pad row is off-centre toward; on a side-entry one it is the TOP.
+#                ZH [est].
+#   pocket_over  [KiCad] pocket width = pitch (n - 1) + this. ZH [est].
+#   overall      [JST] XHP-n: B = A + 4.8 across its two end ears. PH, ZH: no ears.
+#   pocket       [KiCad] pocket depth, mouth to floor (the same top and side entry)
+#   cavity       [est] the square a crimped wire goes into at the back face
+#   post         [JST] XH 0.64 square; [KiCad] PH 0.5; [est] ZH
+#   top          (header height, mated height) above the board, top entry:
+#                XH 7.0 / 9.8 [JST eXH]; PH 6.0 [JST ePH p.2] / 8.0 [est: the series'
+#                advertised mounted height, not read off the drawing here]
+#   side         {smt: (axis, proud, pocket, body_d)} for side entry:
+#     axis    the pin axis above the board. THT [KiCad]: XH 3.75, PH 3.1. SMT [est]: the
+#             same distance below the TOP as the THT part (XH 6.0 - 2.35, PH 5.5 - 1.75);
+#             ZH [est] mid-pocket of a 3.7 body.
+#     proud   the mated housing past the mouth. PH SMT 3.6 [JST ePH p.2: 9.6 - 6.0];
+#             ZH 2.0 [JST eZR p.2: 7 - 5.0]; XH 2.8 and PH THT 2.0 [est]: the top-entry
+#             figure (mated - header), on the grounds that pocket and housing are the same.
+#     pocket  pocket depth of the header AS DRAWN BY cadkit.web.parts (SMT only; a THT
+#             header is KiCad's model and its pocket is `pocket` above). PH SMT 3.25 =
+#             PHR's 6.85 [JST ePH p.3] less the 3.6 proud; XH = the THT pocket; ZH [est].
+#     body_d  the moulded body's depth where the footprint's F.Fab box also takes in the
+#             tails: PH 6.0 [JST ePH p.4], ZH 5.0 [JST eZR p.5]; None = the F.Fab box.
+JST_FIT = 0.05            # housing to pocket, a side: enough that no two faces coincide
+JST_SERIES = {
+    "XH": dict(housing="XHP-%d", pitch=XH_PITCH, near=1.5, far=2.65, pocket_over=3.2,
+               overall=4.8, pocket=5.15, cavity=1.9, post=XH_POST, rails="slots",
+               top=(XH_BODY_H, XH_MATED_H),
+               side={False: (3.75, XH_MATED_H - XH_BODY_H, 5.15, None),
+                     True: (3.65, XH_MATED_H - XH_BODY_H, 5.15, None)}),
+    "PH": dict(housing="PHR-%d", pitch=PH_PITCH, near=1.1, far=2.3, pocket_over=2.9,
+               overall=None, pocket=4.2, cavity=1.5, post=0.5, rails="notch",
+               top=(6.0, 8.0),
+               side={False: (3.1, 2.0, 4.2, None),
+                     True: (3.75, PH_PLUG_RUN, 6.85 - PH_PLUG_RUN, PH_SIDE_D)}),
+    "ZH": dict(housing="ZHR-%d", pitch=1.5, near=1.0, far=1.5, pocket_over=3.1,
+               overall=None, pocket=3.3, cavity=1.1, post=0.4, rails=None,
+               top=None,
+               side={True: (2.0, 2.0, 3.3, 5.0)}),
+}
+_JST_NAME = []
+
+
+def jst_part(name):
+    """What a footprint name says about a JST wire-to-board header, or None if it is not
+    one JST_SERIES covers: {"series": "XH" | "PH" | "ZH", "n": ways, "side": side entry,
+    "smt": surface mount}. Read from the PART NUMBER in the name (B4B-XH-A, S8B-PH-SM4-TB,
+    S4B-ZR-SM4A-TF), not from the word Horizontal: a project's own footprint of the same
+    part (..._MouthOnEdge, ..._TightCourtyard) is named after the part and not the pose."""
+    if not _JST_NAME:
+        import re
+        _JST_NAME.append(re.compile(r"^JST_(XH|PH|ZH)_([BS])(\d+)B-(?:XH|PH|ZR|ZH)-([A-Z0-9]+)"))
+    m = _JST_NAME[0].match(name)
+    if not m:
+        return None
+    series, side, smt = m.group(1), m.group(2) == "S", m.group(4).startswith("SM")
+    s = JST_SERIES[series]
+    if (side and smt not in s["side"]) or (not side and (smt or not s["top"])):
+        return None                       # a pose of the part the table has no numbers for
+    return {"series": series, "n": int(m.group(3)), "side": side, "smt": smt}
+
+
+_HOUSINGS = {}
+
+
+def jst_housing(series, length, ways):
+    """The crimp housing of `series` as it LOOKS, in its own frame, built from JST_SERIES:
+
+        X  along the row; `ways` is each way's x, in way order (so a housing is drawn on
+           the contacts it mates with, wherever the caller's origin is along the row)
+        Y  the mating axis: y = 0 is the BACK FACE, where the wires leave toward -Y, and
+           the body runs +Y into the header for `length`
+        Z  across: z = 0 is the CONTACT AXIS, +Z the side the rails are on (JST_SERIES
+           `near`)
+
+    so way k's wire cavity is centred on (ways[k], 0, 0): the point Boards.wire_exit
+    returns, by construction rather than by agreement. The cavities are open at the back
+    (an unused way is an empty hole, as on the bench), each with its lance window in the
+    far broad face; XHP has its two rails and end ears, PHR its one wide rib."""
+    key = (series, round(length, 3), tuple(round(x, 4) for x in ways))
+    if key in _HOUSINGS:
+        return _HOUSINGS[key]
+    s = JST_SERIES[series]
+    x0, x1 = min(ways), max(ways)
+    cx = (x0 + x1) / 2.0
+    bw = (x1 - x0) + s["pocket_over"] - 2 * JST_FIT
+    near, far = s["near"] - JST_FIT, s["far"] - JST_FIT
+    body = _block(bw, length, near + far, cx, length / 2.0, -far).edges("|Y").chamfer(0.2)
+    if s["overall"]:
+        ear = ((x1 - x0) + s["overall"] - bw) / 2.0
+        el = min(2.0, 0.3 * length)
+        for sx in (-1.0, 1.0):
+            body = body.union(_block(ear + 0.1, el, 1.5, cx + sx * (bw / 2.0 + ear / 2.0 - 0.05),
+                                     el / 2.0, -0.75))
+    if s["rails"] == "slots":               # XHP: a rail by each end way, in the header's slots
+        for a, b in ((x0 - 0.5 + JST_FIT, x0 + 1.0 - JST_FIT),
+                     (x1 - 1.0 + JST_FIT, x1 + 0.5 - JST_FIT)):
+            body = body.union(_block(b - a, length - 0.9, 0.85, (a + b) / 2.0,
+                                     0.9 + (length - 0.9) / 2.0, near - 0.05))
+    elif s["rails"] == "notch":             # PHR: one low rib between the end ways
+        a, b = x0 + 0.55 + JST_FIT, x1 - 0.55 - JST_FIT
+        body = body.union(_block(b - a, length - 0.8, 0.6, (a + b) / 2.0,
+                                 0.8 + (length - 0.8) / 2.0, near - 0.05))
+    cav = s["cavity"]
+    for x in ways:
+        body = body.cut(_block(cav, 0.55 * length + 0.01, cav, x, 0.55 * length / 2.0 - 0.01,
+                               -cav / 2.0))
+        # the lance window: through the far broad face into the cavity
+        body = body.cut(_block(0.55 * cav, 0.18 * length, far, x, 0.5 * length, -far - 0.01))
+    _HOUSINGS[key] = body
+    return body

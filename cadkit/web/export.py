@@ -541,16 +541,20 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                 continue
             done[name] = m
             colors[name] = _rgba(color)
-    models = {}
+    models, plugs = {}, set()
     if boards is not None:
         try:
-            from .boards import detail, SEP
+            from .boards import detail, SEP, PLUG_PART, PLUG_RGB
             if callable(boards):
                 boards = boards()
             models = detail(done, lambda n: solids[n]() if callable(solids[n]) else solids[n],
                             boards, cache_dir)
             for n in done:
-                if n not in colors:
+                if n not in colors and n.endswith(PLUG_PART) and "col" not in done[n]:
+                    # a header's crimp housing: one colour, its own (not its board's)
+                    colors[n] = tuple(c ** 2.2 for c in PLUG_RGB) + (1.0,)
+                    plugs.add(n)
+                elif n not in colors:
                     colors[n] = colors.get(n.split(SEP)[0], (0.8, 0.8, 0.8, 1.0))
         except Exception as exc:          # the boxes are a complete model: never fail the export
             print("web boards: skipped (%s: %s) -- boards keep their boxes"
@@ -568,6 +572,8 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
             mats = {n: materials(n) for n in done if "__" not in n}
         except Exception as exc:             # the model is still worth showing
             print("web export: no materials (%s)" % exc)
+    if plugs:
+        mats = dict(mats or {}, **{n: "nylon" for n in plugs if n in done})
     # WHAT EACH PART IS ONE THING WITH: its part if it is one solid of several, then
     # whatever the project says that part belongs to; lettering goes with its board
     one = {}

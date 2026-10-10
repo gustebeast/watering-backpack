@@ -77,17 +77,61 @@ def _ways(n, pitch):
 
 
 # ── the generators: (W, D, H, facts) -> [(workplane, colour)] ─────────────────────────
-def jst_side(W, D, H, n=4, pitch=2.0, **_):
-    """A side-entry SMD header: a shrouded housing open at the mouth, a post per way,
-    the tails out of the back."""
-    wall = min(0.6, 0.15 * H)
-    body = _box(W, D, H).cut(_box(W - 2 * wall, 0.72 * D, H - 2 * wall, y=-0.01, z=wall))
+def jst_side(W, D, H, n=4, pitch=2.0, series=None, smt=True, ways=None, pads_y=None, **_):
+    """A side-entry JST header KiCad's library has no model of (the SMT ones: S*B-PH-SM4-TB,
+    S*B-XH-SM4-TB, S*B-ZR-SM4A-TF), drawn so the crimp housing cadkit.pcb.jst_housing draws
+    SEATS in it: the pocket is cut from the same cadkit.pcb.JST_SERIES record the housing
+    is built from, round the same contact axis, and each post is on its own pad (`ways`:
+    every way's x in this frame, read from the routed board).
+
+    What is drawn: the moulded body (the F.Fab box, or the front `body_d` of it where the
+    box also takes in the tails), the pocket open at the mouth, the top wall's slots (XH:
+    one by each end way) or notch (PH: one, between the end ways) that the housing's rails
+    run in, a post a way, the SMD tails from the back wall down onto their pads (`pads_y`),
+    and the two solder tabs that hold the part down, one at each end. The outline and
+    height are the footprint's and the CAD's; the pocket is JST_SERIES; the tabs and tails
+    are a likeness."""
+    from cadkit.pcb import JST_SERIES, JST_FIT
+    s = JST_SERIES.get(series)
+    xs = list(ways) if ways else _ways(n, pitch)
+    if s is None or smt not in s["side"]:
+        s = dict(near=0.3 * H, far=0.3 * H, pocket_over=1.4 * pitch, post=min(0.5, 0.3 * pitch),
+                 rails=None)
+        axis, pocket, body_d = H / 2.0, 0.6 * D, None
+    else:
+        axis, _proud, pocket, body_d = s["side"][smt]
+    Db = min(D, body_d) if body_d else D
+    wall = 0.4
+    x0, x1 = min(xs), max(xs)
+    pw = min((x1 - x0) + s["pocket_over"], W - 2 * wall)
+    pcx = (x0 + x1) / 2.0
+    z0 = max(axis - s["far"], wall)
+    z1 = min(axis + s["near"], H - wall)
+    pocket = min(pocket, Db - 2 * wall)
+    body = _box(W, Db, H).cut(_box(pw, pocket + 0.01, z1 - z0, x=pcx, y=-0.01, z=z0))
+    slot = min(0.75 * pocket, pocket - 0.3)                 # how far back the top wall is cut
+    if s["rails"] == "slots":
+        for a, b in ((x0 - 0.5, x0 + 1.0), (x1 - 1.0, x1 + 0.5)):
+            body = body.cut(_box(b - a, slot + 0.01, H - z1 + 0.02, x=(a + b) / 2.0, y=-0.01,
+                                 z=z1 - 0.01))
+    elif s["rails"] == "notch" and x1 - x0 > 1.2:
+        body = body.cut(_box((x1 - x0) - 1.1, slot + 0.01, H - z1 + 0.02, x=pcx, y=-0.01,
+                             z=z1 - 0.01))
     out = [(body, CREAM)]
-    post = min(0.5, 0.3 * pitch)
-    for x in _ways(n, pitch):
-        if abs(x) > W / 2 - wall - post / 2:
-            continue
-        out.append((_box(post, 0.66 * D, post, x=x, y=0.08 * D, z=H / 2 - post / 2), TIN))
+    post = s["post"]
+    for x in xs:
+        # the post, from just inside the mouth back through the rear wall...
+        out.append((_box(post, Db - 0.5 + 0.01, post, x=x, y=0.5, z=axis - post / 2.0), TIN))
+        if smt:
+            # ...down the back of the body and out along the board onto its pad
+            end = max((pads_y if pads_y is not None else Db) + 0.6, Db + 0.8)
+            out.append((_box(post, post, axis + post / 2.0, x=x, y=Db), TIN))
+            out.append((_box(1.4 * post, end - Db, 0.2, x=x, y=Db), TIN))
+    if smt:
+        for sx in (-1.0, 1.0):                              # the solder tabs, one at each end
+            leaf = _box(0.2, 0.3 * Db, 0.55 * H, x=sx * (W / 2.0 + 0.1), y=0.15 * Db)
+            foot = _box(0.9, 0.3 * Db, 0.2, x=sx * (W / 2.0 + 0.45), y=0.15 * Db)
+            out.append((leaf.union(foot), TIN))
     return out
 
 
@@ -248,7 +292,8 @@ _PITCH = {"ZH": 1.5, "PH": 2.0, "XH": 2.5}
 
 def _facts(gen, m):
     if gen is jst_side:
-        return {"n": int(m.group(2)), "pitch": _PITCH[m.group(1)]}
+        return {"n": int(m.group(2)), "pitch": _PITCH[m.group(1)], "series": m.group(1),
+                "smt": "-SM" in m.string}
     if gen is terminal_block:
         return {"n": int(m.group(1)), "pitch": float(m.group(2))}
     if gen is pogo:
@@ -312,6 +357,18 @@ def build(f, h, thickness, panel=None, outline=None):
         W, D = x1 - x0, y1 - y0
         origin, turn = (cx, (y0 if my < 0 else y1)), (0.0 if my < 0 else 180.0)
     facts = _facts(gen, m)
+    if gen is jst_side and f.get("pads"):
+        # each way where the routed board has its pad, in the generator's frame: its X is
+        # the board's X turned by `turn`, its Y runs from the mouth back into the body
+        a = math.radians(turn)
+        gx, gy = (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+        try:
+            pads = [f["pads"][str(k)] for k in range(1, facts["n"] + 1)]
+            facts["ways"] = [(p[0] - origin[0]) * gx[0] + (p[1] - origin[1]) * gx[1] for p in pads]
+            facts["pads_y"] = sum((p[0] - origin[0]) * gy[0] + (p[1] - origin[1]) * gy[1]
+                                  for p in pads) / len(pads)
+        except KeyError:
+            pass
     spec = (panel or {}).get(name) or {}
     if "axis_h" in spec:
         facts["axis_h"] = spec["axis_h"]
