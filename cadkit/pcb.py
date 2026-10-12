@@ -419,3 +419,22 @@ def jst_housing(series, length, ways):
         body = body.cut(_block(0.55 * cav, 0.18 * length, far, x, 0.5 * length, -far - 0.01))
     _HOUSINGS[key] = body
     return body
+
+
+# ── SPRING PINS (pogo pins) ──────────────────────────────────────────────────
+def spring_plunger(d, length, tip="dome"):
+    """A spring pin's plunger: a rod of diameter `d` along +Z from z = 0 (in its barrel)
+    to its tip at z = `length`. Every maker turns the same two ends: "dome" is a full
+    radius (the 1 mm header pins), "flat" a flat face with its corner broken (the 2 mm
+    side-mount pins; the break is a likeness, no drawing dimensions it). One helper, so a
+    pin a project draws beside its board (it leaves the board, and is drawn at the
+    compression its joint holds it at) and the one cadkit.web.parts draws at free
+    length are the same pin."""
+    r = d / 2.0
+    if tip == "dome" and length > r:
+        rod = _cyl(d, length - r, 0.0, 0.0, 0.0)
+        return rod.union(cq.Workplane("XY").sphere(r).translate((0.0, 0.0, length - r)))
+    rod = _cyl(d, length, 0.0, 0.0, 0.0)
+    if tip == "flat" and length > 0.2 * d:
+        rod = rod.faces(">Z").chamfer(0.1 * d)
+    return rod

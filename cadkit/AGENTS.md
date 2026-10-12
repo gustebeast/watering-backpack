@@ -560,6 +560,21 @@ nominal numbers look fine but the finished solid is a razor. The overlap gate
 does NOT catch thin material (see its caveats), so **verify these on the real
 solid** with a point-probe / cross-section, not on paper.
 
+## Materials — say what a part is made of where it is made
+
+The viewer shows every part as its material: the filament's colour and surface for a
+printed part, brass / steel / gold / rubber for a bought one. The names are the ones in
+`cadkit/web/finishes.py` (`FILAMENTS`, `FINISHES`); an unknown name is an error.
+
+- **cadkit's own bought parts say it themselves.** Every screw and heat-set insert from
+  `cadkit.fasteners` is steel or brass in the viewer whatever the project calls it and
+  wherever it is placed. Do not restate it, and do not colour them by hand.
+- **A project states the rest on the part**: `made_of(part, "pctg")`
+  (`from cadkit.web.finishes import made_of`), or a fourth item in the
+  `(name, solid, colour, material)` it hands `show()`, or
+  `assembly.add(part, name=..., metadata={"material": "pctg"})`.
+- The export lists every part that ends up with no material. That list should be empty.
+
 ## Don't
 - Don't re-add Onshape (push scripts, credentials, `_push_onshape`) — removed on
   purpose.

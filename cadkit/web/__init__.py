@@ -25,7 +25,7 @@ its mechanism animated.
     parts    the parts KiCad has no model for, drawn from footprint and datasheet
 """
 
-from .export import (ANGULAR, FORMAT, PAGE, TOLERANCE, export, mesh_shape, pieces,
+from .export import (ANGULAR, FORMAT, PAGE, TOLERANCE, BoardsSkipped, export, mesh_shape, pieces,
                      rig_names, silk_units, step_parts, write_glb)
 from .view import (PORT, ensure_server, scratch_export, scratch_show, serve, show,
                    show_exported)

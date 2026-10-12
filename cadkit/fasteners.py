@@ -79,6 +79,8 @@ from typing import Optional
 
 import cadquery as cq
 
+from .web.finishes import made_of
+
 try:
     from .holes import teardrop_hole
 except ImportError:                    # run directly as a script
@@ -468,7 +470,7 @@ def insert(spec):
                                  (0, 0, -spec.insert_l), (0, 0, 1)))
     bore = cq.Workplane(obj=_cyl(spec.insert_bore_d, spec.insert_l + 2,
                                  (0, 0, -spec.insert_l - 1), (0, 0, 1)))
-    return body.cut(bore)
+    return made_of(body.cut(bore), "brass")
 
 
 def _rot_z_onto(shape, direction):
@@ -504,7 +506,7 @@ def screw(spec, length=None):
     body = cq.Workplane(obj=_cyl(spec.screw_d, length, (0, 0, -length), (0, 0, 1)))
     hexd = 2.0 / math.cos(math.radians(30))
     socket = cq.Workplane("XY").polygon(6, hexd).extrude(-3.0).translate((0, 0, 0.5))
-    return body.cut(socket)
+    return made_of(body.cut(socket), "steel")
 
 
 def headed_screw(spec, length, head_d, head_h, socket_af=2.0, socket_depth=None):
@@ -526,7 +528,7 @@ def headed_screw(spec, length, head_d, head_h, socket_af=2.0, socket_depth=None)
     depth = socket_depth if socket_depth else max(0.6, 0.6 * head_h)
     hexd = socket_af / math.cos(math.radians(30))
     socket = cq.Workplane("XY").polygon(6, hexd).extrude(-depth).translate((0, 0, 0.01))
-    return cq.Workplane(obj=body).cut(socket)
+    return made_of(cq.Workplane(obj=body).cut(socket), "steel")
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -19,7 +19,8 @@ solid is then the part that holds the laminate's corners at that pose.
 WHAT HAPPENS TO THE BOXES. A footprint gets a model only if this instance actually
 draws that footprint: one of its box's top corners is in the solid, or (a board drawn
 by hand) something stands on the footprint -- a package envelope of another size, a
-side-entry header drawn mated, or a part of its own beside the board. The model is
+side-entry header drawn mated, or a part of its own beside the board (a header, a
+spring-pin header, the contacts one lands on). The model is
 KiCad's file where this machine has it and, placed by KiCad's own rule, it lands on the
 footprint's F.Fab box; where KiCad's library has no file, the part is drawn by
 cadkit.web.parts. What the model replaces is then cut off the board's solid. Anything
@@ -37,6 +38,14 @@ drawn with its housing). And the room the CAD reserves for a mated side-entry pl
 block past the header's mouth, on the board's solid -- is cut away with the header's box:
 it is a clearance envelope, right for the gates and not a thing to look at.
 
+A SPRING PIN IS AS LONG AS ITS JOINT LEAVES IT. Its barrel is the footprint; its plunger
+stands out past the F.Fab body, and how far is the project's to say: compressed against
+what it lands on, or free. So where the project draws the plunger itself (a part of its
+own that starts on the barrel's mouth) the model is the barrel alone; where the project
+draws the whole pin as a part beside a board drawn by hand, the model takes that part's
+place with its plungers as long as that part had them; and a pin nobody drew a plunger
+for gets one at free length.
+
 THE PLACEMENT RULE is KiCad's (pcbnew/exporters/step, getModelLocation), in the board
 frame geom.json uses (centred, +Y up, underside at z = 0):
     board <- T(x, y, top ? thickness : 0) . Rz(rot) . [bottom: Rx(180)]
@@ -51,6 +60,7 @@ import math
 import os
 import pathlib
 import pickle
+import sys
 
 import numpy as np
 
@@ -170,14 +180,102 @@ def load_model(path):
 
 _MODELS = {}
 
+# WHAT A COMPONENT'S MODEL COSTS IS PAID ONCE, not once a build: every mesh made here is
+# kept in detail()'s cache_dir under a hash of EVERYTHING it was made from -- the model
+# file's bytes, or the generator's inputs, and in both cases the source of the code that
+# makes it (this module, cadkit.web.parts, cadkit.pcb and the mesher). Nothing is keyed
+# on a time: a changed input or changed code is a different file name, so an entry
+# cannot be stale, only unused (and one unread for KEEP_DAYS is deleted).
+_KEEP = {"dir": None, "salt": None, "hits": 0, "made": 0}
+KEEP_DAYS = 30
+
+
+def _keep_in(cache_dir):
+    import hashlib
+    import inspect
+    import importlib
+    EX = importlib.import_module(__package__ + ".export")    # (the package's own `export` is the function)
+    from .. import pcb as PCB
+    from .. import board_geom as BG
+    _KEEP.update(dir=None, hits=0, made=0)
+    if cache_dir is None:
+        return
+    h = hashlib.sha1()
+    for mod in (sys.modules[__name__], WP, PCB, BG):
+        h.update(inspect.getsource(mod).encode("utf-8"))
+    h.update(inspect.getsource(EX.mesh_shape).encode("utf-8"))
+    h.update(repr((MODEL_TOLERANCE, EX.ANGULAR, EX.FORMAT)).encode())
+    _KEEP.update(dir=pathlib.Path(cache_dir) / "models", salt=h.digest())
+
+
+def _kept(what, make):
+    """make()'s result, from the cache if `what` (bytes: all it is made from) has been
+    made before by this same code."""
+    import hashlib
+    if _KEEP["dir"] is None:
+        return make()
+    f = _KEEP["dir"] / (hashlib.sha1(_KEEP["salt"] + what).hexdigest() + ".pkl")
+    try:
+        got = pickle.loads(f.read_bytes())
+        os.utime(f)
+        _KEEP["hits"] += 1
+        return got
+    except Exception:
+        pass
+    got = make()
+    _KEEP["made"] += 1
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name("%s.%d.tmp" % (f.name, os.getpid()))
+        tmp.write_bytes(pickle.dumps(got, protocol=pickle.HIGHEST_PROTOCOL))
+        os.replace(tmp, f)
+    except OSError:
+        pass
+    return got
+
+
+def _keep_done(log):
+    import time
+    if _KEEP["dir"] is None:
+        return
+    old = time.time() - KEEP_DAYS * 86400
+    try:
+        for f in _KEEP["dir"].glob("*.pkl"):
+            if f.stat().st_mtime < old:
+                f.unlink()
+    except OSError:
+        pass
+    log("web boards: %d component mesh(es) kept from earlier builds, %d made"
+        % (_KEEP["hits"], _KEEP["made"]))
+
+
+def _facts(*things):
+    """Bytes that say what `things` are, the same in every run: numbers by repr, arrays
+    by their own bytes, dicts by sorted key."""
+    def norm(x):
+        if isinstance(x, np.ndarray):
+            return ["nd", x.shape, x.astype(np.float64).tobytes().hex()]
+        if isinstance(x, dict):
+            return {str(k): norm(v) for k, v in sorted(x.items(), key=lambda kv: str(kv[0]))}
+        if isinstance(x, (list, tuple)):
+            return [norm(v) for v in x]
+        if isinstance(x, (str, int, float, bool)) or x is None:
+            return x
+        return repr(x)
+    return json.dumps(norm(things), sort_keys=True).encode("utf-8")
+
 
 def model_mesh(path):
     """mesh_shape() of a model file, with per-vertex colour; None if it will not load."""
     if path not in _MODELS:
         from .export import mesh_shape, ANGULAR
-        try:
+
+        def make():
             comp, cols = load_model(path)
-            _MODELS[path] = mesh_shape(comp, MODEL_TOLERANCE, ANGULAR, face_colors=cols, copy=False)
+            return mesh_shape(comp, MODEL_TOLERANCE, ANGULAR, face_colors=cols, copy=False)
+        try:
+            with open(path, "rb") as fh:
+                _MODELS[path] = _kept(b"model" + fh.read(), make)
         except Exception as exc:
             print("web boards: %s will not load (%s)" % (os.path.basename(path), exc))
             _MODELS[path] = None
@@ -317,10 +415,16 @@ def _reference_inks(boards, cache_dir):
     return out
 
 
-def _own_part(f, h, t, pose, panel, edge=None):
+def _own_part(f, h, t, pose, panel, edge=None, tip=None):
     """A part drawn by cadkit.web.parts, meshed where it stands: a mesh_shape() result
     with per-vertex colour, or None when there is no generator for it (or it fails: a
-    box is a complete model, so this never costs the export)."""
+    box is a complete model, so this never costs the export). Kept between builds by
+    its inputs (_kept)."""
+    return _kept(b"own" + _facts(f, h, t, pose, panel, edge, tip),
+                 lambda: _own_part_made(f, h, t, pose, panel, edge, tip))
+
+
+def _own_part_made(f, h, t, pose, panel, edge=None, tip=None):
     from .export import mesh_shape, ANGULAR
     from OCP.gp import gp_Trsf
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
@@ -329,7 +433,7 @@ def _own_part(f, h, t, pose, panel, edge=None):
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopAbs import TopAbs_FACE
     try:
-        parts = WP.build(f, h, t, panel, edge)
+        parts = WP.build(f, h, t, panel, edge, tip)
         if not parts:
             return None
         R, tr = pose[:3, :3], pose[:3, 3]
@@ -363,15 +467,18 @@ def _plug_part(boards, board, ref, pose):
     from OCP.gp import gp_Trsf
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
     try:
-        solid = boards.plug_solid(board, ref)
-        if solid is None:
-            return None
-        R, tr = pose[:3, :3], pose[:3, 3]
-        trsf = gp_Trsf()
-        trsf.SetValues(R[0, 0], R[0, 1], R[0, 2], tr[0], R[1, 0], R[1, 1], R[1, 2], tr[1],
-                       R[2, 0], R[2, 1], R[2, 2], tr[2])
-        placed = BRepBuilderAPI_Transform(_topods(solid), trsf, True).Shape()
-        return mesh_shape(placed, MODEL_TOLERANCE, ANGULAR, copy=False)
+        def make():
+            solid = boards.plug_solid(board, ref)
+            if solid is None:
+                return None
+            R, tr = pose[:3, :3], pose[:3, 3]
+            trsf = gp_Trsf()
+            trsf.SetValues(R[0, 0], R[0, 1], R[0, 2], tr[0], R[1, 0], R[1, 1], R[1, 2], tr[1],
+                           R[2, 0], R[2, 1], R[2, 2], tr[2])
+            placed = BRepBuilderAPI_Transform(_topods(solid), trsf, True).Shape()
+            return mesh_shape(placed, MODEL_TOLERANCE, ANGULAR, copy=False)
+        # the plug is its record (series, ways, where it sits) and nothing else
+        return _kept(b"plug" + _facts(boards.plug(board, ref), pose), make)
     except Exception as exc:
         print("web boards: %s %s -- its plug could not be drawn: %s" % (board, ref, exc))
         return None
@@ -396,6 +503,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
     if _model_dirs()[1] is None and not _model_dirs()[0]:
         log("web boards: KiCad's 3D models are not on this machine -- boards keep their boxes")
         return models_geo
+    _keep_in(cache_dir)
     inks = _reference_inks(boards, cache_dir)
     if not inks:
         return models_geo
@@ -521,6 +629,36 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                     return
             meshed[solid_name + SEP + f["ref"] + PLUG_PART] = pm
             stats["plugs"] += 1
+        def plunger_drawn(f, h):
+            """Does the project draw spring pin `f`'s plunger itself? True where a part
+            of the assembly has corners ON the barrel's mouth face, inside its outline: a
+            plunger starts there, and nothing else touches that face."""
+            mx, my = WP.mouth(f, panel, edge)
+            fx0, fx1, fy0, fy1 = f["fab"]
+            if mx:
+                a = fx1 if mx > 0 else fx0
+                lo, hi = [a - 0.1, fy0, 0.0], [a + 0.1, fy1, 0.0]
+            else:
+                a = fy1 if my > 0 else fy0
+                lo, hi = [fx0, a - 0.1, 0.0], [fx1, a + 0.1, 0.0]
+            lo[2], hi[2] = (-h, 0.0) if f["side"] == "B" else (t, t + h)
+            lo, hi = np.array(lo), np.array(hi)
+            box = _apply(pose, np.array([(x, y, z) for x in (lo[0], hi[0])
+                                         for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]))
+            wlo, whi = box.min(0), box.max(0)
+            inv = np.linalg.inv(pose)
+            for cand, (clo, chi) in boxes_of.items():
+                if cand in used or cand == solid_name or "silk" in cand:
+                    continue
+                if (chi < wlo).any() or (clo > whi).any():
+                    continue
+                q = _apply(inv, meshed[cand]["pos"].astype(float))
+                if int(((q > lo - 1e-3) & (q < hi + 1e-3)).all(axis=1).sum()) >= 3:
+                    if why:
+                        log("  plunger is the project's: %s %s <- %s" % (solid_name, f["ref"], cand))
+                    return True
+            return False
+
         for f in g["footprints"]:
             ms = _models(f)
             if not f.get("fab") or not (ms or WP.knows(f["fpid"].split(":")[-1])):
@@ -563,10 +701,13 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                         if (len(top) >= 4 and abs(cx - (x0 + x1) / 2) < max(0.35, 0.12 * (x1 - x0))
                                 and abs(cy - (y0 + y1) / 2) < max(0.35, 0.12 * (y1 - y0))):
                             on = top
-                if len(on) < 2 and WP.side_entry(name) and WP.knows(name):
+                if len(on) < 2 and WP.stands_alone(name) and WP.knows(name):
                     # drawn as a PART OF ITS OWN beside the board (the leg joint boards):
-                    # that part becomes the model, under its own name
-                    mx, my = WP.mouth(f, panel, edge)
+                    # that part becomes the model, under its own name. It may reach past
+                    # the mouth (a mated plug, a spring pin's plungers); a part with no
+                    # mouth (the contacts a spring pin lands on) stays over its outline
+                    mx, my = (WP.mouth(f, panel, edge)
+                              if WP.side_entry(name) or WP.fires(name) else (0, 0))
                     gx0, gx1 = x0 - (PLUG if mx < 0 else BACK), x1 + (PLUG if mx > 0 else BACK)
                     gy0, gy1 = y0 - (PLUG if my < 0 else BACK), y1 + (PLUG if my > 0 else BACK)
                     inv = np.linalg.inv(pose)
@@ -584,14 +725,19 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                                 and abs(foot) < 0.3):
                             size = float(np.prod(hi - lo))
                             if best is None or size > best[0]:
-                                best = (size, cand, float(-lo[2] if back else hi[2] - t))
-                    own = _own_part(f, best[2], t, pose, panel, edge) if best else None
+                                best = (size, cand, float(-lo[2] if back else hi[2] - t),
+                                        (x0 - lo[0] if mx < 0 else hi[0] - x1 if mx > 0
+                                         else y0 - lo[1] if my < 0 else hi[1] - y1))
+                    # a spring pin's plungers are as long as the project drew them
+                    tip = max(0.0, float(best[3])) if best and WP.fires(name) else None
+                    own = _own_part(f, best[2], t, pose, panel, edge, tip) if best else None
                     if own is not None:
                         meshed[best[1]] = own[0]
                         used.add(best[1])
                         stats["models"] += 1
                         stats["drawn"] = stats.get("drawn", 0) + 1
-                        mate(f, best[2], on_board=False)
+                        if WP.side_entry(name):
+                            mate(f, best[2], on_board=False)
                         continue
                 if len(on) < 2:
                     keep("not drawn on this instance")
@@ -613,7 +759,9 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
                     path = resolve_model("${KICAD10_3DMODEL_DIR}/" + same)
             if path is None:
                 # no file anywhere: the part drawn here (cadkit.web.parts)
-                own = _own_part(f, h, t, pose, panel, edge)
+                tip = 0.0 if (WP.fires(f["fpid"].split(":")[-1])
+                              and plunger_drawn(f, h)) else None
+                own = _own_part(f, h, t, pose, panel, edge, tip)
                 if own is None:
                     keep("no model in KiCad's library here, none drawn in web_parts")
                     continue
@@ -727,4 +875,5 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
     log("web boards: %d JST plug(s) seated in their headers%s"
         % (stats["plugs"], ", %d more are parts of the project's own" % stats["theirs"]
            if stats["theirs"] else ""))
+    _keep_done(log)
     return models_geo

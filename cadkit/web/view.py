@@ -7,8 +7,13 @@
 `show()` meshes the parts into <project>/.webview/, tells THE server of the project
 (one server for every project on this machine, on one port: started if none is running;
 each project is a path under it, http://127.0.0.1:8137/p/<project>/, and a tab in the
-page), and opens the page the first time. It also tells the desktop app, if that is
-running (cadkit.web.desktop); with CADKIT_VIEWER=desktop the app is where it is shown. An open page watches the model's
+page). WHERE IT IS LOOKED AT: the desktop app (cadkit.web.desktop) when that is installed
+-- its program file exists -- else the web page. A BUILD OPENS NOTHING: it tells a
+running app (whose tab takes the new model, without coming forward) and prints the
+address. What is run on purpose to look (`py -m cadkit.web.view`) opens the app,
+starting it if need be, or a browser tab when there is no app. CADKIT_VIEWER=desktop
+lets a build start the app too, =browser asks for a browser tab instead, =none for
+neither. An open page watches the model's
 stamp and reloads it by itself, keeping the camera and whatever is hidden, so after the
 first call the loop is: build, look. It never raises: trouble with the viewer must not
 cost a build.
@@ -446,49 +451,104 @@ def _model_dir(root=None):
     return out
 
 
-def _desktop(out):
-    """The desktop app is told the model in `out` is new (it shows it in the project's
-    tab, if it is running). True: it is ALSO where the project is to be looked at
-    (CADKIT_VIEWER=desktop), so no browser tab is opened. Never raises, never waits."""
+def _viewer():
+    """What CADKIT_VIEWER asks for: "browser", "desktop", "none", or "" (the default: the
+    desktop app if it is installed, else the web page)."""
+    return os.environ.get("CADKIT_VIEWER", "").strip().lower()
+
+
+def _desktop(out, launch=False):
+    """The model in `out` goes to the desktop app: a running one shows it in the
+    project's tab. With `launch` (somebody asked to look) an installed app that is not
+    running is started and the tab brought in front; a build passes none, and starts
+    the app only under CADKIT_VIEWER=desktop. True: the app has it. Never raises."""
     try:
         from . import desktop
-        if os.environ.get("CADKIT_VIEWER", "").lower() == "desktop":
-            return desktop.open_project(out, focus=False, launch=True)
-        desktop.notify(out)
+        if _viewer() in ("browser", "none"):
+            desktop.notify(out)
+            return False
+        if launch or _viewer() == "desktop":
+            return desktop.open_project(out, focus=launch, launch=True)
+        return desktop.notify(out)
     except Exception:
-        pass
-    return False
+        return False
 
 
-def _open(url, new, open_browser, out=None):
-    """Say where the model is. A BUILD NEVER OPENS A BROWSER TAB (`out` given: it prints
-    the address, and an open page or the desktop app's tab takes the new model by itself)
-    unless CADKIT_VIEWER=browser asks for one; `py -m cadkit.web.view`, run by hand, does."""
-    in_app = _desktop(out) if out is not None else False
+def _open(url, new, open_browser, out=None, by_hand=None):
+    """Say where the model is. A BUILD OPENS NOTHING (`out` given: it prints the
+    address, and a running app's tab or an open page takes the new model by itself)
+    unless CADKIT_VIEWER says to: =desktop starts the app, =browser opens a tab.
+    `py -m cadkit.web.view`, run by hand (`by_hand`: the model's folder), opens the app
+    in front if it is installed, or a tab when it is not."""
+    in_app = False
+    if out is not None:
+        in_app = _desktop(out)
+    elif by_hand is not None and _viewer() != "none":
+        in_app = _desktop(by_hand, launch=True)
     print("web view: %s%s" % (url, "   (in the desktop app)" if in_app else "   (an open page reloads itself)"))
-    if out is not None and os.environ.get("CADKIT_VIEWER") != "browser":
+    if _viewer() == "none" or (out is not None and _viewer() != "browser"):
         return
     if new and open_browser and not in_app:
         import webbrowser
         webbrowser.open(url)
 
 
-# ── show(): a build's parts, or its assembly file ─────────────────────────────────
-def show(source, root=None, title=None, open_browser=True, port=PORT, **export_kw):
-    """Put `source` in the viewer: [(name, solid, colour)] or the path of an assembly
-    STEP. `root` is the project folder (default: the folder the STEP is in, else the
-    working directory). Further
-    keywords go to cadkit.web.export (boards=, materials=, extras= ...). Returns True
-    when the page has the new model; never raises."""
+def _boards_owed(out):
+    """Say so when a project that HAS routed boards shows its model without them: its
+    boards are then boxes, and nothing else in the run would mention it."""
+    here = pathlib.Path(out).resolve()
+    for folder in [here] + list(here.parents)[:3]:
+        geoms = sorted((folder / "elec" / "geom").glob("*.json")) if (folder / "elec" / "geom").is_dir() else []
+        if geoms:
+            print("web view: THIS PROJECT HAS ROUTED BOARDS (%s) and show() was given no boards= -- "
+                  "they are drawn as boxes. cadkit/PCB_README.md section 6 is the three lines that "
+                  "put the real parts on them." % ", ".join(g.name.split(".")[0] for g in geoms[:6]))
+            return
+
+
+def assembly_parts(assembly):
+    """[(name, shape, colour)] of a cadquery Assembly, every part where the assembly
+    puts it: what a build already holds, so the viewer needs no STEP written and read
+    back to be given it."""
+    import cadquery as cq
+    parts = []
+    for name, node in assembly.traverse():
+        if node.obj is None:
+            continue
+        loc, up = node.loc, node.parent
+        while up is not None:
+            loc, up = up.loc * loc, up.parent
+        shapes = node.obj.vals() if hasattr(node.obj, "vals") else [node.obj]
+        shapes = [s for s in shapes if isinstance(s, cq.Shape)]
+        if shapes:
+            shape = shapes[0] if len(shapes) == 1 else cq.Compound.makeCompound(shapes)
+            parts.append((name, shape.moved(loc), node.color,
+                          (getattr(node, "metadata", None) or {}).get("material")))
+    return parts
+
+
+# ── show(): a build's parts, its assembly, or its assembly file ───────────────────
+def show(source, root=None, title=None, open_browser=True, port=PORT, build=None, **export_kw):
+    """Put `source` in the viewer: [(name, solid, colour)], a cadquery Assembly, or the
+    path of an assembly STEP. `root` is the project folder (default: the folder the STEP
+    is in, else the working directory). `build` is the build's number, which the page
+    says as text beside the time (a number modelled as a solid is a part nobody prints).
+    Further keywords go to cadkit.web.export (boards=, materials=, extras= ...). Returns
+    True when the page has the new model; never raises."""
     try:
         is_file = isinstance(source, (str, os.PathLike))
         if root is None and is_file:
             root = pathlib.Path(source).resolve().parent
         out = _model_dir(root)
-        parts = step_parts(source) if is_file else list(source)
+        parts = (step_parts(source) if is_file
+                 else assembly_parts(source) if hasattr(source, "traverse") else list(source))
         extras = dict(export_kw.pop("extras", None) or {})
         if title:
             extras.setdefault("title", title)
+        if build is not None:
+            extras.setdefault("build", build)
+        if export_kw.get("boards") is None:
+            _boards_owed(out)
         export_kw.setdefault("cache_dir", out / "boards")
         export(parts, out, extras=extras, **export_kw)
         (out / "stamp.json").write_text(json.dumps({"t": time.time(), "parts": len(parts)}))
@@ -668,7 +728,7 @@ def main(argv=None):
             raise SystemExit("web view: the server did not take the page: %s" % got)
         url = url.replace("/p/", "/dev/p/", 1)
         new = True
-    _open(url, new, True)
+    _open(url, new, True, by_hand=None if a.dev else model_dir)
     return 0
 
 

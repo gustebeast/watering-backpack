@@ -36,10 +36,13 @@ to the part nodes unchanged.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import struct
 
 import numpy as np
+
+from .finishes import known, material_made
 
 # 0.1 mm of chord, 0.3 rad of angle. The ANGLE is what sets the size: a thin tube swept
 # along a helix (a wound string) meshes to hundreds of thousands of triangles at 0.1 rad.
@@ -485,9 +488,90 @@ def step_parts(path):
     return out
 
 
+class BoardsSkipped(RuntimeError):
+    """export() was given boards= and could not draw their components. The model IS
+    written, with every board as its boxes, and then this is raised: a build that asked
+    for its boards and published boxes has failed, and must say so."""
+
+
+class MeshCache:
+    """mesh_shape() results kept between builds, in a folder, BY WHAT THE SHAPE IS: the
+    key is a hash of the shape's own BRep bytes (its exact geometry and placement), the
+    two tolerances, the model format and the mesher's own source. So a part that has not
+    changed is not meshed again, and an entry can never stand for a shape it was not
+    made from: a different shape, or a different mesher, is a different file name.
+
+    A miss is only ever a cost. OCCT writes a few per-shape flags into those bytes, so
+    every shape of a run is put in one throwaway compound before the first is read
+    (cadkit.overlap_check._canonical says why); a run that hands over its shapes in
+    another state misses, and meshes."""
+
+    KEEP_DAYS = 30          # an entry no build has read for this long is deleted
+
+    def __init__(self, folder):
+        import hashlib
+        import inspect
+        self.dir = pathlib.Path(folder)
+        self.hits = self.misses = 0
+        self.spent = 0.0
+        salt = repr((TOLERANCE, ANGULAR, FORMAT, inspect.getsource(mesh_shape),
+                     inspect.getsource(shape_vertices)))
+        self.salt = hashlib.sha1(salt.encode("utf-8")).hexdigest()
+
+    def settle(self, shapes):
+        from OCP.BRep import BRep_Builder
+        from OCP.TopoDS import TopoDS_Compound
+        builder, comp = BRep_Builder(), TopoDS_Compound()
+        builder.MakeCompound(comp)
+        for s in shapes:
+            builder.Add(comp, s)
+
+    def mesh(self, shape):
+        import hashlib
+        import io
+        import pickle
+        import time
+        from OCP.BRepTools import BRepTools
+        t = time.perf_counter()
+        buf = io.BytesIO()
+        BRepTools.Write_s(shape, buf)
+        f = self.dir / (hashlib.sha1(self.salt.encode() + buf.getvalue()).hexdigest() + ".pkl")
+        try:
+            m = pickle.loads(f.read_bytes())
+            os.utime(f)
+            self.hits += 1
+            self.spent += time.perf_counter() - t
+            return m
+        except Exception:
+            pass
+        m = mesh_shape(shape)
+        self.misses += 1
+        try:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_name("%s.%d.tmp" % (f.name, os.getpid()))
+            tmp.write_bytes(pickle.dumps(m, protocol=pickle.HIGHEST_PROTOCOL))
+            os.replace(tmp, f)
+        except OSError:
+            pass
+        return m
+
+    def close(self, quiet=False):
+        import time
+        old = time.time() - self.KEEP_DAYS * 86400
+        try:
+            for f in self.dir.glob("*.pkl"):
+                if f.stat().st_mtime < old:
+                    f.unlink()
+        except OSError:
+            pass
+        if not quiet:
+            print("web meshes: %d kept from earlier builds (%.1f s to find them), %d made"
+                  % (self.hits, self.spent, self.misses))
+
+
 def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=False,
            boards=None, cache_dir=None, materials=None, whole=None, page=False,
-           units=None, parents=None):
+           units=None, parents=None, mesh_cache=None):
     """Write <stem>.glb and <stem>.geo.json into out_dir.
 
     parts     = [(name, solid, colour)]; solid is a cq.Workplane / cq.Shape /
@@ -496,6 +580,9 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                 (r, g, b[, a]) tuple. THE SOLIDS ARE NOT TOUCHED: every mesh is of a copy.
     extras    = facts for the page, written into the file: "title", "subtitle", "build".
     meshed    = optional {name: mesh_shape() result} to reuse (the local view's cache).
+    mesh_cache = optional folder (outside version control) where each part's mesh is
+                kept between builds, by a hash of the part itself (MeshCache): a full
+                build then meshes only what changed.
     boards    = the project's cadkit.board_geom.Boards (or a zero-argument function
                 returning it, if importing it is dear), if it has circuit boards: each
                 board's footprint boxes are swapped for KiCad's own part models, or one
@@ -523,7 +610,16 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
     done, colors, solids = {}, {}, {}
     parents = dict(parents or {})
     taken = {p[0] for p in parts}
-    for part_name, solid, color in parts:
+    kept = MeshCache(mesh_cache) if mesh_cache is not None else None
+    if kept is not None:
+        kept.settle([_topods(s) for n, s, *_ in parts
+                     if not callable(s) and (meshed or {}).get(n) is None])
+    stated = {}                                  # what the project says a part is made of
+    for part_name, solid, color, *more in parts:
+        if more and more[0] is not None:
+            if not known(more[0]):
+                raise ValueError("%s: %r is no material cadkit knows" % (part_name, more[0]))
+            stated[part_name] = more[0]
         if part_name in done or part_name in solids:
             raise ValueError("two parts are both named %r: the viewer addresses parts by name" % part_name)
         if (meshed or {}).get(part_name) is not None:
@@ -536,12 +632,15 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
             solids[name] = piece
             m = (meshed or {}).get(name)
             if m is None:
-                m = mesh_shape(_topods(piece))
+                m = kept.mesh(_topods(piece)) if kept is not None else mesh_shape(_topods(piece))
             if m is None:
                 continue
             done[name] = m
             colors[name] = _rgba(color)
+    if kept is not None:
+        kept.close(quiet)
     models, plugs = {}, set()
+    boards_error = None
     if boards is not None:
         try:
             from .boards import detail, SEP, PLUG_PART, PLUG_RGB
@@ -556,9 +655,11 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
                     plugs.add(n)
                 elif n not in colors:
                     colors[n] = colors.get(n.split(SEP)[0], (0.8, 0.8, 0.8, 1.0))
-        except Exception as exc:          # the boxes are a complete model: never fail the export
+        except Exception as exc:          # the boxes are a complete model, and it is written;
+            import traceback              # then BoardsSkipped says the boards were asked for
             print("web boards: skipped (%s: %s) -- boards keep their boxes"
                   % (type(exc).__name__, exc))
+            boards_error = "%s: %s\n%s" % (type(exc).__name__, exc, traceback.format_exc())
             done = {n: m for n, m in done.items() if n in colors}
     glb_parts, geo = [], {}
     for name, m in done.items():
@@ -574,6 +675,22 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
             print("web export: no materials (%s)" % exc)
     if plugs:
         mats = dict(mats or {}, **{n: "nylon" for n in plugs if n in done})
+    # ...and what the part itself says outranks what its name suggests: the material
+    # the code that drew it gave (finishes.made_of), then the one stated with the part
+    said = {}
+    for n in done:
+        if "__" in n:
+            continue
+        m = None if callable(solids[n]) else material_made(_topods(solids[n]))
+        m = m or stated.get(n) or stated.get(parents.get(n, n))
+        if m is not None:
+            said[n] = m
+    if said:
+        mats = dict(mats or {}, **said)
+    bare = sorted(n for n in done if "__" not in n and not (mats or {}).get(n))
+    if bare and not quiet:
+        print("web export: %d part(s) have no material and are shown as plain plastic: %s%s"
+              % (len(bare), ", ".join(bare[:8]), ", ..." if len(bare) > 8 else ""))
     # WHAT EACH PART IS ONE THING WITH: its part if it is one solid of several, then
     # whatever the project says that part belongs to; lettering goes with its board
     one = {}
@@ -603,4 +720,7 @@ def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=Fals
         print("wrote %s (%d parts, %d triangles, %.1f MB) and %s (%d faces, %.1f MB)"
               % (glb.name, len(glb_parts), ntri, glb.stat().st_size / 1e6,
                  side.name, nfc, side.stat().st_size / 1e6))
+    if boards_error is not None:
+        raise BoardsSkipped("the boards' components could not be drawn (the model was "
+                            "written with boxes): " + boards_error)
     return glb, side, done
