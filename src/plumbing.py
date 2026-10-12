@@ -7,9 +7,9 @@ line is not a line — it is a 19 mm cylinder that cannot turn tighter than abou
 
 So this models the hoses as SOLIDS, with their real OD and their real bend
 radius, and runs them through the same interference check as everything else.
-`_bend_pts` RAISES when a corner has too little straight either side to hold the
-bend, so a route that cannot physically turn fails loudly instead of being drawn
-as a sharp corner no hose can make.
+`_setbacks` RAISES when a straight is too short to hold the bends at BOTH of its
+ends, so a route that cannot physically turn fails loudly instead of being drawn
+as a corner no hose can make.
 
 WHAT IS MODELLED AS REFERENCE (not printed, not bought)
 -------------------------------------------------------
@@ -66,7 +66,6 @@ SHELF_T        = 8.0              # matches pump_frame._shelf
 # side does not merely restrict flow, it draws the pump dry.
 TUBE_ID, TUBE_OD = 12.7, 19.05
 BEND_R           = 50.0
-ARC_SEGS         = 8              # chords per bend; error = R(1-cos(th/2N))
 
 # ── Uniseal on the tank ─────────────────────────────────────────────────────
 # NOT MEASURED — the panel has not been chosen yet (BOM: "size TBD once a
@@ -106,60 +105,100 @@ def _unit(v):
     return tuple(c / n for c in v)
 
 
-def _bend_pts(p_prev, p_corner, p_next, radius, od=None):
-    """Chord points approximating a constant-radius bend at `p_corner`.
+def _bend(p_prev, p_corner, p_next, radius):
+    """One corner's constant-radius bend: (setback, tangent_in, arc mid, tangent_out).
 
-    Returns (tangent_in, [arc points], tangent_out). Raises when the straight
-    either side is too short to hold the bend — which is the whole point: a
-    route that cannot physically turn should FAIL here, not be drawn anyway.
+    NO LENGTH CHECK HAPPENS HERE, and that is the point — see `_setbacks`. A
+    corner cannot decide whether it fits, because it does not know how much of
+    the straight beside it the NEXT corner is going to spend.
     """
     d_in  = _unit([c - p for p, c in zip(p_prev, p_corner)])
     d_out = _unit([n - c for c, n in zip(p_corner, p_next)])
     cosang = max(-1.0, min(1.0, sum(a * b for a, b in zip(d_in, d_out))))
     turn = math.acos(cosang)                       # 0 = straight through
     if turn < 1e-6:
-        return p_corner, [], p_corner
+        return 0.0, p_corner, p_corner, p_corner
     setback = radius * math.tan(turn / 2.0)
-    for p, name in ((p_prev, "into"), (p_next, "out of")):
-        avail = math.dist(p, p_corner)
-        if avail + 1e-6 < setback:
-            raise ValueError(
-                "bend at %s needs %.1f mm of straight %s it but has %.1f — "
-                "a %.1f mm OD line on a %.0f mm radius cannot make this turn"
-                % (tuple(round(c, 1) for c in p_corner), setback, name, avail,
-                   TUBE_OD if od is None else od, radius))
     t_in  = tuple(c - setback * d for c, d in zip(p_corner, d_in))
     t_out = tuple(c + setback * d for c, d in zip(p_corner, d_out))
     perp = _unit([o - i * cosang for i, o in zip(d_in, d_out)])
     ctr = tuple(t + radius * p for t, p in zip(t_in, perp))
     w = [-p for p in perp]                         # unit: ctr -> t_in
-    pts = []
-    for k in range(1, ARC_SEGS):
-        a = turn * k / ARC_SEGS
-        pts.append(tuple(c + radius * (math.cos(a) * wi + math.sin(a) * ti)
-                         for c, wi, ti in zip(ctr, w, d_in)))
-    return t_in, pts, t_out
+    half = turn / 2.0
+    mid = tuple(c + radius * (math.cos(half) * wi + math.sin(half) * ti)
+                for c, wi, ti in zip(ctr, w, d_in))
+    return setback, t_in, mid, t_out
+
+
+def _setbacks(points, radius, od):
+    """Every corner's setback, CHECKED AGAINST THE STRAIGHT IT SHARES.
+
+    ⚠ THE CHECK THIS REPLACES ASKED EACH CORNER ON ITS OWN, and the drawing is
+    what gave it away. It compared one corner's setback with the whole distance
+    to the next CORNER, so two 90 degree bends 50 mm apart on a 50 mm radius
+    both passed — each spending the same 50 mm of straight, twice over. What
+    came out was `green_from_B` descending z 134 -> 84 and then JUMPING BACK UP
+    to 134 to start the second bend: the "down, then up, then down again" the
+    owner could see in the viewer. The gate was green the whole time.
+
+    A straight is spent from BOTH ENDS, so the two setbacks either side of it
+    have to fit in it TOGETHER. The first and last legs have a free end (a run
+    ENDS at a barb, which is not a bend), so their far setback is zero.
+
+    And this is not a drawing nicety: the hose really cannot do it. Two 90
+    degree bends on a 50 mm radius need 100 mm between the corners. Where the
+    route had 50, no 1/2" vinyl line was ever going to make that descent.
+    """
+    sb = [0.0] * len(points)
+    for i in range(1, len(points) - 1):
+        sb[i] = _bend(points[i - 1], points[i], points[i + 1], radius)[0]
+    for i in range(len(points) - 1):
+        avail = math.dist(points[i], points[i + 1])
+        need = sb[i] + sb[i + 1]
+        if need > avail + 1e-6:
+            raise ValueError(
+                "the straight from %s to %s is %.1f mm but the bends at its two "
+                "ends want %.1f + %.1f = %.1f mm of it — a %.1f mm OD line on a "
+                "%.0f mm radius cannot make both turns that close together"
+                % (tuple(round(c, 1) for c in points[i]),
+                   tuple(round(c, 1) for c in points[i + 1]),
+                   avail, sb[i], sb[i + 1], need, od, radius))
+    return sb
+
+
+def centreline(points, radius=BEND_R, od=TUBE_OD):
+    """The route as ONE continuous wire: straights and true circular arcs.
+
+    Arcs, not the chord-and-knuckle chain this used to build. A chord lies
+    INSIDE the arc it stands for and the knuckle sphere does not, so every bend
+    was drawn as a string of rings standing proud of the tube — the ribbing
+    visible on the hoses in the viewer. A swept wire has no facets to show.
+    """
+    sb = _setbacks(points, radius, od)
+    edges, cur = [], points[0]
+    for i in range(1, len(points) - 1):
+        if sb[i] <= 1e-9:                          # straight through
+            continue
+        _s, t_in, mid, t_out = _bend(points[i - 1], points[i], points[i + 1],
+                                     radius)
+        if math.dist(cur, t_in) > 1e-7:
+            edges.append(cq.Edge.makeLine(cq.Vector(*cur), cq.Vector(*t_in)))
+        edges.append(cq.Edge.makeThreePointArc(
+            cq.Vector(*t_in), cq.Vector(*mid), cq.Vector(*t_out)))
+        cur = t_out
+    if math.dist(cur, points[-1]) > 1e-7:
+        edges.append(cq.Edge.makeLine(cq.Vector(*cur), cq.Vector(*points[-1])))
+    assert edges, "a run with no length: %r" % (points,)
+    return cq.Wire.assembleEdges(edges)
 
 
 def run(points, od=TUBE_OD, radius=BEND_R):
-    """A hose along `points`, with real bends. Raises if a bend cannot fit."""
-    r = od / 2.0
-    path = [points[0]]
-    for i in range(1, len(points) - 1):
-        t_in, arc, t_out = _bend_pts(points[i - 1], points[i], points[i + 1],
-                                     radius, od)
-        path += [t_in] + arc + [t_out]
-    path.append(points[-1])
-    sol = None
-    for a, b in zip(path, path[1:]):
-        s = _seg(a, b, r)
-        if s is None:
-            continue
-        sol = s if sol is None else sol.union(s)
-    for p in path[1:-1]:                            # knuckles at every chord
-        sol = sol.union(cq.Workplane(obj=cq.Solid.makeSphere(
-            r, cq.Vector(*p))))
-    return sol
+    """A hose along `points`, swept round real bends. Raises if a bend cannot fit."""
+    path = centreline(points, radius, od)
+    d0 = _unit([b - a for a, b in zip(points[0], points[1])])
+    prof = cq.Wire.makeCircle(od / 2.0, cq.Vector(*points[0]), cq.Vector(*d0))
+    return cq.Workplane(obj=cq.Solid.sweep(prof, [], path, makeSolid=True,
+                                           isFrenet=True))
 
 
 # ── Where each elbow leg ends — the stub the hose picks up ──────────────────
@@ -210,11 +249,25 @@ def routes():
         # GREEN side (-X): both green ports -> tee -> straight down to the wand
         ("green_from_A", [A_OUT, (A_OUT[0], PLENUM_Y, _ZP), GREEN_TEE]),
         # B's inlet cannot go forward -- pump A is in the way -- so it goes UP,
-        # over the pumps, and down again in the plenum.
+        # over the pumps, and SLOPES down to the tee once it is clear of them.
+        #
+        # ⚠ IT USED TO DROP VERTICALLY AT x=-11 AND THEN TURN -X, and no hose
+        # can do that. The drop was 50 mm (OVERHEAD_Z to the ports' 84) with a
+        # 90 degree bend at each end, and two 90 degree bends on a 50 mm radius
+        # need 100 mm between their corners. The old per-corner check passed it
+        # twice over (see `_setbacks`) and the viewer drew the hose descending
+        # to 84, jumping back up to 134, and descending again.
+        #
+        # There is no all-right-angle route here. The hose has to stay above
+        # z=128.5 until y=208 to clear the pumps, which leaves 54 mm of Y to
+        # lose 50 mm of Z in -- and the turn into the tee alone wants 50 of
+        # those. So the descent is a SLOPE: one bend out of the overhead run,
+        # straight down to the barb at 38.9 degrees off the tee's axis. That is
+        # what a vinyl line actually does on a barbed fitting -- the barb is the
+        # straight part -- and it is one R50 bend, not two.
         ("green_from_B", [B_IN,
                           (B_IN[0], _YB, OVERHEAD_Z),
                           (B_IN[0], PLENUM_Y, OVERHEAD_Z),
-                          (B_IN[0], PLENUM_Y, _ZP),
                           GREEN_TEE]),
         ("green_out",    [GREEN_TEE, GREEN_EXIT]),
     ]

@@ -95,13 +95,13 @@ import cadquery as cq
 
 from cadkit.orientation import PrintOrientation as PO
 
-from cadkit.board_geom import Boards
 from cadkit.fasteners import M4, ScrewJoint
 
 from . import lumber_frame as L
 from . import pump_frame as F
 from .battery_dock import battery_dock, terminal_cutter
 from . import silk_face as SF
+from . import board_parts as BP
 from .dimensions import BOOL_OVERSHOOT
 
 # ── The board comes from the ROUTED board, never a typed placement ──────────
@@ -131,8 +131,8 @@ _SILK_FONT, _SILK_CAP, _SILK_NOTE = SF.resolve()
 if _SILK_NOTE:
     print(_SILK_NOTE)
 
-_BOARDS = Boards(str(F.OUT / "elec" / "geom"), height=F._PCB_HEIGHT,
-                 silk_font=_SILK_FONT, silk_cap=_SILK_CAP)
+_BOARDS = BP.boards(str(F.OUT / "elec" / "geom"),
+                    silk_font=_SILK_FONT, silk_cap=_SILK_CAP)
 
 
 # ── Where it mounts ─────────────────────────────────────────────────────────
@@ -463,7 +463,19 @@ assert Y_PCB0 < CHASE_Y0 and CHASE_Y1 < Y_PCB1, (
 # It needs no overhang relief: the housing builds -X (PRINT_ORIENTATION), so a hole
 # bored through the plate along X is a VERTICAL hole with no ceiling anywhere
 # in it.
-WIRE_SLOT_Y_C = 147.0
+# ⚠ AS FAR +Y AS THE POST ALLOWS, NOT A ROUND NUMBER. 147.0 was picked when the
+# pack pair was the only thing crossing; it put the slot's +Y end at 167.0 and
+# pump A's terminal is at y 168.28, so when J2 took the port (src/wiring.py) its
+# lead had nowhere to drop. The slot has 5 mm of room to move and the thing that
+# decides how much is the post it would otherwise be blind against, so take it
+# from there and let wiring.py's own assert hold the mouths inside it.
+# 0.5, and it is the tightest number in this block. Pump A's outermost
+# conductor is DRAWN at y 171.08 (wiring.py measures it and asserts it), so the
+# slot's +Y end has to reach at least there, and the post's inboard face is at
+# 172.0. There is 0.92 mm between that conductor and the post and no way to buy
+# more of it: J2's terminal is where the routed board puts it and the board is
+# ordered. Named here rather than discovered later.
+WIRE_SLOT_POST_CLR = 0.5    # air between the slot's +Y end and the post face
 WIRE_SLOT_Z_C = 8.0
 WIRE_SLOT_W   = 50 * BEAD   # 40.0 along Y, tip to tip. It is not just the
                             # battery: the PUMP leads cross here too. Every
@@ -480,6 +492,7 @@ WIRE_SLOT_W   = 50 * BEAD   # 40.0 along Y, tip to tip. It is not just the
 WIRE_SLOT_H   = 5.0         # along Z, and the end radius
 WIRE_WOOD_Z   = 4.0         # measured: the floor plank's top at this Y
 WIRE_POST_Y   = 172.0       # measured: the +Y post's inboard face
+WIRE_SLOT_Y_C = WIRE_POST_Y - WIRE_SLOT_POST_CLR - WIRE_SLOT_W / 2.0   # 151.0
 
 
 def _wire_slot() -> cq.Workplane:
@@ -572,8 +585,41 @@ def pose_board(solid):
     return r.translate((BOARD_X0, PCB_Y_C, PCB_Z_C))
 
 
+def pcb_parts():
+    """[(name, tint, solid)] -- the board SPLIT BY WHAT ITS PARTS ARE MADE OF.
+
+    The assembly draws these, not `pcb_solid()`. A board added as one component
+    gets one colour, and that colour was the solder mask, so the ESP32's steel
+    can, the electrolytics' black sleeves and the screw terminals all came out
+    green -- shaped correctly (finding 62) and still unreadable.
+
+    The pedal steel does it this way: `BG.bodies(board, refs)` against
+    `solid(skip=refs)` for its LEDs, and a named `_COLORS` entry for every
+    board's silkscreen, plugs, screws and inserts. cadkit's docstring says the
+    pair exists for exactly this.
+    """
+    return [("pcb_" + g, t, pose_board(s)) for g, t, s in BP.parts(_BOARDS, "main")]
+
+
 def pcb_solid():
-    return pose_board(_BOARDS.solid("main"))
+    """The board as it will be in the hand.
+
+    ⚠ IT IS NOT ALL BOXES ANY MORE. Everything cadkit can answer from the
+    routed F.Fab box still comes from there; the parts whose box is a poor
+    likeness -- the five screw terminals, the two electrolytic cans, the buzzer
+    -- are drawn by src/board_parts.py and SKIPPED here, so nothing is drawn
+    twice. See that file for what is still a box on purpose.
+
+    ⚠ IT IS BUILT FROM pcb_parts(), not beside it. The overlap gate weighs
+    this one solid and the viewer colours those pieces; if the two were built
+    by separate code paths they could disagree about what the board IS, which
+    is the mistake this repo has already paid for with two pcb_solid()s (see
+    src/pump_frame.py). One is the union of the other, so they cannot.
+    """
+    out = None
+    for _n, _t, part in pcb_parts():
+        out = part if out is None else out.union(part)
+    return out
 
 
 def pcb_silk(side: str = "F"):
@@ -1303,7 +1349,8 @@ def _build() -> None:
     asm.add(F._pump_placed(-1), name="pump_a", color=color("slategray"))
     asm.add(F._pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
     asm.add(F._elbows(), name="fittings", color=color("#c8a24a"))
-    asm.add(L.tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
+    from . import tank as TK
+    asm.add(L.tank(), name="tank_viz", color=color(TK.BODY, alpha=0.9))
     for name, pts in P.routes():
         tint = "#b03030" if name.startswith("tank") else "#30a050"
         asm.add(P.run(pts), name=name, color=color(tint, alpha=0.85))

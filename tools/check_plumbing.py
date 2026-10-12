@@ -38,18 +38,29 @@ MIN_VOL = 1.0        # mm3 — below this is boolean noise, not a collision
 # green_from_B below, where the hose is drawn curving through 45 mm of rigid
 # fitting. Its neighbours, routed the same way, measure 163.
 INTENDED = {
-    ("tank_to_A", "elbows"):
-        (250.0, "the joint: the hose slides onto the leg end and the two "
-                "overlap by a sphere's worth at the knuckle"),
-    ("green_from_A", "elbows"):
-        (250.0, "same joint, pump A's outlet"),
     ("green_from_B", "elbows"):
         (10100.0,
          "NOT A JOINT. 9962 mm3, sixty times its neighbours, and it is a real "
          "blocker held open by an unmeasured number -- see the note below."),
 }
 
-# TWO ENTRIES WERE DROPPED, because measuring them showed they held nothing:
+# FOUR ENTRIES HAVE BEEN DROPPED, each because measuring it showed it held
+# nothing. The two newest went when the hoses stopped being drawn as chords:
+#
+#   tank_to_A x elbows      163 mm3, and green_from_A x elbows the same joint.
+#   green_from_A x elbows   Both were ENTIRELY the chord-and-knuckle drawing:
+#                           `plumbing.run` used to approximate each bend with
+#                           straight chords and patch the joints with spheres,
+#                           and a sphere at the first tangent point reached back
+#                           inside the elbow leg. The note here called it "the
+#                           joint: the hose slides onto the leg end", which was
+#                           a story told about a rendering artefact -- the hose
+#                           is drawn FROM the leg end on these routes and never
+#                           entered it. With real swept arcs both read 0.00, so
+#                           there is nothing left to declare. The one real
+#                           overlap, green_from_B's, is unchanged at 9979.
+#
+# And the first two:
 #
 #   tank_to_B x elbows   0.0 mm3. It and tank_to_A are the same joint drawn the
 #                        same way, and tank_to_A reads 163 -- all of which is

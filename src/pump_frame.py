@@ -176,52 +176,12 @@ _PORT_YS = (PUMP_Y0 + PUMP_PORT_A, PUMP_Y0 + PUMP_MOTOR_L - PUMP_PORT_A)   # 161
 # +-41. src/housing.py states it where it sources the board from
 # Boards("elec/geom").
 
-# Heights for footprints cadkit's shared table does not carry. Mirrors
-# elec/cad_geom_check.py — a footprint with no height RAISES rather than being
-# silently dropped from the CAD, which is the behaviour we want.
-_PCB_HEIGHT = {
-    "Buzzer_12x9.5RM7.6": 9.5, "CP_Elec_10x10.5": 10.5,
-    "ESP32-WROOM-32E-FABDRILL": 3.1, "L_Bourns_SRN6045TA": 4.5,
-    "TO-252-3_TabPin2": 2.3, "TO-263-2": 4.6,
-    "PinHeader_1x06_P2.54mm_Vertical": 8.5, "C_0603_1608Metric": 0.9,
-    # the buck's real package: HSOIC-8 with PowerPAD. Same 1.75 mm body as the
-    # plain SOIC-8 cadkit already lists -- what changed is the land under it.
-    "SOIC-8-1EP-FABDRILL": 1.75,
-    "R_0805_2012Metric": 0.6,          # VGATE dropper: 0805 for its 0.1 W
-    # MEASURED, not estimated: all five terminals are now the SAME part,
-    # Ningbo Kangnex WJ500V-5.08-NP, whose customer drawing (LCSC C8465,
-    # sheet 1/1) gives 14.07 mm above the board for the whole family. That
-    # replaces the 17.0 / 15.0 guesses this table used to carry, and it
-    # moves the right way: the PCB shroud needs 2.93 mm LESS standoff than
-    # the old MKDS-3 estimate demanded.
-    "TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal": 14.07,
-    "TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal": 14.07,
-    "TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal": 14.07,
-    # ⚠ THE TALLEST PART ON THE BOARD, AND THE ONE THAT NOW SETS THE BAY DEPTH.
-    # Littelfuse 178.6165 FLR, datasheet drawing (LCSC C207060, 1 page, VECTOR
-    # not a scan, so these are read dimensions): 20 wide, 6 deep, and 21.6 mm
-    # OVERALL from the top of the body to the tips of the pins. The side view
-    # breaks that down as 17.5 body + 1 standoff above the board + 3.1 of pin
-    # below it, i.e. 18.5 mm above the laminate.
-    #
-    # 21.6 IS DECLARED HERE, NOT 18.5, AND THE EXTRA 3.1 mm IS DELIBERATE. What
-    # has to clear the lid is the holder WITH A FUSE IN IT, and the drawing does
-    # not dimension that. The cavity is 20 x 6 and an ATO fuse is 19.1 x 5.1 x
-    # 18.6, so it drops in essentially flush -- but "essentially" is an argument
-    # and 21.6 is a number off the same drawing that cannot be smaller than the
-    # truth, since it already contains 3.1 mm of pin that lives UNDER the board.
-    # Nobody has to own a caliper for the housing to be right. A measurement of
-    # the fitted stack would recover about 3 mm of bay depth and is the first
-    # thing to do if that depth is ever wanted.
-    # renamed with the footprint when punchlist 37 opened its holes -- the BODY
-    # is untouched, only the plated pads and drills moved, so 21.6 still stands.
-    # ⚠ THIS IS THE SECOND COPY OF THIS TABLE. elec/cad_geom_check.py has its
-    # own, and renaming the footprint failed the geometry gate from HERE after
-    # the other one was already fixed -- "no HEIGHT for ...-PINFIT". Two tables
-    # keyed by footprint name is one table too many; whichever is touched next
-    # should take the other with it.
-    "FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165-PINFIT":         21.6,
-}
+# ⚠ _PCB_HEIGHT IS GONE FROM HERE. It was this project's copy of the body
+# height table and elec/cad_geom_check.py had the other one; the comment it
+# carried asked for exactly this: "Two tables keyed by footprint name is one
+# table too many; whichever is touched next should take the other with it."
+# Both now read src/board_parts.py, which also carries the TAIL table nothing
+# had ever supplied and draws the parts whose F.Fab box is a poor likeness.
 
 # The board's own placement lives in src/housing.py, which is what the
 # assembly places. It used to live here too -- a second _BOARDS, a second

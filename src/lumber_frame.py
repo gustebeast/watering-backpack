@@ -193,9 +193,11 @@ def cut_list():
 
 
 def tank() -> cq.Workplane:
-    return (cq.Workplane("XY").workplane(offset=DECK_Z)
-            .center(0, F.TANK_D / 2.0).rect(F.TANK_W, F.TANK_D)
-            .extrude(F.TANK_H))
+    """The Scepter can, standing on the deck. See src/tank.py -- it is the can
+    now rather than its bounding brick, and it is drawn entirely INSIDE that
+    brick, so nothing that cleared the brick can fail against it."""
+    from . import tank as TK
+    return TK.can().translate((0, 0, DECK_Z))
 
 
 def clearance_report():
@@ -243,7 +245,8 @@ def _build() -> None:
     asm.add(F._pump_placed(-1), name="pump_a", color=color("slategray"))
     asm.add(F._pump_placed(+1), name="pump_b", color=color("#5a6b7a"))
     asm.add(F._elbows(), name="fittings", color=color("#c8a24a"))
-    asm.add(tank(), name="tank_viz", color=color("#9fd4e8", alpha=0.35))
+    from . import tank as TK
+    asm.add(tank(), name="tank_viz", color=color(TK.BODY, alpha=0.9))
     for name, pts in P.routes():
         tint = "#b03030" if name.startswith("tank") else "#30a050"
         asm.add(P.run(pts), name=name, color=color(tint, alpha=0.85))

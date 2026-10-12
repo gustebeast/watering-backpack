@@ -124,6 +124,27 @@ def font_path():
                   % (FAMILY, ", ".join(d for d in _DIRS if d), seen))
 
 
+# ── A KiCad TEXT SIZE IS NOT A CAPITAL HEIGHT ───────────────────────────────
+# ⚠ THIS FILE USED TO ASSUME IT WAS, and the lettering in the CAD was 7.07 %
+# taller than the ink on the board for it. The docstring above still says "a
+# KiCad text 'size' is its CAPITAL HEIGHT", which is true of KiCad's own STROKE
+# font and NOT true of an outline face: KiCad scales an outline face so that its
+# em-box matches the size, and the capital then stands wherever the face's own
+# cap/em puts it, less KiCad's own fit.
+#
+# MEASURED ON THIS BOARD, not taken from a datasheet or from the other project.
+# tools/check_silk_cap.py asks pcbnew for each silk label's EFFECTIVE SHAPE --
+# the filled outline it plots, not its layout box -- and divides the ink's
+# height by the label's size. Fifty labels of nothing but cap-height glyphs
+# give 0.9340, to four figures, every time. (Labels containing O, G, S or C
+# read 0.9692: that is the round-letter OVERSHOOT every typeface has, and it is
+# why the figure is taken from the flat-topped capitals.)
+#
+# The pedal steel project measured 0.934 for the same face independently and
+# writes its own SILK_FONT_CAP as 0.667 / 0.934. Two projects, one number.
+KICAD_CAP = 0.9340
+
+
 def cap_ratio(path):
     """Rendered capital height as a fraction of the requested size, measured
     through the drawing kernel. `path` None measures the kernel default face."""
@@ -183,7 +204,7 @@ def resolve():
     otherwise it is the line the build should print, loudly."""
     path, how = font_path()
     if path is None:
-        return None, DEFAULT_CAP, (
+        return None, DEFAULT_CAP / KICAD_CAP, (
             "*** THE CAD IS NOT LETTERED IN THE ORDERED FACE *** %r: %s.\n"
             "    Drawing in the CAD kernel's default face instead. The BOARD is "
             "unaffected -- this is the drawing, not the gerbers -- but the CAD no "
@@ -193,4 +214,8 @@ def resolve():
     note = None
     if "FILENAME MATCH" in how:
         note = "[silk] %s resolved by FILENAME only (%s)" % (FAMILY, how)
-    return path, cap_ratio(path), note
+    # cap/em of the FACE, divided by what KiCad actually stands a capital at.
+    # board_geom draws at `size / silk_cap`, so this is the em per unit of
+    # KiCad size -- which is the only thing that makes the drawn letter the
+    # same height as the plotted one.
+    return path, cap_ratio(path) / KICAD_CAP, note

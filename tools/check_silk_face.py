@@ -111,9 +111,14 @@ else:
 # ── 4. src/housing.py must actually PASS it to the Boards that draws ────────
 # The resolver working is not the same as the drawing using it.
 src = open(HOUSING, encoding="utf-8").read()
-m = re.search(r"_BOARDS\s*=\s*Boards\((.*?)\)\n", src, re.S)
+# ⚠ MATCH THE ASSIGNMENT, NOT THE CONSTRUCTOR'S NAME. This read
+# `_BOARDS = Boards(...)` and started failing the moment the call became
+# `BP.boards(...)` -- which is the gate working, but for a reason that has
+# nothing to do with the font. What it has to find is the keywords on the call
+# that builds the thing the lettering is drawn from, whatever builds it.
+m = re.search(r"_BOARDS\s*=\s*[\w.]+\((.*?)\)\n", src, re.S)
 if not m:
-    fail("no `_BOARDS = Boards(...)` found in src/housing.py -- this gate no "
+    fail("no `_BOARDS = ...(...)` found in src/housing.py -- this gate no "
          "longer knows where the board is drawn")
 else:
     call = m.group(1)
@@ -124,7 +129,15 @@ else:
     if "silk_font=" in call and "silk_cap=" in call:
         ok("src/housing.py passes silk_font= and silk_cap= to the drawing Boards")
 
-# ── 5. the cap ratio in use must be the MEASURED one ────────────────────────
+# ── 5. the cap ratio in use must be the MEASURED one, SCALED ────────────────
+# ⚠ AND THE SCALING IS THE WHOLE POINT. `cap` is the FACE's capital height per
+# em, which is what the kernel needs to be told about the font. It is NOT what
+# `silk_cap` should be: board_geom draws at `kicad_size / silk_cap`, so
+# silk_cap has to be ems per unit of KICAD SIZE -- and a KiCad text size is not
+# a capital height in an outline face. Measured off this board's own plotted
+# ink, a capital stands SF.KICAD_CAP = 0.9340 of the size
+# (tools/check_silk_cap.py). This check compared against `cap` alone, so it was
+# green while every letter in the CAD stood 7.07 % taller than the ink.
 # ⚠ READ THE Boards INSTANCE, NOT THE MODULE VARIABLES IT COMPUTED. This
 # check used to read H._SILK_CAP, which is what src/housing.py MEASURED --
 # so hardcoding `silk_cap=0.72` in the Boards(...) call left _SILK_CAP at
@@ -143,12 +156,15 @@ if used is not None:
     if used_font != path:
         fail("src/housing.py draws with %r but this gate resolves %r"
              % (used_font, path))
-    elif abs(used - cap) > 1e-4:
-        fail("src/housing.py uses silk_cap %.4f; this face measures %.4f through "
-             "the same kernel (%.1f %% off)"
-             % (used, cap, abs(used - cap) / cap * 100.0))
+    elif abs(used - cap / SF.KICAD_CAP) > 1e-4:
+        want = cap / SF.KICAD_CAP
+        fail("src/housing.py uses silk_cap %.4f; this face measures %.4f per em "
+             "through the same kernel and KiCad stands a capital at %.4f of the "
+             "text size, so it should be %.4f (%.1f %% off)"
+             % (used, cap, SF.KICAD_CAP, want, abs(used - want) / want * 100.0))
     else:
-        ok("silk_cap in use is the measured %.4f" % used)
+        ok("silk_cap in use is %.4f = the measured %.4f per em over KiCad's "
+           "%.4f capital" % (used, cap, SF.KICAD_CAP))
 
 # ── 6. the face must HAVE every character the board prints ─────────────────
 # ⚠ ASK THE FONT, NOT THE RENDERER. This check used to draw each character and

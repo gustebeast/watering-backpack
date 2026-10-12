@@ -11,7 +11,7 @@ Status is maintained here; the reasoning lives next to the code.
 | 3 | Lid's 4 M4s and their inside bosses come out; wood screws hold it | **done** |
 | 4 | The extra chunk at the wiring window is unnecessary — plain wall, then cut | **done** |
 | 5 | Battery-mount wings are v1 joinery, dead in v2 (one side: Y 3.00..17.30) | **done** |
-| 6 | The green water line makes a strange vertical jump | **done** (and it is a blocker — see DESIGN_V2 open question 0) |
+| 6 | The green water line makes a strange vertical jump | **done** — ⚠ **twice**. It was closed here and the owner saw the jump again on 2026-10-12: the route was right, the BEND CHECK was wrong, and the drawn path really did go down, up and down. See finding 58. |
 | 7 | PCB retained by plastic on all sides but -X; drop to one M4 via cadkit's hole cutter; 45 ramp -X retention on +Y edge, slot-and-rotate install | **done** |
 | 8 | Wiring window is not placed to reach the four blocks on the board's bottom edge | **done** |
 | 9 | Port bronner's PCB debuggability work (test pads, silkscreen); re-audit the board end to end | **done** (twelve findings, a new gate, five cadkit bugs) |
@@ -3212,3 +3212,436 @@ when the face does not resolve is the stopgap.
 
 ⚠ **NO COPPER, NO GERBERS, NO FIRMWARE.** This is the drawing. The board in
 the cart is unaffected and the plotted silkscreen was always correct.
+
+---
+
+### 58 — CLOSED: the green line went down, then jumped back up, then went down again, and the bend check passed it twice over
+
+The owner saw it in the viewer: a capped riser standing in the middle of the
+plenum, with the hose descending to it, reappearing above it, and descending
+again. It was not a rendering artefact. It was the drawn centreline.
+
+`green_from_B` dropped from the overhead run at `OVERHEAD_Z` 134 to the ports'
+84 at x = −11 and then turned −X into the green tee, with a **90° bend at each
+end of that 50 mm drop**. Printed, the path reads:
+
+```
+  ( -11.00, 262.00,  84.00)      <- end of the first bend
+  ( -11.00, 262.00, 134.00)      <== JUMPS UP, to start the second
+```
+
+**`_bend_pts` ASKED EACH CORNER ON ITS OWN.** It compared one corner's setback
+with the whole distance to the *next corner* — 50 mm — and both corners passed,
+each spending the same 50 mm of straight. A straight is spent from **both**
+ends. The file's own header had the arithmetic right all along (*"a 50 mm
+radius needs 50 mm of straight on BOTH sides of the corner"*) and the check did
+not implement it.
+
+**And the hose really cannot do it.** Two 90° bends on a 50 mm radius need
+100 mm between the corners. There was 50. No 1/2" vinyl line was ever going to
+make that descent, drawn or not.
+
+**Fixed**, in three parts:
+
+1. `plumbing._setbacks` computes every corner's setback first and then checks
+   each STRAIGHT against the two bends that share it. The first and last legs
+   have a free end — a run ends at a barb, which is not a bend.
+2. `green_from_B` loses its intermediate descent point and **slopes** into the
+   tee instead: one R50 bend out of the overhead run, straight down to the barb
+   at 38.9° off the tee's axis. There is no all-right-angle route — the hose has
+   to stay above z 128.5 until y 208 to clear the pumps, which leaves 54 mm of Y
+   to lose 50 mm of Z in, and the turn into the tee wants 50 of them. A vinyl
+   line on a barb is straight for the length of the barb and curves away after
+   it; that is what is drawn now.
+3. `plumbing.run` sweeps a circle along a wire of **true arcs** instead of
+   unioning chord cylinders and patching the joints with spheres. A chord lies
+   inside the arc it stands for and the knuckle sphere does not, which is what
+   the ribbing on every bend in the viewer was.
+
+**MADE TO FAIL:** the old route, the one the old check passed, now fails by
+name — *"the straight from (-11.0, 262.0, 134.0) to (-11.0, 262.0, 84.0) is
+50.0 mm but the bends at its two ends want 50.0 + 50.0 = 100.0 mm of it"*.
+
+**AND IT TOOK TWO WHITELIST ENTRIES WITH IT.** `check_plumbing.INTENDED`
+declared `tank_to_A × elbows` and `green_from_A × elbows` at 250 mm³, described
+as *"the joint: the hose slides onto the leg end"*. With real arcs both measure
+**0.00** — the overlap was entirely the knuckle sphere reaching back into the
+elbow, and the "joint" was a story told about a drawing artefact. Both entries
+are gone; the gate watches those pairs now. The one real overlap,
+`green_from_B × elbows`, is unchanged at 9979 of 10100.
+
+The hoses are also drawn **translucent** now, because the hose is.
+
+---
+
+### 59 — CLOSED: pump A's lead went round the frame, through a port that had been sized for it from the start
+
+The owner: *"the wiring for the pump closer to the PCB goes around the frame
+rather than using the wiring porthole"*. Pump A is the pump on the board's side
+of the machine — its leads are at x −73.5/−51.5 against pump B's +51.5/+73.5 —
+and it was the one taking the long way: down the fan-out band, out of the
+housing, and around the frame's y = 0 end. Pump B, the far one, went through
+the plate.
+
+**The slot was sized for all three.** Punchlist finding 3 laid J1, J2 and J3
+side by side for 17.8 mm and sized the opening against that figure; the gate
+has been reporting `12.2 of 17.8` ever since, because only two of the three
+used it. It now reports **17.8 of 17.8**.
+
+Four things had to move, and each one was a gate speaking:
+
+* **`WIRE_SLOT_Y_C`.** J2's terminal is at y 168.28 and the slot ended at 167.
+  The centre is derived now — `WIRE_POST_Y − WIRE_SLOT_POST_CLR − W/2` — so it
+  sits as far +Y as the measured post face allows instead of at a round 147.
+* **THE SLOT ASSERT CHECKED A CENTRELINE.** `SLOT_Y0 <= MOUTHS[ref][1] <=
+  SLOT_Y1` is one point on the trunk, and a bundle is not its trunk: pump A's
+  outer conductor is drawn 2.80 mm +Y of its mouth. A new check interpolates
+  each crossing conductor where it passes the plate's mid-thickness plane and
+  requires its **own wall** — centre plus radius — inside the opening. **Made
+  to fail** by putting the clearance back to 1.0: *"wire_pump_a_2 is
+  168.28..171.08 in Y where it crosses the plate but the wire slot spans
+  131.00..171.00: the conductor is outside the hole by 0.08 mm"*.
+* **ONE PASS LANE PER CROSSING CABLE.** Both pumps ran along a single `PASS_X`
+  at the slot's own height, in opposite directions, and overlapped by
+  **112.7 mm³** where one passed the other's mouth. Lanes step outboard on the
+  same pitch the fan-out band uses.
+* **THE PUMP CABLES NOW CLIMB AT THE LANE**, before the run along Y, because
+  `SLOT_Z_C` is also the fan-out band's level 1 — where the joystick crosses on
+  its way to the wand. Four clips of 6.6 mm³. Moving the joystick instead was
+  tried and the plan-crossing gate refused it by name.
+
+**AND THE LANE ORIGIN WAS RIGHT BY ACCIDENT.** The level sensor's lead must
+climb OUTSIDE the lid, and it did — because with three cables in the band it
+happened to land at index 2. With two it landed 4.5 mm inside the lid and the
+assert fired. A requirement that holds only while a particular number of cables
+use the band is not a requirement. `LANE_X0` is derived from the lid now.
+
+**NAMED AND MEASURED:** pump A's outermost conductor passes **0.92 mm** from the
++Y post's inboard face. There is no more to be had — J2's terminal is where the
+routed board puts it and the board is ordered.
+
+Overlap gate: **0 unintended across 32 components.**
+
+---
+
+### 60 — CLOSED: the Makita pack was a prism, and the whitelist that excused it was excusing the prism
+
+`116 × 75 × 65.6`, declared *"an ENVELOPE, not a model"*. Honest, and three
+literals that happened to equal `references/makita_battery.step`'s own bounding
+box — the file has been on disk the whole time.
+
+`src/battery.py` imports it and poses it. **The pose is not a fourth guess:**
+the two rotations are forced (model +Z is the tool interface and must face the
+dock; model +X leads, so it points down the slide; the third axis is then the
+only sign that is a rotation and not a reflection), and the translation lands
+the model's bbox on the prism's — the prism **is** that bbox, so the seat v1
+validated carries over untouched.
+
+**THE WHITELIST WAS THE PRISM'S, NOT THE PACK'S.** `intended()` passed
+`battery × terminal` at 1762.7 mm³ with the note *"the STEP is a solid ENVELOPE
+with no contact cavities modelled, so blades that are correctly inside the pack
+have nowhere to be except inside that solid."* The model has the cavities. The
+connector nests in them and the pair measures **0.00**. `battery × housing`
+went from **12528 mm³ to 262.4** — a prism has no rails, so the whole 7 mm of
+engagement was solid block driven into the dock.
+
+The pose is checked against the two wrong ones, which is what makes that zero
+mean anything:
+
+| pose | × terminal | × housing |
+|---|---|---|
+| **as placed** | **0.0** | **262.4** |
+| end-for-end | 1565.4 | 4880.4 |
+| rolled 180° about X | 296.9 | 957.7 |
+
+**BOTH PACKS.** The owner has a compact one and a double-thickness one. The
+design is drawn with the **big** one, because a bay that clears it clears the
+other. `size="compact"` shortens the cell block by **17.0 mm** — the difference
+between BL1850B's 62 and BL1820B's 45 in one consistent pair of distributor
+listings, taken as a difference because the model's own 65.6 includes the rail
+tower those listings do not. ⚠ **The far end of the compact pack is a flat cut,
+not its real moulding.** Nothing in this design touches that end. Said here so
+nobody reads a dimension off it.
+
+⚠ **FINDING 56 IS UNCHANGED AT 161 mm³.** The lift-out sweep still sweeps the
+**prism**, deliberately: a swept hull of 599 faces costs minutes per build and
+the conservative answer is the one a clearance gate wants. The notch is still
+2.18 mm short.
+
+---
+
+### 61 — CLOSED: the tank was a brick, and it stood on a bottom the frame was built not to touch
+
+`rect(348, 173).extrude(478)`, drawn pale blue at 35 % because it was standing
+in for something.
+
+It is the can now (`src/tank.py`), and **drawn entirely inside the same
+brick** — 0.00 mm³ outside it, 96 % of its volume — so no gate that cleared the
+brick can fail against the shape.
+
+**The two base runners are the part that was actually wrong.** The BOM measured
+them (*"standing on two wide ribs, ~12 mm in from each end"*) and
+`pump_frame.BEAM_YS` puts a cross rail under each at y 12 and 161 **because of
+that measurement** — while the model drew a flat bottom that touched the deck
+everywhere.
+
+**AND DRAWING THEM FOUND THAT THE TWO FIGURES CONTRADICT EACH OTHER.** Both are
+marked ESTIMATE in `pump_frame`: `RIB_INSET` 12 and `RIB_W` 28. A 28 mm rib
+centred 12 mm in from the edge of a 173 mm base hangs **2 mm off the side of the
+can**. One of them is wrong and nobody has put a straightedge on either. The
+inset is the one the structure depends on, so the width gives: `RUNNER_W =
+min(RIB_W, 2 × RIB_INSET)` = 24. Named here rather than silently averaged.
+
+**COLOUR — AND IT IS A GUESS, SAY SO.** `bom_consolidated.md` says *"Scepter 5
+gal MILITARY water can"*, which is model **05177**, listed at 13.5–13.7 × 6.75–
+6.8 × 18.8–19 in (the owner's measured base to within 2 mm) and sold in
+**military green**. Not the "Military STYLE" 4933, the blue/black big-box can of
+the same capacity. ⚠ If the can in the garage is sand, olive drab or blue,
+`tank.BODY` is the one line to change.
+
+Not modelled and not guessed at: the exact rib count and spacing, the handle's
+section, the spout. The only parts of this can the machine touches are its base
+(the deck) and the flat of a long face (the Uniseal), and both are where they
+were.
+
+---
+
+### 62 — CLOSED: two height tables, no tail table at all, and every part a box
+
+Modelled after what bronner did for the pedal steel's boards — the shared
+machinery is cadkit's, the part facts live in ONE project-local table with a
+source against each figure, and a part whose F.Fab box is a poor likeness is
+**drawn** and skipped.
+
+1. **TWO TABLES.** `pump_frame._PCB_HEIGHT` and `elec/cad_geom_check.py` each
+   had a copy keyed by footprint name, and the first one's own comment is the
+   whole finding: *"renaming the footprint failed the geometry gate from HERE
+   after the other one was already fixed — 'no HEIGHT for ...-PINFIT'. Two
+   tables keyed by footprint name is one table too many; whichever is touched
+   next should take the other with it."* There is one now,
+   `src/board_parts.py`, and the **same object** goes to the agreement gate and
+   to the solid the assembly places — which is the only arrangement in which
+   that gate's answer means anything.
+
+2. **NO `tail=` WAS EVER PASSED.** Every through-hole part on this board hung
+   cadkit's default **3.4 mm** of leg below the laminate, a figure cadkit
+   derives from a **JST XH post**. Nothing here is a JST XH. The board stands on
+   4.0 mm standoffs, so the gap between a tail tip and the bay floor was being
+   decided by the wrong component. The terminals are 1.9 (WJ500V's 3.5 mm pin
+   less a 1.6 board); the fuse holder is **3.1 — a figure already quoted in the
+   HEIGHT comment and used by nothing**. SMD parts say 0.0 out loud, because a
+   part missing from the table takes the default and the default is not zero.
+
+3. **EVERY PART A BOX.** Right for a shielded module, wrong for a screw
+   terminal, an electrolytic can and a buzzer. The five terminals are drawn with
+   their wire mouths, clamp screws and front shoulder; the cans with their
+   broken top edge and relief cross; the buzzer with its sound port. The mouths
+   go on the face `src/wiring.py` **declares** as `ENTRY_FACE`, not on a face
+   this file decides for itself — cadkit's own `lead_exit` returns a top-entry
+   answer for these parts, silently, and the body is near enough symmetric
+   (5.35 one side of the pad row, 5.95 the other) that measuring it decides the
+   wrong way round.
+
+4. **THE BOARD IS DRAWN IN THE MASK IT IS ORDERED IN.** `elec/main.py`'s
+   `order_options` say *"Green, white silk"*; that name is read and cadkit turns
+   it into the colour of a **made** board. `#2f7d4f`, a green somebody chose,
+   becomes `#085424`.
+
+**STILL A BOX ON PURPOSE:** F2. Its declared 21.6 is not the body — the body is
+18.5 above the laminate and the extra 3.1 is pin, carried deliberately so the
+figure covers a holder **with a fuse in it**, which the drawing does not
+dimension. The bay's depth rests on it. Drawing it "accurately" means drawing a
+fitted stack nobody has measured and quietly shrinking the bay by 3 mm on the
+strength of it. A box that is honestly too big beats a shape that is
+confidently wrong.
+
+Agreement gate after: **70 / 70 parts, 139 / 139 labels.** Overlap gate: **0.**
+
+---
+
+### 63 — CLOSED: a KiCad text size is not a capital height, so the CAD's lettering was 7.07 % too tall — and 139 / 139 said it was fine
+
+Finding 57 put the CAD into the face the fab plots and measured `silk_cap`
+through the drawing kernel instead of typing it. The measurement was of the
+right thing and it was divided into the wrong one.
+
+`board_geom` draws at `kicad_size / silk_cap`, so `silk_cap` has to be **ems per
+unit of KiCad size**. What was passed was the FACE's capital height per em,
+0.6670 — correct only if a KiCad text size *is* its capital height. That is true
+of KiCad's own stroke font. It is false of an outline face: KiCad fits the em
+box to the size, and the capital lands wherever the face puts it.
+
+**MEASURED ON THIS BOARD, not taken from a datasheet and not taken from the
+other project.** `tools/check_silk_cap.py` runs under KiCad's python and asks
+each silk label for its EFFECTIVE SHAPE — the filled outline that goes on the
+gerber, not the layout box the geom exporter records — and divides the ink's
+height by the label's size. **Fourteen** labels of nothing but flat-topped
+capitals give **0.9340**, with zero spread. So `silk_cap` is 0.6670 / 0.9340 =
+**0.7141**, and every letter in the CAD had been standing **7.07 %** taller than
+the ink.
+
+The pedal steel project measured 0.934 for the same face independently and
+writes its `SILK_FONT_CAP` as `0.667 / 0.934`. Two projects, one number.
+
+**FINDING 57's OWN GATE WAS GREEN THROUGHOUT, AND SO WAS THE AGREEMENT GATE** —
+for the same reason finding 57 existed in the first place. `cad_geom_check`
+counts a label by probing for **ink at its printed position**, and a label drawn
+7 % too tall still has ink at its position. It reported 139 / 139. And
+`check_silk_face.py` check 5 compared the cap in use against the face's cap per
+em, which is exactly the number that was wrong.
+
+**MADE TO FAIL,** and the new gate found two of its own errors first:
+
+* Reinstating `KICAD_CAP = 1.0` fails with the figure: *"the board plots a
+  capital at 0.9340 of the text size; src/silk_face.py declares KICAD_CAP =
+  1.0000 (7.07 % off)"*.
+* The first draft counted **"+"** as a flat-topped capital. The spread check
+  refused rather than averaging: `+3V3` reads 0.9496. A plus sign is a math
+  symbol set to the arithmetic axis, a little above the cap line.
+* It also counted the digit **2**, which this face cuts with a rounded top that
+  overshoots like an O — `2 PA` and `2 PB`, 0.9496 again. 4 and 7 came out too:
+  no label on this board proves them. The digit 1 stays; it appears in eleven
+  labels and reads 0.9340 in every one.
+
+The 45 labels containing O, G, S or C read 0.9496–1.0827. That is round-letter
+**overshoot**, which every typeface ever cut has, and it is why the figure comes
+from the flat-topped capitals and why both numbers are printed.
+
+⚠ **NO COPPER, NO GERBERS, NO FIRMWARE.** The plotted silkscreen was always
+right. This is the drawing.
+
+---
+
+### 64 — CLOSED: the board went into the assembly as ONE component, so the solder mask was painted over every part on it
+
+The owner, after finding 62 shaped the bodies: *"The PCB still isn't accurately
+rendered, the components appear green instead of being colored/modeled
+accurately."* Both halves of that are right, and the second one is the cause.
+
+`components()` carried `("pcb", pcb_solid())` — the laminate, all 70 parts and
+every leg as a single solid — and the assembly gives a component **one**
+colour. That colour was the ordered mask (finding 62 made it `#085424`, which
+was itself an improvement), so the ESP32's stamped steel can, the two black
+electrolytics, the black buzzer and the five green screw terminals all came out
+laminate green. Shaping them had changed their outlines and nothing else: a
+correctly shaped terminal block in solder-mask green still reads as part of the
+board.
+
+**This is the pedal steel's arrangement, and cadkit documents the mechanism.**
+That project draws its LEDs with `BG.bodies(board, refs)` against
+`solid(skip=refs)` so they can read as lit, and gives every board's silkscreen,
+plugs, screws and inserts their own named `_COLORS` entry. `board_geom`'s own
+docstring: *"skip = the part IS fitted and SOMEONE ELSE DRAWS IT (see bodies),
+so it can be another colour."*
+
+`board_parts.parts()` splits the board by **what its parts are made of** — 12
+groups, each a material rather than a palette entry:
+
+| group | mm³ | what it is |
+|---|---|---|
+| laminate | 16999 | the ordered mask |
+| terminals | 11625 | WJ500V moulded plastic |
+| fuse_holder | 2648 | black nylon |
+| packages | 1932 | moulded epoxy — regulators, FETs, diodes, the buck |
+| cans | 1631 | electrolytic sleeves |
+| module | 1436 | the ESP32's stamped steel lid |
+| buzzer | 1098 | black can |
+| header | 344 | black strip |
+| legs | 268 | tinned solder |
+| inductor | 167 | moulded ferrite |
+| ceramics | 110 | MLCC — the one warm colour on the board |
+| chips | 25 | thick-film resistors |
+
+**A PART WITH NO DECLARED MATERIAL STOPS THE BUILD.** It does not fall back to
+the laminate's colour, because falling back to the laminate's colour is the
+entire finding.
+
+**AND `pcb_solid()` IS BUILT FROM THE GROUPS, not beside them.** The overlap
+gate weighs one solid and the viewer colours twelve pieces; if those were two
+code paths they could disagree about what the board *is*. This repo has already
+paid for that once — `src/pump_frame.py` records two `pcb_solid()`s, and
+`cad_geom_check` ended up aimed at the one nothing placed. One is now the union
+of the other.
+
+⚠ **LEAST CERTAIN FIGURE HERE:** the terminals' colour. The ordered part is
+Ningbo Kangnex WJ500V-5.08-NP (LCSC C8465) and that family is moulded green — a
+brighter green than a mask, which is why it is worth drawing, but green. If the
+blocks that arrive are blue, `MATERIALS` is the one line.
+
+**ALSO:** every printed part is **PCTG and drawn in forest green**. The housing
+was `#6a8fb5` and its lid `#8fb56a` — a blue box with a green lid, which is a
+diagram of which part is which, not a picture of two things off the same spool.
+The assembly-name-to-printed-part mapping is explicit and asserted both ways,
+because two names for one thing is how the wrong one gets coloured.
+
+---
+
+### 65 — CLOSED: a part made of more than one solid loses its colour on the way to the viewer, and drew WHITE
+
+The owner: *"The battery is also still white"* — after the tint had been set to
+`#2b2e31` and `node.color` read back correctly in memory.
+
+**MEASURED OUT OF THE .glb, not guessed at.** The nine sub-parts of the
+imported Makita pack all point at material 5, and material 5 is
+`[0.8, 0.8, 0.8, 1.0]` — `cadkit.web.export`'s default for a part that arrives
+without one. `pcb` and `pump_a`, beside them, carry their real colours.
+
+**REPRODUCED IN SIX LINES.** Add a one-solid part and a two-solid part to an
+assembly under the same colour, `asm.save(..., mode="default")`, then
+`cq.Assembly.importStep` it back:
+
+```
+one_solid    color (0.169, 0.180, 0.192, 1.0)
+two_solids   color None
+```
+
+The viewer does not read the in-memory assembly — `cadkit.web` re-reads
+`assembly.step` — so a node whose shape is a **compound of more than one
+solid** arrives colourless and takes the default grey. Nothing warned.
+
+**IT WAS NEVER ABOUT THE BATTERY.** Every part drawn from several bodies has
+it, and finding 64 was about to walk straight into it: twenty chip resistors as
+one coloured group is a twenty-solid compound, and it would have rendered white
+too.
+
+**Fixed with `build.add_part`:** one assembly node per solid, same colour on
+each. The viewer already names a multi-solid part's pieces `<name>_0 .. _N`
+(`export.pieces`), so no name it shows changes — `battery_0 .. battery_8` were
+already there, grey.
+
+**AND THERE IS A GATE NOW**, because a lost colour is not a crash and not an
+overlap — it is a part that quietly draws in the default grey, which is exactly
+how a pack sat there white while this file was setting it to `#2b2e31`.
+`build.colour_check` re-reads the written STEP and fails the build naming every
+part that came back without its colour. Its own "could not re-read" branch
+returns 1 rather than passing, for the same reason every other gate here does.
+
+**THE GATE EARNED ITSELF ON ITS FIRST RUN.** It named two parts nobody had
+looked at: `pcb_silk_F` and `pcb_silk_B`, the board's own ink. And chasing
+those made the rule NARROWER AND WORSE than "more than one solid" —
+
+**A STEP CARRIES A COLOUR ON A SOLID. A PART THAT IS ONE FACE LOSES IT TOO.**
+Tested, not inferred: a single flat face, saved under a colour and read back,
+comes back `None`. cadkit draws ink as FACES standing `SILK_T` = 0.02 mm off
+the laminate, so there is no number of nodes that saves it — splitting a face
+compound gives you faces.
+
+Measured cost: the ink is asked for at `#f2f2f2` = (0.949, 0.949, 0.949) and
+draws at (0.8, 0.8, 0.8). Both are near-white on a dark green board, which is
+the only reason this went unnoticed for every build there has ever been — and
+is not a reason to leave it. It is the one part on this model where the default
+happens to land close to the intent.
+
+Both are in `build.COLOUR_EXCEPTIONS`, with the same standing as an `intended()`
+overlap entry: named, measured, and **checked the other way too** — an
+exception whose part now carries its colour, or whose part has left the
+assembly, fails the build telling you to drop the entry. A whitelist nobody
+re-reads is how the first one of these rotted.
+
+⚠ **THIS IS A cadkit / CadQuery DEFECT, AND THE FIX HERE IS LOCAL.** The repair
+belongs in `cadkit.web.export` (ink drawn as thin solids, or colours written so
+a face can keep one), and by this project's rule that means canonical
+`../cadkit`, a commit there, and `propagate.py` — not a hand-edit of the
+vendored copy. Raised here, not done here. Every project that hands the viewer
+a multi-solid part, or any part that is not a solid, has white parts in it
+today.

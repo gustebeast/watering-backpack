@@ -92,8 +92,15 @@ def _geom():
 CABLES = {
     "J1": dict(name="wire_pack",     n=2, awg=14, flex=False, crosses_plate=True,
                note="the pack pair, 7.5 A, through the plate's wire slot"),
-    "J2": dict(name="wire_pump_a",   n=2, awg=16, flex=True, crosses_plate=False,
-               note="pump A, chopped low side"),
+    # ⚠ J2 GOES THROUGH THE PORT TOO, and it is the cable with the least excuse
+    # not to: pump A is the pump on the BOARD's side of the machine (its leads
+    # are at x -73.5/-51.5 against pump B's +51.5/+73.5), and it was the one
+    # taking the long way -- down the fan-out band, out of the housing, and
+    # around the frame's y=0 end. The owner saw it. The slot was SIZED for this
+    # in the first place: punchlist finding 3 laid J1, J2 and J3 side by side
+    # for 17.8 mm, and until now only two of the three used it.
+    "J2": dict(name="wire_pump_a",   n=2, awg=16, flex=True, crosses_plate=True,
+               note="pump A, chopped low side -- out through the plate's slot"),
     # ⚠ J3 GOES THROUGH THE PORT, NOT AROUND -- the owner's call, and it makes
     # pump B's lead the same kind of thing as the pack's. Its mouth is at y
     # 155.82, already inside the slot's 127..167, so it drops straight down and
@@ -253,15 +260,16 @@ def _pump_lead_tips(side):
 # Declaring four distinct levels instead would not fit, and hand-checking which
 # pairs cross is exactly the thing that was wrong before the gate caught it.
 BAND_LEVEL = {
-    # J2 heads -Y and J5 turns straight out past the lid at its own mouth's y.
-    # J2's lane is INBOARD of J5's run, so the two never meet.
-    "J2": 0,
+    # J5 turns straight out past the lid at its own mouth's y. It had J2 for
+    # company on this level until pump A took the port as well; two cables are
+    # left in a band that was built for four.
     "J5": 0,
-    # J4 heads +Y on its own lane. It is alone on level 1 since J3 started
-    # leaving through the slot instead of the band -- kept on its own level
-    # rather than moved down to join J2 and J5, because its cross-machine run to
-    # the wand passes over both of their lanes and the plan-crossing gate below
-    # is what says so.
+    # J4 heads +Y on its own lane. It stays on level 1 and it has to: its run
+    # to the wand crosses J5's in plan, so the two cannot share a level, and
+    # the band only holds two under the lid skirt. Level 1 is z 8.0, the wire
+    # slot's own height -- which is why the PUMP cables do not stay at that
+    # height once they are through the slot (see `_routes_raw`). Moving J4 was
+    # tried first and the plan-crossing gate refused it, by name.
     "J4": 1,
 }
 # ⚠ THE BAND'S CEILING IS THE LID'S SKIRT, NOT THE BAY FLOOR. The skirt hangs
@@ -294,7 +302,20 @@ assert not (set(FAN_ORDER) & set(LAID_FLAT)), (
 # the level sensor, 6.1 mm3 at (-207.4, 181.8, 11.0). Lanes therefore start
 # OUTBOARD of the drop line with a full conductor of air.
 DROP_X = MOUTHS["J2"][0]
-LANE_X0 = DROP_X - (max(AWG_OD.values()) + 2.0)
+# ⚠ AND THE OUTERMOST LANE HAS TO CLEAR THE LID, which was true by accident
+# until pump A took the port. The band's lanes march outboard one index at a
+# time, so the OUTERMOST one is the last cable's -- and that cable is J5, whose
+# lead climbs the OUTSIDE of the housing (the assert below says so). With three
+# cables in the band J5 sat at index 2 and landed outboard of the lid's skirt on
+# its own; with two it would sit at index 1, 4.5 mm INSIDE the lid, and the
+# assert fired. A requirement that only holds while a particular number of
+# cables use the band is not a requirement, it is a coincidence -- so the lane
+# origin is pushed out far enough that the last lane clears the lid however many
+# there are.
+_LID_X0 = H.lid().val().BoundingBox().xmin
+_N_BAND = sum(1 for sp in CABLES.values() if not sp["crosses_plate"])
+LANE_X0 = min(DROP_X - (max(AWG_OD.values()) + 2.0),
+              _LID_X0 - max(AWG_OD.values()) + (_N_BAND - 1) * LANE_PITCH)
 LANE_X, FAN_Z, TURN_Y = {}, {}, {}
 for _i, _r in enumerate(FAN_ORDER):
     LANE_X[_r] = LANE_X0 - _i * LANE_PITCH
@@ -347,11 +368,24 @@ DOCK_RUN_X = H.BACK_X + 6.0
 # spans y 2..208, which is also why no cable can cross the machine inside the
 # frame at all and why CROSS_Z's run happens beyond y 210.
 _PUMP_X0 = min(F._pump_placed(side).val().BoundingBox().xmin for side in (-1, +1))
-PASS_X = _PUMP_X0 - (max(AWG_OD.values()) + 3.0)
-assert PASS_X > H.BACK_X, (
-    "the pass lane at x %.1f is outboard of the back plate at %.1f: a cable "
-    "through the port would have to come back out of the housing to reach it"
-    % (PASS_X, H.BACK_X))
+PASS_X0 = _PUMP_X0 - (max(AWG_OD.values()) + 3.0)
+# ⚠ ONE PASS LANE PER CROSSING CABLE, not one lane for all of them. There was a
+# single PASS_X while pump B was the only pump through the port; pump A joining
+# it put the two on the same x at the same z, running in OPPOSITE directions
+# along it -- and they overlapped for 112.7 mm3 where one passed the other's
+# mouth. Lanes step outboard the same way the fan-out band's do, from the same
+# pitch, so a third cable through the port gets its own without anyone choosing.
+PASS_ORDER = tuple(r for r in sorted(LAID_FLAT) if r != "J1")   # J1 goes to the dock
+PASS_X_OF = {r: PASS_X0 - i * LANE_PITCH for i, r in enumerate(PASS_ORDER)}
+PASS_X = PASS_X0                                   # the innermost, for messages
+for _r, _px in PASS_X_OF.items():
+    assert _px > H.BACK_X, (
+        "%s's pass lane at x %.1f is outboard of the back plate at %.1f: a "
+        "cable through the port would have to come back out of the housing to "
+        "reach it" % (_r, _px, H.BACK_X))
+    assert _px < _PUMP_X0, (
+        "%s's pass lane at x %.1f is inside the pumps, which start at %.1f"
+        % (_r, _px, _PUMP_X0))
 _term = H.terminal_placed()
 assert _term is not None, (
     "the Makita contact block is not in the model, so the pack pair has nowhere "
@@ -430,11 +464,20 @@ def _routes_raw():
                 # the bay, because the mouth is already inside the slot span.
                 # Then INBOARD to the pass lane before turning +Y, because the
                 # frame's end plank blocks the straight turn at every height.
+                # ⚠ RISE AT THE PASS LANE, BEFORE THE RUN ALONG Y. This used
+                # to run the whole length of the machine at SLOT_Z_C and climb
+                # to CROSS_Z at the far end -- and SLOT_Z_C is also the fan-out
+                # band's level 1, where the joystick crosses on its way to the
+                # wand. Four clips of 6.6 mm3 each. The climb costs nothing
+                # here: the lane is already outboard of the pumps, which is the
+                # whole reason it exists, and CROSS_Z is the height the run was
+                # always going to end up at.
+                px = PASS_X_OF[ref]
                 head = [(mx, my, mz), (mx, my, SLOT_Z_C),
                         (DOCK_RUN_X, my, SLOT_Z_C),
-                        (PASS_X, my, SLOT_Z_C),
-                        (PASS_X, run_y, SLOT_Z_C),
-                        (PASS_X, run_y, CROSS_Z)]
+                        (px, my, SLOT_Z_C),
+                        (px, my, CROSS_Z),
+                        (px, run_y, CROSS_Z)]
             else:
                 fz = FAN_Z[ref]
                 head = [(mx, my, mz), (mx, my, fz),
@@ -660,6 +703,52 @@ ROUTES = routes()
 assert len(ROUTES) == sum(c["n"] for c in CABLES.values()), (
     "%d conductor paths came out of %d declared conductors: a cable lost or "
     "gained one on the way" % (len(ROUTES), sum(c["n"] for c in CABLES.values())))
+
+# ── EVERY CONDUCTOR THAT CROSSES THE PLATE, AGAINST THE HOLE IT CROSSES IT IN ──
+# The asserts above check MOUTHS -- one point per cable, on the trunk's
+# centreline. A bundle is not its trunk: its conductors sit beside it, and the
+# slot is 5 mm tall and one layer deep precisely because of that. Pump A taking
+# the port is what made the difference matter -- its outer conductor is drawn
+# 2.80 mm +Y of the mouth, which was outside the slot's old +Y end while the
+# centreline assert was perfectly happy.
+#
+# So measure the drawn conductor where it is actually in the plate, and require
+# ITS OWN WALL -- centre plus radius -- to be inside the opening.
+_PLATE_X0, _PLATE_X1 = min(H.BACK_X, H.FLOOR_X), max(H.BACK_X, H.FLOOR_X)
+_SLOT_Z0 = SLOT_Z_C - H.WIRE_SLOT_H / 2.0
+_SLOT_Z1 = SLOT_Z_C + H.WIRE_SLOT_H / 2.0
+_crossed = set()
+for _nm, _pts, _od, _r in ROUTES:
+    _ref = next((r for r, sp in CABLES.items()
+                 if _nm.startswith(sp["name"] + "_")), None)
+    if _ref not in LAID_FLAT:
+        continue
+    _rad = _od / 2.0
+    # where the conductor passes the plate's MID-THICKNESS plane. A path point
+    # rarely lands inside a 3 mm plate, so interpolate the crossing rather than
+    # looking for one -- looking is how this check finds nothing and says so.
+    _xm = (_PLATE_X0 + _PLATE_X1) / 2.0
+    for _a, _b in zip(_pts, _pts[1:]):
+        if (_a[0] - _xm) * (_b[0] - _xm) > 0.0 or _a[0] == _b[0]:
+            continue
+        _t = (_xm - _a[0]) / (_b[0] - _a[0])
+        _y = _a[1] + _t * (_b[1] - _a[1])
+        _z = _a[2] + _t * (_b[2] - _a[2])
+        _crossed.add(_ref)
+        assert SLOT_Y0 <= _y - _rad and _y + _rad <= SLOT_Y1, (
+            "%s is %.2f..%.2f in Y where it crosses the plate but the wire slot "
+            "spans %.2f..%.2f: the conductor is outside the hole by %.2f mm"
+            % (_nm, _y - _rad, _y + _rad, SLOT_Y0, SLOT_Y1,
+               max(SLOT_Y0 - (_y - _rad), (_y + _rad) - SLOT_Y1)))
+        assert _SLOT_Z0 <= _z - _rad and _z + _rad <= _SLOT_Z1, (
+            "%s is %.2f..%.2f in Z where it crosses the plate but the wire slot "
+            "spans %.2f..%.2f" % (_nm, _z - _rad, _z + _rad, _SLOT_Z0, _SLOT_Z1))
+# ...and a cable that DECLARES it crosses the plate but never appears in the
+# plate's x band is not crossing it. That is the self-selecting-gate mistake
+# again: the loop above would simply have found nothing to check.
+assert _crossed == set(LAID_FLAT), (
+    "%s declare they cross the back plate but no conductor of theirs is drawn "
+    "inside it" % sorted(set(LAID_FLAT) - _crossed))
 
 
 def solids():
