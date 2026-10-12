@@ -14,7 +14,14 @@
     .label b { color: #e6eaf0; }
     .label .sub { opacity: .6; font-size: 12px; }
     #build { position: fixed; right: 16px; top: calc(14px + var(--tabs, 0px)); opacity: .5; font-variant-numeric: tabular-nums; }
-    .hint { position: fixed; left: 16px; bottom: 14px; opacity: .5; font-size: 12px; max-width: 46vw; }
+    /* which way the model's own axes point, as the camera sees them */
+    #axes { position: fixed; right: 12px; top: calc(72px + var(--tabs, 0px)); width: 60px; height: 60px; cursor: pointer; }
+    /* the views along each axis: under the axes, shown when they are clicked */
+    #views { position: fixed; right: 12px; top: calc(136px + var(--tabs, 0px)); display: none;
+             grid-template-columns: auto auto; gap: 4px; justify-items: stretch; text-align: center; }
+    #views.open { display: grid; }
+    #views .iso { grid-column: 1 / 3; }
+    #axes text { font: 600 13px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
     /* control legend / buttons — two rows (5 pedals, 5 knee levers) */
     #controls { position: fixed; right: 16px; bottom: 14px;
                 display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
@@ -123,6 +130,13 @@
     .proj .is { font-size: 11px; opacity: .6; text-transform: uppercase; letter-spacing: .06em; }
     .proj.missing { opacity: .4; cursor: default; }
     .proj.missing:hover { border-color: #333842; }
+    /* on a phone the pedals and levers wait behind their own button */
+    #pedtoggle { display: none; }
+    @media (max-width: 700px), (pointer: coarse) {
+      #pedtoggle { display: block; }
+      #controls:not(.open) .row { display: none; }
+      .row { flex-wrap: wrap; justify-content: flex-end; }
+    }
   </style>
   <script type="importmap">
   { "imports": {
@@ -137,25 +151,28 @@
   <div id="tabstrip"></div>
   <div id="projects"><h1>Projects</h1><div class="sub">every project shown on this machine, the one built last first</div><div id="projrows"></div></div>
   <div class="label"><b id="title">Assembly</b>
-    <div class="sub"><span id="subtitle"></span><span id="keys"></span><span id="deckhint"><b>space</b> = <span id="deckstate">hide deck</span> (and what comes off with it)</span></div>
+    <div class="sub"><span id="subtitle"></span></div>
   </div>
   <div id="build">build #—</div>
+  <svg id="axes" viewBox="-46 -46 92 92"></svg>
+  <div id="views">
+    <div class="btn vw" data-d="1,0,0">+X</div><div class="btn vw" data-d="-1,0,0">−X</div>
+    <div class="btn vw" data-d="0,1,0">+Y</div><div class="btn vw" data-d="0,-1,0">−Y</div>
+    <div class="btn vw" data-d="0,0,1">+Z</div><div class="btn vw" data-d="0,0,-1">−Z</div>
+    <div class="btn vw iso" data-d="0.55,-1,0.5">iso</div>
+  </div>
   <div id="fps"></div>
   <div id="status"></div>
   <div id="tools">
     <div class="bar">
-      <div class="btn on" id="bSelect">select</div>
-      <div class="btn" id="bMeasure">measure<span class="k">m</span></div>
-      <div class="btn" id="bParts">parts<span class="k">p</span></div>
-      <div class="btn" id="bSection">section<span class="k">c</span></div>
+      <div class="btn on" id="bSelect">select<span class="k">q</span></div>
+      <div class="btn" id="bMeasure">measure<span class="k">w</span></div>
+      <div class="btn" id="bParts">parts<span class="k">e</span></div>
+      <div class="btn" id="bSection">section<span class="k">r</span></div>
       <div class="btn" id="bLight">light<span class="k">l</span></div>
-      <div class="btn" id="bShowAll" style="display:none">show all<span class="k">u</span></div>
-    </div>
-    <div class="bar" id="views">
-      <div class="btn vw" data-d="1,0,0">+X</div><div class="btn vw" data-d="-1,0,0">−X</div>
-      <div class="btn vw" data-d="0,1,0">+Y</div><div class="btn vw" data-d="0,-1,0">−Y</div>
-      <div class="btn vw" data-d="0,0,1">+Z</div><div class="btn vw" data-d="0,0,-1">−Z</div>
-      <div class="btn vw" data-d="0.55,-1,0.5">iso</div>
+      <div class="btn" id="bUndo">undo<span class="k">z</span></div>
+      <div class="btn" id="bRedo">redo<span class="k">x</span></div>
+      <div class="btn" id="bShowAll" style="display:none">show all<span class="k">t</span></div>
     </div>
     <div class="panel" id="secPanel">
       <h4>section cut</h4>
@@ -173,7 +190,6 @@
       <div id="plist"></div>
     </div>
   </div>
-  <div class="hint" id="hint"></div>
   <div class="dimlabel" id="dimlabel"></div>
   <div id="controls"></div>
   <div id="loading">loading model…</div>
@@ -389,6 +405,8 @@
       const ang = TAU * g.pulley_turns_per_mm * down;     // 1:1 pulleys
       spinNode(s.screw_pulley.node, s.screw_pulley.center, s.screw_pulley.axis,
                ang * (s.screw_pulley.sign || 1));
+      for (const n of s.screw_pulley.with || [])          // what is fixed to it: the screw itself
+        spinNode(n, s.screw_pulley.center, s.screw_pulley.axis, ang * (s.screw_pulley.sign || 1));
       spinNode(s.motor_pulley.node, s.motor_pulley.center, s.motor_pulley.axis,
                ang * (s.motor_pulley.sign || 1));
       const c = s.belt_clamp, bs = c.mm_per_mm * down;
@@ -402,10 +420,6 @@
   function buildPedalUI() {
     const wrap = $('controls');
     wrap.innerHTML = '';
-    // the keys as the rig assigns them, not as this page once remembered them
-    const ks = g => g.map(p => p.key).join(' ');
-    $('keys').innerHTML = rig ? `<b>${ks(rig.copedent.filter(p => 'pedal' in p))}</b> pedals, ` +
-      `<b>${ks(rig.copedent.filter(p => !('pedal' in p)))}</b> knee levers (hold to combo) · ` : '';
     const rows = rig ? [['pedals', rig.copedent.filter(p => 'pedal' in p)],
                         ['knees',  rig.copedent.filter(p => !('pedal' in p))]] : [];
     for (const [title, group] of rows) {
@@ -431,6 +445,14 @@
       }
       wrap.appendChild(row);
     }
+    // ten buttons are most of a phone's screen: there they wait behind this one
+    if (wrap.children.length) {
+      const t = document.createElement('div');
+      t.className = 'pedal'; t.id = 'pedtoggle';
+      t.innerHTML = '<b>pedals &amp; levers</b>';
+      t.onclick = () => t.classList.toggle('on', wrap.classList.toggle('open'));
+      wrap.appendChild(t);
+    }
     // the deck toggle as a BUTTON: space does not exist on a phone
     if (!(rig && rig.deck_prefixes)) return;
     const d = document.createElement('div');
@@ -452,7 +474,6 @@
   }
   function toggleDeck() {
     act(() => { deckVisible = !deckVisible; setHidden(deckParts(), !deckVisible); });
-    $('deckstate').textContent = deckVisible ? 'hide deck' : 'show deck';
     const b = $('deckbtn');
     if (b) { b.classList.toggle('on', !deckVisible);
              b.querySelector('b').textContent = deckVisible ? 'hide deck' : 'show deck'; }
@@ -463,6 +484,7 @@
     for (const st of rig.strings) {
       for (const n of st.carriage_nodes) s.add(n);
       s.add(st.screw_pulley.node); s.add(st.motor_pulley.node);
+      for (const n of st.screw_pulley.with || []) s.add(n);
       for (const n of st.belt_clamp.nodes) s.add(n);
     }
     for (const p of rig.pedals || []) for (const n of [...p.swing_nodes, ...p.piston_nodes]) s.add(n);
@@ -602,7 +624,8 @@
     if (!M.root) return;
     clearSelection(); clearMeasure(); rtDrop(); M.span = 0;
     scene.remove(M.root);
-    for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose(); }
+    for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose();
+                                 if (b.tint) b.tint.geometry.dispose(); }
     for (const p of M.list) if (p.mesh) { p.mesh.geometry.disposeBoundsTree(); p.mesh.geometry.dispose(); }
     M.root = null; M.geo = null; M.geoPromise = null;
   }
@@ -659,7 +682,6 @@
     return true;
   }
   function syncDeckUI() {
-    $('deckstate').textContent = deckVisible ? 'hide deck' : 'show deck';
     const b = $('deckbtn');
     if (b) { b.classList.toggle('on', !deckVisible);
              b.querySelector('b').textContent = deckVisible ? 'hide deck' : 'show deck'; }
@@ -674,7 +696,10 @@
     ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     ray.firstHitOnly = false;
+    const fwd = camera.getWorldDirection(new THREE.Vector3());
     for (const h of ray.intersectObjects(M.pickables, false)) {
+      // nearer than the near plane it is not drawn: what is seen there is what lies behind
+      if (h.point.clone().sub(camera.position).dot(fwd) < camera.near) continue;
       let p, tri;
       const b = h.object.userData.batch;
       if (b) {
@@ -697,16 +722,31 @@
   // the part under the cursor. Over empty space there is no such depth, and the target
   // is only kept from closing on the camera: never nearer than a share of the model's
   // own size, which is the pace of flying through it.
+  // A WHEEL HAS THAT FLOOR OVER A PART TOO (a smaller one). Without it the target sat ON
+  // the surface, every notch took a twentieth of what was left, and the camera closed on
+  // the part for ever without arriving: slower each notch, and stuck for good once the
+  // surface was inside the near plane, where it is no longer even drawn. With it a notch
+  // is never less than FLY_PART / 20 of the model's size, in or out, and the camera goes
+  // through the surface to whatever is behind. A drag keeps the surface's own depth: it
+  // turns about the point under the cursor (and so does a pinch, which is a drag here).
+  const FLY_EMPTY = 0.1, FLY_PART = 0.04;
   function retarget(e, always) {
+    if (!M.parts) return;
     const hit = pickAt(e.clientX, e.clientY);
     const dir = camera.getWorldDirection(new THREE.Vector3());
     const now = controls.target.clone().sub(camera.position).dot(dir);
-    let depth = hit ? hit.world.sub(camera.position).dot(dir) : now;
-    if (!hit) {
-      if (!M.span) M.span = new THREE.Box3().setFromObject(M.parts).getSize(new THREE.Vector3()).length();
-      depth = Math.max(now, 0.1 * M.span);
-      if (depth === now) return;
-    } else if (depth <= camera.near || (!always && depth < 2 * now && depth > 0.5 * now)) return;
+    if (!M.span) M.span = new THREE.Box3().setFromObject(M.parts).getSize(new THREE.Vector3()).length();
+    let depth;
+    if (!hit) depth = Math.max(now, FLY_EMPTY * M.span);
+    else {
+      depth = hit.world.sub(camera.position).dot(dir);
+      if (always) depth = Math.max(depth, FLY_PART * M.span);
+      else if (depth < 2 * now && depth > 0.5 * now) return;
+    }
+    // backing out never slows down: a near part that comes under the cursor on the way
+    // does not pull the target in again
+    if (e.deltaY > 0) depth = Math.max(depth, now);
+    if (depth === now) return;
     controls.target.copy(camera.position).addScaledVector(dir, depth);
   }
   renderer.domElement.addEventListener('wheel', e => retarget(e, true), { capture: true, passive: true });
@@ -718,26 +758,54 @@
     side: THREE.DoubleSide, depthWrite: false, polygonOffset: true,
     polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   let selOverlays = [];
-  function partOverlay(p, mat) {
-    const g = new THREE.BufferGeometry();
+  // THE TINT IS ONE MESH A BATCH, MADE ONCE AND KEPT. It draws the batch's own vertices
+  // through the batch's whole index, and what is selected is only WHICH RUNS of that
+  // index it draws (its groups: parts that follow one another are one run). Selecting
+  // makes no geometry and sends nothing to the card. A mesh for each selected part, with
+  // an index of its own, cost a board of 263 pieces 263 geometries a click, none ever
+  // freed, and nearly four seconds: to sort a see-through mesh the renderer wants its
+  // geometry's bounding sphere, and each of those was worked out over every vertex of
+  // the batch. A part the rig moves is tinted by a second mesh on its own geometry.
+  function tintOf(p) {
+    const own = p.mesh ? p : p.batch;
+    if (own.tint) return own.tint;
     let m;
     if (p.mesh) {
-      g.setAttribute('position', p.mesh.geometry.attributes.position);
-      g.setIndex(p.mesh.geometry.index);
-      m = new THREE.Mesh(g, mat);
+      m = new THREE.Mesh(p.mesh.geometry, selMat);
       m.matrixAutoUpdate = false; m.userData.follow = p.mesh;
     } else {
-      g.setAttribute('position', p.batch.pickGeo.attributes.position);
-      g.setIndex(new THREE.BufferAttribute(p.batch.full.slice(p.iStart, p.iStart + p.iCount), 1));
-      m = new THREE.Mesh(g, mat);
+      const g = new THREE.BufferGeometry(), b = p.batch;
+      g.setAttribute('position', b.pickGeo.attributes.position);
+      g.setIndex(new THREE.BufferAttribute(b.full, 1));
+      g.boundingSphere = b.drawGeo.boundingSphere;
+      m = new THREE.Mesh(g, [selMat]);
     }
     m.frustumCulled = false; m.renderOrder = 5;
-    M.parts.add(m);
-    return m;
+    return (own.tint = m);
   }
   function drawSelection() {
-    for (const o of selOverlays) { o.removeFromParent(); }
-    selOverlays = selection.map(p => partOverlay(p, selMat));
+    for (const o of selOverlays) o.removeFromParent();
+    selOverlays = [];
+    const runs = new Map();
+    for (const p of selection) {
+      if (p.mesh) { if (!selOverlays.includes(tintOf(p))) selOverlays.push(p.tint); continue; }
+      if (!runs.has(p.batch)) runs.set(p.batch, []);
+      runs.get(p.batch).push(p);
+    }
+    for (const [b, ps] of runs) {
+      const o = tintOf(ps[0]), g = o.geometry;
+      ps.sort((x, y) => x.iStart - y.iStart);
+      g.clearGroups();
+      let at = 0, n = 0;
+      for (const p of ps) {
+        if (p.iStart < at + n) continue;                 // named twice
+        if (p.iStart > at + n) { if (n) g.addGroup(at, n, 0); at = p.iStart; n = 0; }
+        n += p.iCount;
+      }
+      if (n) g.addGroup(at, n, 0);
+      selOverlays.push(o);
+    }
+    for (const o of selOverlays) M.parts.add(o);
     const el = $('sel');
     if (!selection.length) { el.style.display = 'none'; return; }
     el.style.display = 'block';
@@ -748,10 +816,10 @@
       : `<div class="name">${units.length} parts</div><div class="dim">${fams.slice(0, 6).join(', ')}${fams.length > 6 ? ', …' : ''}</div>`;
     const sib = M.list.filter(p => fams.includes(p.family)).length;
     el.innerHTML = `<h4>selected</h4>${head}<div class="bar" style="margin-top:6px">
-      <div class="btn" data-a="hide">hide<span class="k">x</span></div>
-      <div class="btn" data-a="isolate">isolate<span class="k">i</span></div>
-      <div class="btn" data-a="zoom">zoom<span class="k">z</span></div>
-      ${sib > selection.length ? `<div class="btn" data-a="fam">select all ${sib} alike</div>` : ''}</div>`;
+      <div class="btn" data-a="hide">hide<span class="k">a</span></div>
+      <div class="btn" data-a="isolate">isolate<span class="k">s</span></div>
+      <div class="btn" data-a="zoom">zoom<span class="k">d</span></div>
+      ${sib > selection.length ? `<div class="btn" data-a="fam">select all ${sib} alike<span class="k">f</span></div>` : ''}</div>`;
     for (const b of el.querySelectorAll('.btn')) b.onclick = () => selAction(b.dataset.a);
   }
   function clearSelection() { selection = []; drawSelection(); }
@@ -1156,13 +1224,7 @@
     renderer.domElement.style.cursor = m === 'measure' ? 'crosshair' : '';
     if (m === 'measure') { clearSelection(); loadGeo().then(showReadout, err => { $('status').textContent = err.message; }); }
     else clearMeasure();
-    showReadout(); setHint();
-  }
-  function setHint() {
-    $('hint').textContent = mode === 'measure'
-      ? 'measure: click a corner, edge or face, then another · esc clears · m leaves · drag still orbits'
-      : 'drag orbit · scroll zoom · right-drag pan · click a part to select it (shift adds) · x hide · i isolate · z zoom · u show all · ctrl+z / ctrl+y undo, redo · p parts list · m measure · c section' +
-        (NATIVE ? '' : ' · l lighting');                 // the shell's picture has the one level
+    showReadout();
   }
 
   // ── pointer and keys ─────────────────────────────────────────────────────────────
@@ -1192,13 +1254,19 @@
     }
     if (e.key === 'Escape') { mode === 'measure' ? clearMeasure() : clearSelection(); return; }
     if (!e.repeat && !e.ctrlKey && !e.metaKey) switch (e.key) {
-      case 'm': setMode(mode === 'measure' ? 'select' : 'measure'); return;
-      case 'p': toggleParts(); return;
-      case 'x': selAction('hide'); return;
-      case 'i': selAction('isolate'); return;
-      case 'z': selAction('zoom'); return;
-      case 'u': showAll(); return;
-      case 'c': $('bSection').onclick(); return;
+      // the left hand's rows: tools on top, what is done to the selection under them,
+      // undo and redo under those. Every one is written on its button.
+      case 'q': setMode('select'); return;
+      case 'w': setMode(mode === 'measure' ? 'select' : 'measure'); return;
+      case 'e': toggleParts(); return;
+      case 'r': $('bSection').onclick(); return;
+      case 'a': selAction('hide'); return;
+      case 's': selAction('isolate'); return;
+      case 'd': selAction('zoom'); return;
+      case 'f': selAction('fam'); return;
+      case 'z': undo(); return;
+      case 'x': undo(true); return;
+      case 't': showAll(); return;
       case 'l': setQuality(quality + 1, true); return;
     }
     const p = keyToPedal[e.key]; if (!p || e.repeat) return;
@@ -1212,6 +1280,9 @@
   $('bMeasure').onclick = () => setMode(mode === 'measure' ? 'select' : 'measure');
   $('bParts').onclick = toggleParts;
   $('bShowAll').onclick = showAll;
+  $('bUndo').onclick = () => undo();
+  $('bRedo').onclick = () => undo(true);
+  $('axes').onclick = () => $('views').classList.toggle('open');
 
   // ── section cut ──────────────────────────────────────────────────────────────────
   // One plane square to a CAD axis, at a CAD coordinate. Everything on the far side is
@@ -1674,8 +1745,7 @@
     const about = (gltf.asset && gltf.asset.extras) || {};
     document.title = $('title').textContent = about.title || 'Assembly';
     if (about.tabs === false) tabsOff();                // this model is published alone
-    $('subtitle').textContent = about.subtitle ? about.subtitle + ' · ' : '';
-    $('deckhint').style.display = rig && rig.deck_prefixes ? '' : 'none';
+    $('subtitle').textContent = about.subtitle || '';
     // WHICH MODEL THIS IS, small, top right: the build's number, and for an agent's
     // scratch view the build it stands on plus whose view and which of theirs
     // ("build #880 + bronner 14"), so a glance says whether what is on screen is the latest
@@ -1893,7 +1963,6 @@
     await tabsPoll(true);
   }
   async function init() {
-    setHint();
     tabsInit();
     try {
       await load(true);
@@ -1920,6 +1989,27 @@
           (quality !== 3 ? '' : sec.on ? ' (not with a section cut)' : rt.asking ? ' (tracing…)'
            : rt.error ? ' (' + rt.error + ')' : ' (when still)');
   }
+  // THE MODEL'S AXES, top right: +X, +Y, +Z as arms with their letters, the minus ends
+  // faint, turned as the camera is. In CAD's frame (Z up), which the root node lays
+  // into the scene's Y-up, so CAD (x, y, z) is the scene's (x, z, -y).
+  const AXES = [['X', '#e5484d', [1, 0, 0]], ['Y', '#46a758', [0, 0, -1]], ['Z', '#3e8bff', [0, 1, 0]]];
+  const axesQ = new THREE.Quaternion(), axesWas = new THREE.Quaternion(0, 0, 0, 0), axesV = new THREE.Vector3();
+  function axesDraw() {
+    if (axesWas.equals(camera.quaternion) || isNaN(camera.quaternion.w)) return;
+    axesWas.copy(camera.quaternion); axesQ.copy(camera.quaternion).invert();
+    const arms = [];
+    for (const [name, colour, d] of AXES) for (const s of [1, -1]) {
+      axesV.set(d[0] * s, d[1] * s, d[2] * s).applyQuaternion(axesQ);
+      arms.push([axesV.z, axesV.x, -axesV.y, s > 0 ? name : '−' + name, colour, s]);
+    }
+    arms.sort((a, b) => a[0] - b[0]);                   // far ones first, near ones over them
+    $('axes').innerHTML = arms.map(([, x, y, name, colour, s]) => {
+      const o = s > 0 ? 1 : 0.4, r = 30, t = 39;
+      return `<g opacity="${o}"><line x1="0" y1="0" x2="${(x * r).toFixed(1)}" y2="${(y * r).toFixed(1)}" stroke="${colour}" ` +
+             `stroke-width="${s > 0 ? 2.4 : 1.2}" stroke-linecap="round"/>` +
+             `<text x="${(x * t).toFixed(1)}" y="${(y * t).toFixed(1)}" fill="${colour}">${name}</text></g>`;
+    }).join('');
+  }
   function tick(now) {
     if (now - last > 250) stalled = true;               // a hidden tab, a load: not a slow device
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
@@ -1932,6 +2022,7 @@
     }
     applyRig(dt);
     controls.update();
+    axesDraw();
     if (NATIVE) { camera.updateMatrixWorld(); scene.updateMatrixWorld(); }   // no model is drawn to bring them up to date
     for (const o of selOverlays) if (o.userData.follow) o.matrix.copy(o.userData.follow.matrix);
     if (mode === 'measure' && lastMove && !down && M.geo) { setHover(snapAt(lastMove[0], lastMove[1])); lastMove = null; }

@@ -21,8 +21,9 @@ ever shown. This module is only how a project REACHES it:
   * a build tells it there is a new model (`notify`, called by cadkit.web.view.show):
     the project's tab reloads if it is the one shown, gets a dot if it is not. Nothing
     is opened and nothing comes forward. If the app is not running, nothing happens.
-  * with CADKIT_VIEWER=desktop in the environment, show() opens the project's tab in
-    the app (starting it, if it is installed) instead of a browser tab.
+  * the app is where a model is looked at whenever it is installed: `py -m
+    cadkit.web.view` opens the project's tab in it, starting it if it is not running.
+    A build never starts it (CADKIT_VIEWER=desktop in the environment lets it).
 
 There is ONE of it: it listens on 127.0.0.1:8136 (`CADKIT_DESKTOP_PORT` moves that) and
 answers /ping, /open?dir=..&focus=0|1 and /quit; a second start hands over and ends.
@@ -235,6 +236,21 @@ def start(*args):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags, close_fds=True)
 
 
+def start_surely(*args, tries=3, wait=12.0):
+    """Start the app and SEE IT ANSWER. One started the moment another has ended can
+    come to nothing without a word (seen 2026-10-12, straight after an install: the one
+    before it had only just let go), so a start nobody answers for is made again.
+    True: the app is up."""
+    for _ in range(tries):
+        start(*args)
+        end = time.time() + wait
+        while time.time() < end:
+            if ping() is not None:
+                return True
+            time.sleep(0.25)
+    return False
+
+
 def open_project(model_dir, focus=True, launch=True):
     """`model_dir`'s tab in the app: opened in the running one (and, with `focus`, shown
     and brought in front), else in one started for it, if the program is installed and
@@ -270,7 +286,8 @@ def main(argv=None):
         print("cadkit desktop: no model in %s (build the project, and it shows itself)" % folder)
     app = ping()
     if app is None:
-        start(*(["--open", str(folder.resolve())] if has_model else []))
+        if not start_surely(*(["--open", str(folder.resolve())] if has_model else [])):
+            raise SystemExit("cadkit desktop: %s was started and never answered" % program())
         print("cadkit desktop: started %s" % program())
     else:
         ctypes.windll.user32.AllowSetForegroundWindow(int(app.get("pid", 0)))

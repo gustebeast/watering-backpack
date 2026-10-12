@@ -403,3 +403,34 @@ here is guidance; that file is the gate.
 * Record every assembly-affecting decision (which way a cable goes on, which screw, what
   must be plugged before what is closed) in the project's install notes at the moment the
   design implies it.
+
+---
+
+## 6. The board in the viewer: real parts, not boxes
+
+The CAD draws a board as its laminate plus one box per footprint. That is right for
+clearances and wrong to look at. The viewer swaps the boxes for real component models
+(KiCad's own where the machine has them, drawn ones where it does not), puts the
+silkscreen on, seats a crimp housing in every JST header and gives the board its mask
+colour. **None of that is drawn by the project. It is one argument, and three things
+the project must not skip:**
+
+1. **Build the board from the routed geometry**, with the project's one `Boards`:
+   `BOARDS = Boards("elec/geom", height=..., tail=...)`, the board part is
+   `BOARDS.solid("main")` and its lettering is `BOARDS.ink("main")`.
+2. **Place both, moved together and otherwise untouched.** The lettering is how the
+   viewer finds where the project put the board: a board with no lettering part beside
+   it is not found, and keeps its boxes. Name them `<name>` and `<name>_silk`.
+3. **Hand the viewer the parts and the boards**: `show(assembly, root=OUT, build=n,
+   boards=BOARDS)`. A STEP path with no `boards=` shows boxes, however good the board.
+
+Then read what the build says: `web boards: 1 board(s) carry 46 part model(s), 3 of them
+drawn here [...]; boxes kept: ...`. Set `WEB_BOARDS_WHY=1` to have every kept box named
+with its reason. If the run says `skipped`, the export raises `BoardsSkipped`: fix that,
+do not work round it.
+
+**Do not redraw components in the project to make the picture better.** A part that
+keeps its box has no model in KiCad's library and no generator in `cadkit/web/parts.py`:
+add the generator THERE (dimensions from the maker's drawing, estimates flagged), so
+every project's boards get it. A project draws a part of its own only when the CAD
+needs the true shape for a clearance, and then tells `Boards.solid(omit=...)`.

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Every commit in a cadkit project is credited to its author alone. Drop any
+# co-author trailer or "Generated with" line a tool appended to the message.
+# Installed by tools/propagate.py (core.hooksPath).
+tmp="$1.clean"
+sed -e '/^[[:space:]]*[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:/d' \
+    -e '/Generated with \[/d' "$1" > "$tmp" && mv "$tmp" "$1"

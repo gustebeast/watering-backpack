@@ -1,0 +1,25 @@
+#!/bin/sh
+# Refuse a push that would publish a commit carrying a co-author trailer or a
+# "Generated with" line (see commit-msg). This is what catches an old commit
+# coming back through a merge, which commit-msg never sees.
+# Installed by tools/propagate.py (core.hooksPath).
+zero=0000000000000000000000000000000000000000
+bad=""
+while read -r _ local_sha _ remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+    if [ "$remote_sha" = "$zero" ]; then
+        range="$local_sha --not --remotes=$1"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+    found=$(git log --format=%h -i -E \
+        --grep='^[[:space:]]*co-authored-by:' --grep='Generated with \[' $range)
+    [ -n "$found" ] && bad="$bad $found"
+done
+if [ -n "$bad" ]; then
+    echo "push refused: these commits credit someone other than their author:" >&2
+    for c in $bad; do git log -1 --format='  %h %s' "$c" >&2; done
+    echo "rewrite their messages (the commit-msg hook does it on a new commit)." >&2
+    exit 1
+fi
+exit 0

@@ -67,6 +67,15 @@ def _is_building(d):
     return (d / ".git" / "agent-sync" / "build.lock").exists()
 
 
+def _install_hooks(d, path):
+    """Point the repo at cadkit's git hooks (commit-msg, pre-push), which keep
+    every commit credited to its author alone. The setting lives in the repo's
+    config, so linked worktrees share it; the relative path resolves in each."""
+    _, cur = _git(["config", "--local", "--get", "core.hooksPath"], d)
+    if cur.strip() != path:
+        _git(["config", "--local", "core.hooksPath", path], d, check=True)
+
+
 def _discover_consumers():
     """Every sibling repo that vendors cadkit (has cadkit/step_export.py), except
     the canonical repo itself."""
@@ -124,6 +133,10 @@ def main():
                 return 2
 
     consumers = _discover_consumers()
+    if not a.dry_run:
+        _install_hooks(CANON, "hooks")
+        for d in consumers:
+            _install_hooks(d, "cadkit/hooks")
     if not consumers:
         print("no consumer projects found next to %s" % CANON)
         return 0
