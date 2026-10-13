@@ -227,6 +227,8 @@ SIDE_PLUG_RUN = {"JST_PH_": _pcb.PH_PLUG_RUN, "JST_XH_": 7.5}
 SILK_T = 0.02            # ink stands this far off the laminate, so its faces are not
                          # coplanar with the board's and a viewer does not fight over them
 SILK_CAP = 0.72          # a KiCad text "size" is its capital height; a font size is its em
+# THE BARE METAL OF A LAND, by the finish the board is ordered in
+LAND_RGB = {"hasl": (0.88, 0.88, 0.86), "enig": (0.83, 0.68, 0.25)}
 
 
 # A BOARD IS DRAWN THE COLOUR OF ITS SOLDER MASK, the one it is ordered in, so the model
@@ -296,7 +298,7 @@ class Boards:
     def __init__(self, geom_dir, *, height=None, tail=None, tht_legs=None, panel=None,
                  xh_mated_h=XH_MATED_H, ph_mated_h=PH_MATED_H, tht_tail=THT_TAIL,
                  side_plug_run=None, silk_font=None, silk_cap=SILK_CAP,
-                 silk_subst=None, unmated=()):
+                 silk_subst=None, unmated=(), finish="hasl"):
         self.geom_dir = os.fspath(geom_dir)
         self.HEIGHT = dict(HEIGHT, **(height or {}))
         self.TAIL = dict(TAIL, **(tail or {}))
@@ -306,6 +308,7 @@ class Boards:
         self.side_plug_run = dict(SIDE_PLUG_RUN, **(side_plug_run or {}))
         self.silk_font = os.fspath(silk_font) if silk_font else None
         self.silk_cap = silk_cap
+        self.land_rgb = LAND_RGB[finish]         # the pads' colour: tin, or gold for ENIG
         self.silk_subst = dict(silk_subst or {})
         # connectors nothing is plugged into, as (board, ref): the viewer draws the
         # header and no housing in it (cadkit.web.boards)
@@ -736,6 +739,40 @@ class Boards:
                 if c in self.silk_subst:
                     tops[i] = tops[i].translate((0.0, self.silk_subst[c][1] * size, 0.0))
         return tops
+
+    def lands(self, board: str):
+        """The board's BARE PADS as one part, in solid()'s frame: every land the solder
+        mask is open over, on both faces, each with its drilled hole. Read from the routed
+        board (kicad_geom's "lands"), so it is the copper the fab exposes and nothing else.
+        None for a board whose geometry file has none (one exported before lands were).
+
+        FACES, NOT SOLIDS, SILK_T off the laminate and facing out, for silk()'s reasons:
+        plating has no thickness worth drawing and nothing can collide with it. The viewer
+        export (cadkit.web.boards) draws this on every board it finds, in `land_rgb`."""
+        g = self.load(board)
+        t = g["thickness_mm"]
+
+        def wire(s, z):
+            pts = [tuple(float(v) for v in p.split(",")) + (z,) for p in s.split()]
+            return cq.Wire.makePolygon([cq.Vector(*p) for p in pts], close=True)
+        out = []
+        for f in g["footprints"]:
+            for land in f.get("lands", ()):
+                front = land["side"] == "F"
+                z = t + SILK_T if front else -SILK_T
+                try:
+                    face = cq.Face.makeFromWires(
+                        wire(land["poly"], z), [wire(land["hole"], z)] if land.get("hole") else [])
+                    if not face.isValid() or face.Area() <= 0:
+                        raise ValueError
+                except Exception:               # a hole that breaks its land: the land whole
+                    face = cq.Face.makeFromWires(wire(land["poly"], z), [])
+                if (face.normalAt(face.Center()).z > 0) != front:
+                    face = cq.Face(face.wrapped.Reversed())
+                out.append(face)
+        if not out:
+            return None
+        return cq.Workplane("XY").newObject([cq.Compound.makeCompound(out)])
 
     def ink(self, board: str, refs: bool = True):
         """ALL the board's lettering, both faces, as one part in solid()'s frame; None

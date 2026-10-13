@@ -73,6 +73,7 @@ ENVELOPE = 1.2                # ...and a package envelope drawn with its leads
 PLUG = 9.0                    # a mated side-entry header: its plug's reach past the mouth
 PLUG_PART = "_plug"           # <board part>__<ref>_plug names a header's crimp housing
 PLUG_RGB = WP.CREAM           # natural nylon, like the header it is seated in
+LANDS_PART = "pads"           # <board part>__pads names a board's bare lands
 BACK = 0.8                    # ...and how far its back may stand off the F.Fab box
 
 
@@ -484,6 +485,39 @@ def _plug_part(boards, board, ref, pose):
         return None
 
 
+def _lands_part(boards, board, pose, facts):
+    """A board's bare pads (Boards.lands), meshed where the board is, in the finish's
+    colour: a mesh_shape() result, or None for a board with none to draw."""
+    from .export import mesh_shape, ANGULAR, _topods
+    from OCP.gp import gp_Trsf
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE
+    if not hasattr(boards, "lands"):
+        return None
+    rgb = getattr(boards, "land_rgb", WP.TIN)
+    try:
+        def make():
+            part = boards.lands(board)
+            if part is None:
+                return None
+            R, tr = pose[:3, :3], pose[:3, 3]
+            trsf = gp_Trsf()
+            trsf.SetValues(R[0, 0], R[0, 1], R[0, 2], tr[0], R[1, 0], R[1, 1], R[1, 2], tr[1],
+                           R[2, 0], R[2, 1], R[2, 2], tr[2])
+            placed = BRepBuilderAPI_Transform(_topods(part), trsf, True).Shape()
+            lin, cols = tuple(c ** 2.2 for c in rgb), []
+            ex = TopExp_Explorer(placed, TopAbs_FACE)
+            while ex.More():
+                cols.append((ex.Current(), lin))
+                ex.Next()
+            return mesh_shape(placed, MODEL_TOLERANCE, ANGULAR, face_colors=cols, copy=False)
+        return _kept(b"lands" + _facts(facts, rgb, pose), make)
+    except Exception as exc:
+        print("web boards: %s -- its pads could not be drawn: %s" % (board, exc))
+        return None
+
+
 def _has(points, p, tol=0.01):
     return bool((np.abs(points - p).max(axis=1) < tol).any()) if len(points) else False
 
@@ -560,6 +594,11 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
             continue
         per_board.append("%s<-%s" % (solid_name, board))
         used.add(solid_name)
+        pads = _lands_part(boards, board, pose,
+                           [t] + [(f["ref"], f["lands"]) for f in g["footprints"] if f.get("lands")])
+        if pads is not None:
+            meshed[solid_name + SEP + LANDS_PART] = pads
+            stats["pads"] = stats.get("pads", 0) + 1
         sv = meshed[solid_name]["verts"]
         local = _apply(np.linalg.inv(pose), sv.astype(float))    # the solid's corners, board frame
         cut, added, drawn = [], 0, 0
@@ -883,6 +922,7 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
     log("web boards: %d board(s) carry %d part model(s), %d of them drawn here [%s]; boxes kept: %s"
         % (stats["boards"], stats["models"], stats.get("drawn", 0),
            ", ".join("%s x%d: %d" % (b, n, k) for b, (n, k) in sorted(counts.items())), kept))
+    log("web boards: %d board(s) show their bare pads" % stats.get("pads", 0))
     log("web boards: %d JST plug(s) seated in their headers%s"
         % (stats["plugs"], ", %d more are parts of the project's own" % stats["theirs"]
            if stats["theirs"] else ""))
