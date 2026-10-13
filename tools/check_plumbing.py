@@ -39,8 +39,8 @@ MIN_VOL = 1.0        # mm3 — below this is boolean noise, not a collision
 # fitting. Its neighbours, routed the same way, measure 163.
 INTENDED = {
     ("green_from_B", "elbows"):
-        (10100.0,
-         "NOT A JOINT. 9962 mm3, sixty times its neighbours, and it is a real "
+        (5600.0,
+         "NOT A JOINT. 5401 mm3, thirty times its neighbours, and it is a real "
          "blocker held open by an unmeasured number -- see the note below."),
 }
 
@@ -59,6 +59,17 @@ INTENDED = {
 #                           entered it. With real swept arcs both read 0.00, so
 #                           there is nothing left to declare. The one real
 #                           overlap, green_from_B's, is unchanged at 9979.
+#
+# ⚠ AND THAT 9979 IS NOW 5401, BECAUSE THE HOSE BECAME A TUBE. src/plumbing
+# swept a SOLID rod of vinyl until the hoses were made to render like hoses;
+# `TUBE_ID` had been declared since the file was written and no geometry used
+# it. A barb pushed into a hose is in the hose's HOLE, not in its wall, so
+# nearly half of what this entry was holding open was never interference at
+# all -- it was the bore being counted as material. The ceiling comes down to
+# 5600 with it: a declaration that keeps its old headroom after the thing it
+# measures has halved is not a declaration, it is a blank cheque. What has NOT
+# changed is the finding: 5401 mm3 is still a hose drawn curving through a
+# rigid fitting, still thirty times its neighbours, and still the blocker.
 #
 # And the first two:
 #

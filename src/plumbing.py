@@ -200,13 +200,36 @@ def centreline(points, radius=BEND_R, od=TUBE_OD):
     return cq.Wire.assembleEdges(edges)
 
 
-def run(points, od=TUBE_OD, radius=BEND_R):
-    """A hose along `points`, swept round real bends. Raises if a bend cannot fit."""
+def run(points, od=TUBE_OD, radius=BEND_R, bore=TUBE_ID):
+    """A hose along `points`, swept round real bends. Raises if a bend cannot fit.
+
+    ⚠ IT IS A TUBE, NOT A ROD, and that is not cosmetic. This swept a solid
+    cylinder of vinyl for as long as it existed -- `TUBE_ID` was declared on the
+    same line as `TUBE_OD` and no geometry ever used it -- and a solid rod is
+    why the hoses still read as opaque coloured plastic after they were given
+    both a see-through alpha and a gloss finish. The material was never the
+    problem: at 0.32 you were looking through 19 mm of SOLID vinyl, and no
+    alpha low enough to see through that leaves a tube you can see at all. A
+    real hose is two 3.2 mm walls with a hole between them, and drawn that way
+    it reads as tubing at the same alpha, because that is what makes a clear
+    tube look clear.
+
+    Nothing a gate measures moves on the OUTSIDE: the outer surface is the same
+    sweep on the same path, and the bounding box is identical to the micron.
+    What does move is any volume that was being counted INSIDE the bore -- a
+    barb pushed into the hose is in the hose's hole, not in its wall -- and
+    that is the more correct answer, not a looser one.
+    """
     path = centreline(points, radius, od)
     d0 = _unit([b - a for a, b in zip(points[0], points[1])])
-    prof = cq.Wire.makeCircle(od / 2.0, cq.Vector(*points[0]), cq.Vector(*d0))
-    return cq.Workplane(obj=cq.Solid.sweep(prof, [], path, makeSolid=True,
-                                           isFrenet=True))
+
+    def swept(d):
+        w = cq.Wire.makeCircle(d / 2.0, cq.Vector(*points[0]), cq.Vector(*d0))
+        return cq.Workplane(obj=cq.Solid.sweep(w, [], path, makeSolid=True,
+                                               isFrenet=True))
+
+    wall = swept(od)
+    return wall if not bore else wall.cut(swept(bore))
 
 
 # ── Where each elbow leg ends — the stub the hose picks up ──────────────────

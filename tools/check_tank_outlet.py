@@ -148,6 +148,25 @@ def main():
     print("     hose does anyway and what green_from_B was already accepted "
           "for.")
 
+    # ── what finding 16's strainer actually has to fit in ──────────────────
+    # That finding measured the tank leg at "~100 mm" between TANK_TEE and the
+    # Uniseal and sized a strainer against it. Two things were not in that sum,
+    # and both are drawn now: the tee's own branch at one end and the whole
+    # fitting stack at the other. What is left is what the tape measure has to
+    # beat.
+    from src import tees as TEE                                    # noqa: E402
+    leg_top = TO.hose_start()[2]
+    leg_bot = TEE.branch_end("tee_tank")[2]
+    print("\n  the tank leg, between the two things now drawn at its ends:")
+    print("    the tee's branch ends at z %.1f, the elbow's barb at z %.1f "
+          "-- %.1f mm of hose" % (leg_bot, leg_top, leg_top - leg_bot))
+    print("    finding 16 called this leg ~100 mm. Neither the tee's own branch"
+          " (%.1f mm) nor the" % TEE.TEE_BRANCH)
+    print("    outlet stack was in that sum. THE STRAINER IS STILL NOT DRAWN "
+          "AND ITS LENGTH IS STILL")
+    print("    NOT MEASURED -- finding 16 stays open, and this is the budget "
+          "it has to come in under.")
+
     print("\n%s" % ("the hose starts where the fittings leave off, and the "
                     "route is one it can make" if not bad
                     else "*** THE TANK OUTLET DOES NOT ADD UP ***"))

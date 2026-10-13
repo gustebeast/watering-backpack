@@ -48,6 +48,7 @@ from . import battery as BAT
 from . import tank as TK
 from . import board_parts as BP
 from . import tank_outlet as TO
+from . import tees as TEE
 from .joystick_mount import joystick_mount
 
 OUT = pathlib.Path(__file__).resolve().parent.parent
@@ -190,6 +191,10 @@ def components():
     # findings 16 and 19 could sit open is that nothing in the model knew a
     # fitting occupies length, so nothing could be asked about one.
     comps += TO.parts()
+    # The two tees. Their legs have LENGTH -- which is the other half of
+    # finding 16, the half about the strainers -- and until now the model met
+    # three hoses at a mathematical point.
+    comps += TEE.parts()
     for name, pts in P.routes():
         comps.append((name, P.run(pts)))
     # The internal harness, weighed by the SAME gate as everything else -- a
@@ -245,6 +250,11 @@ def intended(a, b):
         return True
     if pair == {"outlet_fitting", "tank_down"}:
         return True            # the vinyl pushed onto the barb, clamped
+    # A tee's barbs are INSIDE their hoses, which is what a barb is for. Named
+    # by the pair rather than by a prefix: a tee meeting anything that is not a
+    # hose is a collision and must still be caught.
+    if any(n.startswith("tee_") for n in pair) and        any(n.startswith(("tank_", "green_")) for n in pair):
+        return True
     return False
 
 
@@ -533,14 +543,16 @@ def main() -> int:
              # dark grey, as a Makita pack is. It was "#d08a3e", an orange
              # that belonged to the prism era and to nothing in the hand.
              "battery": "#2b2e31", "pump_a": "slategray", "pump_b": "#5a6b7a",
-             # ⚠ THIS GOLD CONTRADICTS THE BOM AND IS NOT REPLACED WITH A
-             # GUESS. The fittings are PA66 nylon (see MATERIAL above); #c8a24a
-             # is brass, and has been since 86bd85b6. SEAFLO's own product page
-             # names the material and states no colour, so there is no source
-             # for what to put here -- and swapping one unsourced colour for
-             # another is not a fix. The owner has the 5-pack in hand; the
-             # material is corrected, the colour is asked.
-             "fittings": "#c8a24a",
+             # ⚠ BEIGE, AND THE OWNER IS THE SOURCE. This was #c8a24a --
+             # brass gold -- from 86bd85b6 until today, on a part the BOM
+             # chooses expressly for being "Nylon, not brass" (SEAFLO
+             # SFFN1-1220-01, PA66). SEAFLO's own product page names the
+             # material and states no colour, so there was nothing to read; the
+             # owner has the 5-pack in hand and says beige, which is what
+             # unpigmented PA66 looks like. Measured by eye on the part rather
+             # than inferred from a catalogue, which is the better source of
+             # the two available.
+             "fittings": "#cfc3a9",
              # the Makita contact block. It used to fall through to the default
              # and come out hose-green, which is what a default picked by name
              # prefix does to a part whose name has no prefix.
@@ -550,7 +562,17 @@ def main() -> int:
              # its photo shows it, and schedule-40 PVC pressure pipe is white.
              # The Uniseal is black EPDM.
              "outlet_uniseal": "#26282b", "outlet_pvc_stub": "#e8e6e0",
-             "outlet_pvc_adapter": "#e8e6e0", "outlet_fitting": "#2a2c2e"}
+             "outlet_pvc_adapter": "#e8e6e0",
+             # ⚠ BLACK PLASTIC, DRAWN JUST OFF BLACK ON PURPOSE. The owner
+             # confirms the tees and the hose fittings are black, and U.S.
+             # Plastic sells both as Black HDPE -- but cadkit/AGENTS.md
+             # reserves black for TPU parts, so that material reads at a
+             # glance. #35383c is the compromise, and it is declared rather
+             # than silently fudged: it is a dark charcoal where the part is
+             # black, which under this viewer's lighting is what black
+             # polyethylene looks like anyway.
+             "outlet_fitting": "#35383c",
+             "tee_tank": "#35383c", "tee_green": "#35383c"}
     # ── WHICH SOLIDS ARE HOSES AND WHICH ARE WIRES, FROM THE MODULES THAT MAKE
     # THEM, not from the spelling of a name. The rule underneath used to be
     # `"#b03030" if nm.startswith("tank") else "#30a050"`, so every part with no
