@@ -95,6 +95,7 @@ import time
 
 __all__ = ["ScratchView", "main", "publish_cache", "shared_cache", "read_brep"]
 
+GEOMETRY = "GEOMETRY.json"      # each kept part's cadkit.digest, beside the files
 MANIFEST = "MANIFEST.json"      # the shared cache: which build, when, and each part's hash
 OWN = "OWN.json"                # an own cache: which shared parts it supersedes by prefix
 
@@ -167,9 +168,17 @@ def read_brep(path):
 def _write_parts(comps, out: pathlib.Path, known=None):
     """Write each component's BREP into `out`. A part whose bytes are what `known`
     ({name: sha1}) already has is LEFT ALONE, so its file keeps its time and whatever
-    was derived from that file (a mesh) stays good. Returns ({name: sha1}, written)."""
+    was derived from that file (a mesh) stays good. So is a part whose bytes differ and
+    whose GEOMETRY does not (cadkit.digest: OCCT does not write one solid the same way
+    twice); what each file's geometry is, is kept beside them in GEOMETRY.json.
+    Returns ({name: sha1 of the file as it stands}, written)."""
+    from .digest import geometry_digest
     out.mkdir(parents=True, exist_ok=True)
     known = known or {}
+    try:
+        geo = json.loads((out / GEOMETRY).read_text())
+    except Exception:
+        geo = {}
     parts, wrote = {}, 0
     for name, wp in comps:
         shape = _shape(wp)
@@ -182,9 +191,18 @@ def _write_parts(comps, out: pathlib.Path, known=None):
         h = hashlib.sha1(data).hexdigest()
         parts[name] = h
         f = out / (name + ".brep")
-        if known.get(name) != h or not f.exists():
-            _put(f, data)
-            wrote += 1
+        if known.get(name) == h and f.exists():
+            continue
+        d = geometry_digest(shape)
+        if f.exists() and name in known and geo.get(name) == d:
+            parts[name] = known[name]           # the same solid: the file stays as it is
+            continue
+        _put(f, data)
+        geo[name] = d
+        wrote += 1
+    for name in [n for n in geo if n not in parts and not (out / (n + ".brep")).exists()]:
+        del geo[name]
+    _put(out / GEOMETRY, json.dumps(geo).encode())
     return parts, wrote
 
 
