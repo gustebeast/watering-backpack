@@ -371,6 +371,21 @@ def add_part(asm, name, solid, tint, alpha=1.0):
         return
     for i, piece in enumerate(vals):
         asm.add(cq.Workplane(obj=piece), name="%s_%d" % (name, i), color=c)
+        SPLIT["%s_%d" % (name, i)] = name
+
+
+# {piece: the part it was split out of}, filled by add_part. Splitting is for
+# the colour's sake only (see above) and says nothing about what a person means
+# by "the battery": the imported Makita pack is nine solids, and in the viewer
+# it was nine things to click, hide and show. ONE_THING names the parts whose
+# pieces the viewer is told to treat as one -- cadkit's `units=`.
+SPLIT = {}
+ONE_THING = {"battery"}
+
+
+def unit_of(name):
+    parent = SPLIT.get(name)
+    return parent if parent in ONE_THING else None
 
 
 # ⚠ NAMED AND MEASURED, NOT WAIVED. Same standing as `intended()` below: an
@@ -986,7 +1001,8 @@ def main() -> int:
     # cadkit/PCB_README.md s6, and read the "web boards:" line below for any
     # footprint that kept its box, with WEB_BOARDS_WHY=1 to have it named.
     shown = show(out, root=OUT, build=build_n, boards=H.BOARDS,
-                 materials=lambda n: material_of(n, HOSES, WIRES))
+                 materials=lambda n: material_of(n, HOSES, WIRES),
+                 units=unit_of)
     if not shown:
         print("*** THE VIEWER DID NOT REFRESH *** see the [web view] line above")
     # ⚠ AND THAT WAS ONLY EVER PRINTED. show() never raises, so a board the
