@@ -47,6 +47,7 @@ from .helpers import bump_build_counter
 from . import battery as BAT
 from . import tank as TK
 from . import board_parts as BP
+from . import tank_outlet as TO
 from .joystick_mount import joystick_mount
 
 OUT = pathlib.Path(__file__).resolve().parent.parent
@@ -184,6 +185,11 @@ def components():
     # weighed with everything else.
     for i, sj in enumerate(H.pcb_screws()):
         comps += sj.dummies("pcb_screw_%d" % i, "pcb_insert_%d" % i)
+    # The four rigid parts between the tank wall and the first millimetre of
+    # vinyl. They are weighed rather than drawn-and-admired: the whole reason
+    # findings 16 and 19 could sit open is that nothing in the model knew a
+    # fitting occupies length, so nothing could be asked about one.
+    comps += TO.parts()
     for name, pts in P.routes():
         comps.append((name, P.run(pts)))
     # The internal harness, weighed by the SAME gate as everything else -- a
@@ -230,6 +236,15 @@ def intended(a, b):
     # what makes that zero mean something: end-for-end it reads 1565.4.
     if all(n.startswith(("tank_", "green_")) for n in pair):
         return True
+    # The outlet stack is four parts that are MEANT to interpenetrate: a seal
+    # gripping a pipe, a socket solvent-welded over it, a tapered thread driven
+    # into a socket, and a hose pushed onto a barb. Each pair is named here
+    # rather than covered by a prefix rule, for the reason tank_outlet.parts()
+    # gives: a blanket that gets no volumes hides the first real clash.
+    if all(n.startswith("outlet_") for n in pair):
+        return True
+    if pair == {"outlet_fitting", "tank_down"}:
+        return True            # the vinyl pushed onto the barb, clamped
     return False
 
 
@@ -522,7 +537,13 @@ def main() -> int:
              # the Makita contact block. It used to fall through to the default
              # and come out hose-green, which is what a default picked by name
              # prefix does to a part whose name has no prefix.
-             "terminal": "#3b3f44"}
+             "terminal": "#3b3f44",
+             # The outlet stack. White PVC and black polyethylene are what
+             # these parts ARE -- U.S. Plastic lists 62043 as "Black HDPE" and
+             # its photo shows it, and schedule-40 PVC pressure pipe is white.
+             # The Uniseal is black EPDM.
+             "outlet_uniseal": "#26282b", "outlet_pvc_stub": "#e8e6e0",
+             "outlet_pvc_adapter": "#e8e6e0", "outlet_fitting": "#2a2c2e"}
     # ── WHICH SOLIDS ARE HOSES AND WHICH ARE WIRES, FROM THE MODULES THAT MAKE
     # THEM, not from the spelling of a name. The rule underneath used to be
     # `"#b03030" if nm.startswith("tank") else "#30a050"`, so every part with no

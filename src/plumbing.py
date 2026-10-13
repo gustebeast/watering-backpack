@@ -89,6 +89,14 @@ UNISEAL_Y = F.TANK_D              # 173 — the tank's +Y face
 # X-runs now clear the shelf entirely rather than resting on its corner.
 PLENUM_Y  = 262.0
 
+# Where the tank line takes its one bend, on the way down from the elbow's
+# barb. Chosen, and the two things it trades off are both measured: at 140 the
+# hose leaves the barb with 49.7 mm of dead-straight vinyl -- about the 50 mm a
+# bend wants on each side, so the fitting is never the thing being bent -- and
+# arrives at the tee 30.3 deg off its axis. Lower buys more straight off the
+# barb and a steeper arrival; higher does the reverse.
+TANK_SLOPE_Z = 140.0
+
 
 def _seg(p0, p1, r):
     """One straight length of tube as a cylinder from p0 to p1."""
@@ -239,10 +247,28 @@ def routes():
     side -- the corners land at x=|11| and x=|136|, so the tee has to sit
     between 61 and 86; 73 centres it.
     """
+    # Imported HERE, not at the top: src/tank_outlet.py reads this module's
+    # UNISEAL_* to know where the tank wall is, so a module-level import either
+    # way round is a cycle. The constants belong to the route and the fittings
+    # belong to the outlet; this is the one call that needs both.
+    from . import tank_outlet as TO
     return [
-        # TANK side (+X): Uniseal -> down the front -> tee -> both tank ports
-        ("tank_down",    [(UNISEAL_X, UNISEAL_Y, UNISEAL_Z),
-                          (UNISEAL_X, PLENUM_Y, UNISEAL_Z),
+        # TANK side (+X): the ELBOW'S BARB -> down -> slope into the tee
+        #
+        # ⚠ THIS USED TO START AT THE TANK WALL, as if the Uniseal were a hose
+        # barb. It is not: there are four rigid parts between the wall and the
+        # first millimetre of vinyl (src/tank_outlet.py), and findings 16 and 19
+        # say in their own words that neither this module nor check_plumbing
+        # knew a fitting has length, so "both will keep passing either layout".
+        # The hose now starts where the hose starts.
+        #
+        # The elbow turns the line down AT the tank, so the route leaves its
+        # barb STRAIGHT DOWN -- a barb is the straight part of any hose run --
+        # and takes its one bend 63 mm later, sloping into the tee at 30.3 deg
+        # off its axis. That is less than the 38.9 deg green_from_B already
+        # arrives at and was accepted for, on the same reasoning.
+        ("tank_down",    [TO.hose_start(),
+                          (UNISEAL_X, TO.hose_start()[1], TANK_SLOPE_Z),
                           TANK_TEE]),
         ("tank_to_A",    [A_IN,  (A_IN[0],  PLENUM_Y, _ZP), TANK_TEE]),
         ("tank_to_B",    [B_OUT, (B_OUT[0], PLENUM_Y, _ZP), TANK_TEE]),
