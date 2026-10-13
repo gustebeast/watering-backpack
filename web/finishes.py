@@ -46,6 +46,12 @@ FINISHES = {
     "screen":    (0.0, 1.0, 0.0),  # a display's face: where it is dark it stays dark,
                                   # whatever is overhead (the third number: it reflects
                                   # none of the room)
+    "wood":      (0.0, 0.78),     # sawn or planed softwood: a lumber frame's own parts.
+                                  # NOT "painted" (0.42), which is the nearest thing a
+                                  # project could reach for and makes fir look lacquered,
+                                  # and not 0.95 like rubber either -- planed stock has a
+                                  # sheen along the grain. A frame drawn without this was
+                                  # shaded "plain plastic", which is how it was noticed.
 }
 
 # a finish that is one material, and so one colour (linear, as glTF's)
