@@ -416,7 +416,13 @@ def pieces(name, shape, taken=(), whole=()):
     bearings and their rod) becomes one part per solid, <name>_0 .. <name>_N, so each can
     be picked, hidden and measured by itself. It stays whole when it is one solid, when
     it has faces outside any solid, when it is named in `whole` (the rig moves parts by
-    name) or when a piece's name is already somebody's (`taken`)."""
+    name) or when a piece's name is already somebody's (`taken`).
+
+    The solids are numbered BY WHERE THEY ARE (x, then y, then z of each one's centre),
+    not in the order OCCT hands them over: that order is not the same in two runs of
+    the same build, and a piece that changes its number changes its name."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopAbs import TopAbs_SOLID, TopAbs_FACE
     from OCP.TopoDS import TopoDS
@@ -432,7 +438,13 @@ def pieces(name, shape, taken=(), whole=()):
     names = ["%s_%d" % (name, i) for i in range(len(out))]
     if any(n in taken for n in names):
         return one
-    return list(zip(names, out))
+
+    def where(solid):
+        g = GProp_GProps()
+        BRepGProp.VolumeProperties_s(solid, g)
+        c = g.CentreOfMass()
+        return (round(c.X(), 4), round(c.Y(), 4), round(c.Z(), 4), round(g.Mass(), 4))
+    return list(zip(names, sorted(out, key=where)))
 
 
 def rig_names(path):
@@ -495,16 +507,22 @@ class BoardsSkipped(RuntimeError):
 
 
 class MeshCache:
-    """mesh_shape() results kept between builds, in a folder, BY WHAT THE SHAPE IS: the
-    key is a hash of the shape's own BRep bytes (its exact geometry and placement), the
-    two tolerances, the model format and the mesher's own source. So a part that has not
-    changed is not meshed again, and an entry can never stand for a shape it was not
+    """mesh_shape() results kept between builds, in a folder, BY WHAT THE SHAPE IS, with
+    the two tolerances, the model format and the mesher's own source. So a part that has
+    not changed is not meshed again, and an entry can never stand for a shape it was not
     made from: a different shape, or a different mesher, is a different file name.
 
-    A miss is only ever a cost. OCCT writes a few per-shape flags into those bytes, so
-    every shape of a run is put in one throwaway compound before the first is read
-    (cadkit.overlap_check._canonical says why); a run that hands over its shapes in
-    another state misses, and meshes."""
+    TWO KEYS, the cheap one first. A mesh is filed under the shape's GEOMETRY
+    (cadkit.digest: every vertex, edge and face, in an order of its own). The shape's
+    BRep BYTES are only a quick way to that file: a small note, named by their hash,
+    saying which geometry they were. Most parts write the same bytes every run and are
+    found by the note; the few OCCT writes differently each time (the same solid, two
+    records swapped) miss the note, are measured, and are found by their geometry. Only a
+    solid that is new is meshed.
+
+    OCCT writes a few per-shape flags into the bytes too, so every shape of a run is put
+    in one throwaway compound before the first is read (cadkit.overlap_check._canonical
+    says why)."""
 
     KEEP_DAYS = 30          # an entry no build has read for this long is deleted
 
@@ -512,10 +530,11 @@ class MeshCache:
         import hashlib
         import inspect
         self.dir = pathlib.Path(folder)
-        self.hits = self.misses = 0
+        self.hits = self.misses = self.rewritten = 0
         self.spent = 0.0
-        salt = repr((TOLERANCE, ANGULAR, FORMAT, inspect.getsource(mesh_shape),
-                     inspect.getsource(shape_vertices)))
+        from .. import digest
+        salt = repr(("by geometry", TOLERANCE, ANGULAR, FORMAT, inspect.getsource(mesh_shape),
+                     inspect.getsource(shape_vertices), inspect.getsource(digest)))
         self.salt = hashlib.sha1(salt.encode("utf-8")).hexdigest()
 
     def settle(self, shapes):
@@ -532,41 +551,60 @@ class MeshCache:
         import pickle
         import time
         from OCP.BRepTools import BRepTools
+        from ..digest import geometry_digest
         t = time.perf_counter()
         buf = io.BytesIO()
         BRepTools.Write_s(shape, buf)
-        f = self.dir / (hashlib.sha1(self.salt.encode() + buf.getvalue()).hexdigest() + ".pkl")
-        try:
+        note = self.dir / (hashlib.sha1(self.salt.encode() + buf.getvalue()).hexdigest() + ".is")
+
+        def put(f, data):
+            try:
+                self.dir.mkdir(parents=True, exist_ok=True)
+                tmp = f.with_name("%s.%d.tmp" % (f.name, os.getpid()))
+                tmp.write_bytes(data)
+                os.replace(tmp, f)
+            except OSError:
+                pass
+
+        def kept(geo):
+            f = self.dir / (geo + ".pkl")
             m = pickle.loads(f.read_bytes())
             os.utime(f)
+            return m
+        try:                                        # these bytes have been seen before
+            m = kept(note.read_text())
+            os.utime(note)
             self.hits += 1
             self.spent += time.perf_counter() - t
             return m
         except Exception:
             pass
-        m = mesh_shape(shape)
-        self.misses += 1
-        try:
-            self.dir.mkdir(parents=True, exist_ok=True)
-            tmp = f.with_name("%s.%d.tmp" % (f.name, os.getpid()))
-            tmp.write_bytes(pickle.dumps(m, protocol=pickle.HIGHEST_PROTOCOL))
-            os.replace(tmp, f)
-        except OSError:
-            pass
+        geo = hashlib.sha1((self.salt + geometry_digest(shape)).encode()).hexdigest()
+        try:                                        # new bytes, a solid seen before
+            m = kept(geo)
+            self.hits += 1
+            self.rewritten += 1
+            self.spent += time.perf_counter() - t
+        except Exception:
+            m = mesh_shape(shape)
+            self.misses += 1
+            put(self.dir / (geo + ".pkl"), pickle.dumps(m, protocol=pickle.HIGHEST_PROTOCOL))
+        put(note, geo.encode())
         return m
 
     def close(self, quiet=False):
         import time
         old = time.time() - self.KEEP_DAYS * 86400
         try:
-            for f in self.dir.glob("*.pkl"):
+            for f in list(self.dir.glob("*.pkl")) + list(self.dir.glob("*.is")):
                 if f.stat().st_mtime < old:
                     f.unlink()
         except OSError:
             pass
         if not quiet:
-            print("web meshes: %d kept from earlier builds (%.1f s to find them), %d made"
-                  % (self.hits, self.spent, self.misses))
+            print("web meshes: %d kept from earlier builds (%.1f s to find them; %d of them "
+                  "the same solid written differently), %d made"
+                  % (self.hits, self.spent, self.rewritten, self.misses))
 
 
 def export(parts, out_dir, stem="assembly", extras=None, meshed=None, quiet=False,
