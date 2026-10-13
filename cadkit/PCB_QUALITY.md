@@ -849,7 +849,7 @@ from published guidance: where a part's own datasheet says otherwise, the datash
 | kind | rules | how to sign |
 |---|---|---|
 | **must hold** | M1 mating connectors, M2 polarity, M4 capacitor ratings, M5 absolute ratings, M7 application circuit, M8 config pins defined, M14 inductor saturation, M15 regulator stability, M18 back-powering, M19 gate drive, M24 crystal load, M26 signal direction, M27 strap pins, M28 exact-part pinout, M32 connector series, M33 power budget, M34 levels and polarities, M37 files match the board, M39 unused pins | Only by showing it is true: the two things compared and the document read. If it is not true, the board changes. |
-| **decide** | M3 return path, M6 bus matching, M9 programming and probing, M10 protection, M11 fit, M12 order, M13 regulator layout, M16 hot-plug, M17 ferrites, M20 termination, M21 converter ground, M22 op-amp limits, M23 USB details, M25 thermal pads, M29 fab capability, M30 assembly tier, M31 markings, M35 errata, M36 output limiting, M38 stress and access, M40 design record, M41 debounce, M42 lifecycle | By showing it is done — or by recording the decision not to: what was left out, why this board does not need it, and what is relied on instead ("no TVS: the connector is inside the enclosure and mates only to our own harness; the trunk's TVS is on the supply board"). A decision is not "skipped". |
+| **decide** | M3 return path, M6 bus matching, M9 programming and probing, M43 firmware over USB alone, M10 protection, M11 fit, M12 order, M13 regulator layout, M16 hot-plug, M17 ferrites, M20 termination, M21 converter ground, M22 op-amp limits, M23 USB details, M25 thermal pads, M29 fab capability, M30 assembly tier, M31 markings, M35 errata, M36 output limiting, M38 stress and access, M40 design record, M41 debounce, M42 lifecycle | By showing it is done — or by recording the decision not to: what was left out, why this board does not need it, and what is relied on instead ("no TVS: the connector is inside the enclosure and mates only to our own harness; the trunk's TVS is on the supply board"). A decision is not "skipped". |
 
 A **decide** rule is still broken only for a reason about THIS board's use: where it
 lives, what it plugs into, how fast it runs, how much it dissipates. Cost, time and board
@@ -1095,6 +1095,20 @@ access the bring-up will need.
   been looked at: same value and package at different ratings or tolerances collapse to
   the stricter one, and an odd value next to a common one (120 nF beside 100 nF) is
   questioned.
+- **M43 — A host computer and a USB cable are all it takes.** (owner's rule, 2026-10-12)
+  Every board either needs no firmware and works as it arrives, or takes its FIRST
+  firmware and every later update over USB from an ordinary computer: no debug probe, no
+  soldered tails, no jig, no pad to bridge. For each programmable part, name in the
+  generator (a) the USB connector the cable goes into and the path from it to the part,
+  (b) the loader that answers on that path with the part BLANK -- the maker's ROM loader,
+  with the manual page that says which pins it uses -- and (c) how the loader is entered
+  by hand on a closed-up board: a button, or a strap the cable itself sets; not tweezers
+  and not a bare pad. A part whose ROM loader cannot be reached over USB (a high-speed-only
+  port the loader does not serve, a part with no USB at all, a node on a bus) gets a USB
+  bridge on the board that can load it, or is changed for one that can. Debug pads (**M9**)
+  are still fitted, for debugging; they are not the way firmware gets in. A board many
+  copies of which sit inside an assembly is the worst case, not the exception: count the
+  disassemblies an update costs.
 
 ---
 
@@ -1143,3 +1157,4 @@ Never renumber a rule: boards sign and waive by id.
 | 2026-10-06 | a QFN-32 with one thermal via under the centre of its exposed pad | A14 read each paste-only window of the pad as a land of its own, so one 0.3 mm via under the centre window was "109 % of the joint" of a pad whose paste it is 12 % of. A hard failure on a correct board teaches people to distrust the rule | A14 counts paste to the copper pad under it; a paste-only aperture is not a land |
 | 2026-10-06 | a four-layer sensor board: tracks on In2, an unbroken ground plane on In1 beside them | A15 tested each track against EVERY other ground layer, so the component-side pour -- cut by every part on it -- read as a 10 mm slot under tracks whose return was in the whole plane next to them. The first exemption written for it was for a DC reference; the second finding was a 200 mA switched line, which is how the rule was caught rather than waived again | A15 references the nearest ground layer in the stack-up |
 | 2026-10-07 | ten boards of one instrument, on the bench order the night before it went out | every pinout was printed and every one was on the BACK, where the labeller had found room; five XH headers on one board took the same 4-way plug, and nothing on the side the plugs come from said which was which or which end was way 1. The mechanism to print the labels existed; no rule said a board without them was unfinished | **A17** (new, measured): designator, a name for every way, and a way-1 mark on the connector's own side; a back-only pinout is declared with its reason |
+| 2026-10-12 | four boards of one instrument with a microcontroller each, at first order | none could take its first firmware from a computer and a cable: eleven sensor boards had no USB at all and needed a printed pogo jig and a probe, two needed a probe or a strap bridged by hand to reach the ROM loader, and one wired only the high-speed port its ROM loader does not serve. Two probes, seventeen soldered tails and a jig were bought to install firmware once | M43 |

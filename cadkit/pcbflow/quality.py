@@ -2693,6 +2693,7 @@ NOT_APPLICABLE = {      # rule -> (census key that must be true for it to apply,
     "M35": ("ic", "no IC"),
     "M39": ("ic", "no IC: no unused pins"),
     "M41": ("switch", "no switch, button or relay"),
+    "M43": ("ic", "no IC: nothing to program"),
 }
 
 
