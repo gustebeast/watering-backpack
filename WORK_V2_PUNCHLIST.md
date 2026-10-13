@@ -3855,7 +3855,7 @@ apart by name in the viewer's own part list.
 
 ---
 
-## 68. OPEN — the plenum cannot be plumbed as drawn: 162 mm of fitting and bend in 125 mm
+## 68. ON THE BENCH — the plenum cannot be plumbed as drawn: 162 mm of fitting and bend in 125 mm
 
 **Found by the owner looking at build #560:** *"the tubes don't fit into the tees
 properly still"*. Finding 67a moved the hoses' ends from the tees' centres to their
@@ -3898,4 +3898,12 @@ straight"* while the tee was a point with no length.
 
 The viewer keeps drawing today's routes until one is chosen, because a model that
 quietly redrew itself legal would be finding 67 again.
+
+**Owner's decision, 2026-10-13: leave it modelled as it is and try it on the bench** —
+*"I'll hook it up IRL and see if it's a real issue or if its fine."* The model keeps
+today's routes. Claim 5 no longer fails on the misfit; it declares each run's shortfall
+and angle (19.0 / 18.0 / 18.0 mm short, and 44.4° on `green_from_B`) and fails if any
+of them moves. **What to look for with the hoses on:** a flattened or whitened crease
+on the inside of a bend within ~30 mm of a tee, most of all on the two suction runs
+(`tank_to_A`, `green_from_B`). If they kink, the four ways out above still stand.
 

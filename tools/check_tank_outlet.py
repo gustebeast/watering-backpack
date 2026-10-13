@@ -32,7 +32,8 @@ FIVE CLAIMS, each FAILING rather than warning:
 4. The stack's reach past the plenum line is what the elbow's own body is, and
    nothing more.
 5. On the four plenum runs the bend begins PAST the tee's barb and the hose
-   arrives along it. !! THIS ONE IS RED, and is meant to be: finding 68.
+   arrives along it. !! THEY DO NOT, on any of the four. The owner is trying it
+   on the bench (finding 68), so the misfit is declared and held two-sided.
 
 !! WHAT IT DOES NOT CHECK is the drawing's dimension letters. `tank_outlet`
 says plainly that TE 2088's A and C are matched to the two legs by value and
@@ -66,6 +67,20 @@ MAX_OFF_AXIS      = 0.5       # deg between the hose's first run and the
 DROP_FREE_VINYL   = 87.5      # mm from the barb's tip to the branch's tip
 DROP_TOL          = 1.0
 STACK_REACH_TOL   = 0.1
+
+
+# !! NOT A PASS: A MISFIT THE OWNER HAS CHOSEN TO TRY ON THE BENCH (finding 68,
+# 2026-10-13: "I'll hook it up IRL and see if it's a real issue"). Each run's
+# shortfall past the barb and its angle onto it, as measured. The gate is
+# green while they stay what was signed and red if either moves, either way --
+# so the model cannot drift legal, or worse, without saying so.
+BENCH_TEST = {                    # (mm short of the barb, deg off its axis)
+    "tank_to_A":    (19.0, 0.0),
+    "tank_to_B":    (18.0, 0.0),
+    "green_from_A": (18.0, 0.0),
+    "green_from_B": (0.0, 44.4),
+}
+BENCH_TOL = 0.2
 
 
 def _twosided(label, got, want, tol, note=""):
@@ -186,11 +201,14 @@ def main():
         v = [pts[-1][i] - pts[-2][i] for i in range(3)]
         off = _angle(v, 0)
         short = barb - free
-        ok = short <= 0.0 and off <= MAX_OFF_AXIS
+        want = BENCH_TEST[name]
+        moved = (abs(max(short, 0.0) - want[0]) > BENCH_TOL
+                 or abs(off - want[1]) > BENCH_TOL)
         print("    %-15s %10.1f mm          %5.1f   %7.1f     %5.1f deg   %s"
               % (name, free, barb, max(short, 0.0), off,
-                 "" if ok else "*** DOES NOT FIT ***"))
-        bad += 0 if ok else 1
+                 "*** MOVED FROM WHAT WAS SIGNED (%.1f mm, %.1f deg) ***" % want
+                 if moved else "does not fit; owner is testing it"))
+        bad += 1 if moved else 0
     print("    WHY, IN ONE SUM: the pumps' legs stand 125 mm apart and each "
           "tee joins one inner")
     print("    and one outer. A run along X needs, per side, half a body "
@@ -200,7 +218,7 @@ def main():
                                       + P.BEND_R,
                                       2 * (TEE.TEE_HEX / 2.0 + barb + P.BEND_R)))
     print("    the layout was chosen while the tee was a point. "
-          "WORK_V2_PUNCHLIST finding 68, OPEN.")
+          "Finding 68: ON THE BENCH.")
 
     # ── what finding 16's strainer has to fit in ────────────────────────────
     print("\n  the tank leg, between the two things now drawn at its ends:")
