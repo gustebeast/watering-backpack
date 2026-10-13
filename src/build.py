@@ -317,8 +317,15 @@ MATERIAL = {
     "housing": "pctg", "housing_lid": "pctg",
     # the board: its mask is a hard gloss lacquer, its lettering is not
     "pcb": "board", "pcb_silk": "ink",
-    "pcb_screw": "steel", "pcb_insert": "brass",
-    "fittings": "brass",
+    # ⚠ NYLON, NOT BRASS, AND THE BOM SAYS SO IN BOLD. SEAFLO
+    # SFFN1-1220-01 is PA66 polyamide -- bom_consolidated.md gives it as reason
+    # 2 for choosing the part, under the heading "Nylon, not brass", because a
+    # brass female fitting on a moulded plastic pump head is the wrong pairing.
+    # This line said "brass" and gave them metalness 1.0, so the one part on
+    # this model whose material the BOM argues about rendered as polished
+    # metal. See the colour note below: the gold tint is older than this and is
+    # the same error upstream of it.
+    "fittings": "nylon",
     # moulded plastic cases -- a Makita pack, its contact block, the pump
     # bodies, the Scepter can. "painted" is cadkit's non-metal semi-gloss; it
     # is the closest name it has for moulded ABS and HDPE, and that is an
@@ -504,6 +511,13 @@ def main() -> int:
              # dark grey, as a Makita pack is. It was "#d08a3e", an orange
              # that belonged to the prism era and to nothing in the hand.
              "battery": "#2b2e31", "pump_a": "slategray", "pump_b": "#5a6b7a",
+             # ⚠ THIS GOLD CONTRADICTS THE BOM AND IS NOT REPLACED WITH A
+             # GUESS. The fittings are PA66 nylon (see MATERIAL above); #c8a24a
+             # is brass, and has been since 86bd85b6. SEAFLO's own product page
+             # names the material and states no colour, so there is no source
+             # for what to put here -- and swapping one unsourced colour for
+             # another is not a fix. The owner has the 5-pack in hand; the
+             # material is corrected, the colour is asked.
              "fittings": "#c8a24a",
              # the Makita contact block. It used to fall through to the default
              # and come out hose-green, which is what a default picked by name
