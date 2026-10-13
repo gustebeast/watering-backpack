@@ -246,7 +246,7 @@ class ScratchView:
     """Config for a project's scratch loop. See the module docstring."""
 
     def __init__(self, root, context, live, replaced=(), cache_dir=".scratch_cache",
-                 pose=None, colors=None, gates=(), web=None, shared=None):
+                 pose=None, colors=None, gates=(), web=None, shared=None, shown=None):
         self.root = pathlib.Path(root)
         self.context = context          # () -> iterable of (name, Workplane): EVERYTHING
         self.live = live                # () -> iterable of (name, Workplane): yours
@@ -262,6 +262,10 @@ class ScratchView:
         # finished assembly. The page remembers a colour per part name between runs.
         self.colors = colors
         self.gates = tuple(gates)       # optional ((label, fn(comps) -> int), ...)
+        # optional () -> {name: Workplane}: parts the PAGE draws otherwise than the model
+        # has them (a belt as it lies where the rig poses its clamp). The gates never see
+        # these: they read the model.
+        self.shown = shown
         self._live_memo = None          # the live set is built ONCE per run
 
     # ── the live set ────────────────────────────────────────────────────────
@@ -334,6 +338,21 @@ class ScratchView:
         for f in sorted(self.cache.glob("*.brep")):
             out[f.stem] = f
         return out
+
+    def shown_files(self) -> dict:
+        """{part name: BREP file} of what `shown` draws for the page, kept in a folder of
+        its own beside your cache (a file whose solid has not changed is left alone, so
+        its mesh stays good)."""
+        if self.shown is None:
+            return {}
+        out = self.cache / "shown"
+        try:
+            known = json.loads((out / "SHOWN.json").read_text())
+        except Exception:
+            known = {}
+        parts, _wrote = _write_parts(list(self.shown().items()), out, known)
+        _put(out / "SHOWN.json", json.dumps(parts).encode())
+        return {n: out / (n + ".brep") for n in parts}
 
     def describe(self, live_names=()) -> dict:
         """What a run is showing, for the banner and the page."""

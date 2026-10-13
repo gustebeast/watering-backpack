@@ -654,6 +654,8 @@ def scratch_export(view, describe=None, colors=None, rig=None, refresh_rig=False
     files = view.files()
     if not files:
         raise SystemExit("web view: nothing to show -- no shared cache and none of your own")
+    shown = view.shown_files()
+    files.update((n, f) for n, f in shown.items() if n in files)
     # THE RIG FIRST: it names the parts that move, and a part that moves must stay one
     # part however many solids it is drawn as (export.pieces).
     if rig is not None and (refresh_rig or not (out / "rig.json").exists()):
