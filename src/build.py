@@ -340,6 +340,75 @@ def material_of(name, hoses=(), wires=()):
             return "pvc"          # vinyl tube, and wire insulation
     return None
 
+
+# ⚠ NAMED AND MEASURED, like COLOUR_EXCEPTIONS and intended(). A footprint
+# here is one the viewer CANNOT put a real part on, with the reason and what it
+# costs. Everything else must get one.
+#
+# F2 is the blade fuse holder. Its footprint names
+# ${KICAD10_3DMODEL_DIR}/Fuse.3dshapes/FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165.step
+# and KiCad 10 does not ship that file -- `ls Fuse.3dshapes` has exactly one
+# holder in it, Fuseholder_Blade_Mini_Keystone_3568, which is a MINI blade and
+# not this part. So the model does not exist on this machine to be placed.
+#
+# THE COST, MEASURED: F2 keeps its F.Fab box, 25.4 x 19.9 mm standing 21.6 mm
+# off the laminate, drawn in the mask's green like the laminate it sits on. It
+# is the tallest thing on the board and the one the bay's depth is set by, so
+# the box is the right shape to RESERVE and a poor one to look at.
+#
+# THE FIX IS NOT THIS FILE'S. cadkit/PCB_README.md s6: a part with no model
+# anywhere gets a generator in cadkit/web/parts.py, from the maker's drawing,
+# so every project's boards get it. Littelfuse's drawing for the FLR 178.6165
+# has not been read, and drawing it from the footprint's outline and a guessed
+# profile is how a render starts lying. Punchlist 66.
+BOX_EXCEPTIONS = {
+    "F2": "KiCad 10 ships no model for the Littelfuse FLR 178.6165 holder",
+}
+
+
+def board_detail_check(root, board="main"):
+    """Every footprint WITH A BODY must have a real part in the viewer's model.
+
+    ⚠ THIS READS THE WRITTEN .glb, not an intention. cadkit prints `boxes
+    kept: ...` and for as long as nothing read it the figure drifted: the geom
+    file was a cadkit older than `models`, so the ESP32 module, the gate driver
+    and the fuse holder were boxes while the run said `boxes kept: none` -- the
+    report skipped a footprint with no model before it counted anything. The
+    count is 69 of 70 today and this is what makes that sentence keep being
+    true. cadkit names the box now; this fails on one.
+    """
+    import json as _json
+    import struct as _struct
+    glb = pathlib.Path(root) / ".webview" / "assembly.glb"
+    geom = OUT / "elec" / "geom" / (board + ".geom.json")
+    if not glb.exists() or not geom.exists():
+        print("  *** NO MODEL TO CHECK *** %s"
+              % (glb if not glb.exists() else geom))
+        return 1                      # absent source FAILS; it does not skip
+    raw = glb.read_bytes()
+    n = _struct.unpack_from("<I", raw, 12)[0]
+    j = _json.loads(raw[20:20 + n].decode("utf-8"))
+    drawn = {nd["name"].split("__", 1)[1] for nd in j["nodes"]
+             if "__" in nd.get("name", "")}
+    want = {f["ref"] for f in _json.loads(geom.read_text(encoding="utf-8"))["footprints"]
+            if f.get("fab")}
+    boxes = sorted(want - drawn)
+    bad = [r for r in boxes if r not in BOX_EXCEPTIONS]
+    for r in boxes:
+        if r in BOX_EXCEPTIONS:
+            print("  %-4s declared a box: %s" % (r, BOX_EXCEPTIONS[r]))
+    stale = sorted(k for k in BOX_EXCEPTIONS if k in drawn)
+    gone = sorted(k for k in BOX_EXCEPTIONS if k not in want)
+    for k in stale:
+        print("  %s has a real part now -- drop its BOX_EXCEPTIONS entry" % k)
+    for k in gone:
+        print("  %s is not on this board -- drop its BOX_EXCEPTIONS entry" % k)
+    for r in bad:
+        print("  *** %s IS A BOX *** no model placed on it" % r)
+    print("  %d of %d footprint(s) with a body carry a real part (%d declared)"
+          % (len(want) - len(boxes), len(want), len(boxes) - len(bad)))
+    return len(bad) + len(stale) + len(gone)
+
 def colour_check(step_path):
     """Every part in the written STEP must come back WITH ITS COLOUR.
 
@@ -728,10 +797,17 @@ def main() -> int:
     # the lettering on. None of that is this project's to draw -- see
     # cadkit/PCB_README.md s6, and read the "web boards:" line below for any
     # footprint that kept its box, with WEB_BOARDS_WHY=1 to have it named.
-    if not show(out, root=OUT, build=build_n, boards=H.BOARDS,
-                materials=lambda n: material_of(n, HOSES, WIRES)):
+    shown = show(out, root=OUT, build=build_n, boards=H.BOARDS,
+                 materials=lambda n: material_of(n, HOSES, WIRES))
+    if not shown:
         print("*** THE VIEWER DID NOT REFRESH *** see the [web view] line above")
-    return bad + oversize + blocked + board_bad + lost_colour
+    # ⚠ AND THAT WAS ONLY EVER PRINTED. show() never raises, so a board the
+    # viewer could not detail -- or a BoardsSkipped, which is cadkit's hard
+    # failure for exactly this -- came back as False, printed a line and left
+    # the build green. It counts now.
+    print("\n=== board detail gate ===")
+    box_bad = board_detail_check(OUT) + (0 if shown else 1)
+    return bad + oversize + blocked + board_bad + lost_colour + box_bad
 
 
 if __name__ == "__main__":

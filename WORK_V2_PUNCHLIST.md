@@ -3645,3 +3645,125 @@ a face can keep one), and by this project's rule that means canonical
 vendored copy. Raised here, not done here. Every project that hands the viewer
 a multi-solid part, or any part that is not a solid, has white parts in it
 today.
+
+
+---
+
+## 66. The board looked like a green brick because `show()` was never given its boards — and the file I wrote to fix that was the wrong fix
+
+**What it looked like.** Every component on the board rendered as a green bump
+on a green board. I answered that by DRAWING the parts whose F.Fab boxes are a
+poor likeness — five screw terminals, two electrolytic cans, a buzzer — in a
+new `src/board_parts.py`, with a per-material colour table, a `skip` list, and
+`housing.pcb_solid()` rebuilt as the union of those pieces so the picture and
+the clearance solid could not describe different boards. 305 lines.
+
+**What was actually wrong.** One argument. `cadkit.web.show()` takes `boards=`,
+and given it, the viewer swaps every footprint's box for KiCad's own coloured
+model of that part, seats a crimp housing in each JST, and puts the lettering
+on (`cadkit/PCB_README.md` section 6). This build called `show(out)` with a
+STEP path and nothing else, so there were no boards to detail and every
+footprint stayed a box, however good the board underneath.
+
+Measured, on this board, with the one argument added:
+
+| | footprints with a body | real models | boxes |
+|---|---|---|---|
+| `show(out)` | 70 | 0 | 70 |
+| `show(out, boards=H.BOARDS)` | 70 | 69 | 1 |
+
+So every body I drew was a worse copy of a model that was on this machine the
+whole time. `src/board_parts.py` is down to its two TABLES — `HEIGHT` and
+`TAIL`, which are part facts cadkit cannot know and which are still the right
+thing for a project to own — and the drawing is gone. **A part with no model
+anywhere belongs in `cadkit/web/parts.py`, from the maker's drawing, so every
+project's boards get it. Not in a project.**
+
+**The removal is measured, not taken on faith.** Every gate that reads
+`pcb_solid()` reports exactly what it did with the drawn bodies in place: the
+retention lip 166 mm³, the bay 1/1 seated, 0 unintended overlaps over 32
+components, 70/70 routed parts and 139/139 labels. The drawn bodies were never
+carrying a clearance — which is the only reason it was safe to drop them.
+
+**THE LETTERING GOES IN AS ONE PART, AND THAT IS NOT TIDINESS.** Nothing in the
+assembly records where `src/housing.py` put the board; `boards.detail` fits the
+pose by registering a part whose corner count matches the board's reference
+ink. Two parts of one face each — which is what `pcb_silk_F` / `pcb_silk_B`
+were — match nothing, and the board keeps its boxes with no error anywhere.
+`housing.pcb_ink()` exists for that reason and says so.
+
+### 66a. Two of the three biggest parts on the board were boxes, and the report said "boxes kept: none"
+
+With `boards=` passed the first run read 67 of 80 footprints detailed, and
+named no kept box at all. The 13 missing were ten test pads — no F.Fab body,
+nothing to draw, correct — and **F2, U1 and U2: the blade fuse holder, the gate
+driver and the ESP32 module.**
+
+Two separate defects, both now fixed:
+
+1. **`elec/geom/main.geom.json` was stale.** cadkit records each footprint's
+   3D model in the geom file, and `boards.detail` prefers a footprint's OWN
+   model over a lookup by name. That is the only path that can work here,
+   because this project's three local footprints are renamed copies of library
+   ones (`ESP32-WROOM-32E-FABDRILL`, `SOIC-8-1EP-FABDRILL`,
+   `FuseHolder_…-PINFIT`) and no name-based lookup finds a library model behind
+   a renamed footprint. The geom file predated that cadkit and carried `models`
+   for none of its 80 footprints. Regenerated through the whole loop: 70 of 80
+   carry one, and the detail count went 67 → 69.
+
+2. **cadkit skipped a bodied footprint with no model BEFORE the report counted
+   anything** — the same `continue` as a footprint with no body — so the box
+   was kept and the run reported a clean sweep. Fixed in canonical cadkit
+   (`web/boards.py`, commit "a box nobody is told about is a box nobody
+   fixes") and propagated: a footprint with no body still continues silently,
+   one with a body is counted and, under `WEB_BOARDS_WHY=1`, named. Made to
+   fail by stripping U2's model back out: `box: pcb U2 names no 3D model`,
+   where the same geom had previously reported one kept box and lost U2.
+
+### 66b. And there is a gate, because `boxes kept:` was printed and nothing read it
+
+`build.board_detail_check()` re-reads the written `.glb` — the artefact the
+viewer actually shows, not an intention — and requires a real part for every
+footprint with an F.Fab body. `BOX_EXCEPTIONS` has the same standing as
+`COLOUR_EXCEPTIONS` and `intended()`: named, measured, and checked the other
+way, so an exception whose part now has a model, or whose ref has left the
+board, fails the build telling you to drop it.
+
+Made to fail four ways: an undeclared box (U2's model stripped → exit 2), a
+stale exception (`U1`, which has a part → exit 2), an exception for a ref this
+board does not have (`Z99` → exit 2), and no `.glb` at all, which **returns 1
+rather than skipping** — the hazard this file has already paid for twice.
+
+`show()` is also counted now. It never raises by design, so a `BoardsSkipped`
+— cadkit's hard failure for exactly this case — used to come back as `False`,
+print one line, and leave the build green.
+
+**THE ONE DECLARED BOX IS F2, NAMED AND MEASURED.** Its footprint names
+`Fuse.3dshapes/FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165.step` and KiCad 10
+does not ship it — that directory holds exactly one holder,
+`Fuseholder_Blade_Mini_Keystone_3568`, a MINI blade and not this part. Cost:
+F2 keeps a 25.4 × 19.9 mm box standing 21.6 mm off the laminate, in the mask's
+green. It is the tallest thing on the board and the part the bay's depth is set
+by, so the box is the right shape to reserve and a poor one to look at. **OPEN,
+and the fix is cadkit's:** a generator in `cadkit/web/parts.py` from
+Littelfuse's drawing. That drawing has not been read, and drawing the holder
+from its outline plus a guessed profile is how a render starts lying.
+
+### 66c. Nothing said what anything was made of
+
+A colour says what a part looks like; a material says how light leaves it. The
+export asked and nothing answered, so all 70 parts were shaded "plain plastic"
+— the brass fittings and the steel screw as matte as a printed wall, the mask
+as dead as sawn pine. `build.MATERIAL` names cadkit's own (`web.finishes`): the
+printed parts `pctg`, the board `board` and its ink `ink`, the fittings
+`brass`, the screw `steel`, the insert `brass`, hoses and wire insulation
+`pvc`, the moulded cases `painted` — stated as an approximation for ABS and
+HDPE, because that is what it is. A filament or metal colour is used only where
+a part has no colour of its own, so none of this overrides a tint.
+
+cadkit had no **wood**, and this frame is what noticed: every plank, post and
+rail was plain plastic. Added to canonical cadkit at 0.78 — matte, with the
+sheen that is actually along the grain — rather than here, because the
+pantorouter is made of the same stuff, and NOT as `painted` (0.42), which makes
+sawn fir look lacquered. 70 bare parts → 3, and the 3 are the build counter,
+which is a number modelled as a solid and not a part anybody makes.
