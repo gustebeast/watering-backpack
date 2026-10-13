@@ -39,6 +39,10 @@ FRAME: board-centred millimetres (the centre of the Edge.Cuts bounding box), +X 
                    variable; offset in mm, rot in degrees about x, y, z, in the
                    footprint's own frame). Absent when it names none. A viewer that
                    wants the real part instead of a box reads this (web_export)
+                   and lands: [{side, poly, hole?}] -- every pad the solder mask is
+                   open over, as its outline (and its drilled hole): the bare metal the
+                   fab leaves, which Boards.lands() draws and the web viewer shows on
+                   every board without being asked.
     silk[]         the lettering the fab prints: text, side, centre, size, angle, box.
                    Board-level text (the name, test-pad nets, pinouts, and the
                    designators kicad_silk lays with `silk_refs`), plus -- marked
@@ -101,6 +105,45 @@ def _tht_bbox(fp, cx, cy):
                   (pcbnew.PAD_ATTRIB_PTH, pcbnew.PAD_ATTRIB_NPTH)], cx, cy)
 
 
+LAND_ERR = 0.02          # mm: how far a land's drawn outline may stand off its true curve
+
+
+def _lands(pads, cx, cy):
+    """The BARE METAL of a footprint's pads, as the fab leaves it: one record per pad per
+    face it shows on, {"side": "F" | "B", "poly": "x,y x,y ..."} in the board's frame, plus
+    "hole": "x,y x,y ..." where the pad is drilled. Only a pad the solder mask is OPEN
+    over is a land (a pad under mask is green like the rest), and a hole with no copper
+    is not one. Curves are polygons LAND_ERR inside the true outline. An outline is ONE
+    STRING because a board has thousands of these corners and the file is indented: a
+    number a line made a four-part board's file six times its size."""
+    out = []
+    err = int(LAND_ERR * 1e6)
+
+    def pts(chain):
+        return " ".join("%g,%g" % (round(chain.CPoint(i).x / 1e6 - cx, 3),
+                                   round(-(chain.CPoint(i).y / 1e6 - cy), 3))
+                        for i in range(chain.PointCount()))
+    for q in pads:
+        if q.GetAttribute() == pcbnew.PAD_ATTRIB_NPTH:
+            continue
+        hole = None
+        if q.GetDrillSize().x > 0:
+            hp = pcbnew.SHAPE_POLY_SET()
+            if q.TransformHoleToPolygon(hp, 0, err, pcbnew.ERROR_OUTSIDE) and hp.OutlineCount():
+                hole = pts(hp.Outline(0))
+        for side, cu, mask in (("F", pcbnew.F_Cu, pcbnew.F_Mask), ("B", pcbnew.B_Cu, pcbnew.B_Mask)):
+            if not (q.IsOnLayer(cu) and q.IsOnLayer(mask)):
+                continue
+            poly = pcbnew.SHAPE_POLY_SET()
+            q.TransformShapeToPolygon(poly, cu, 0, err, pcbnew.ERROR_INSIDE)
+            for k in range(poly.OutlineCount()):
+                rec = {"side": side, "poly": pts(poly.Outline(k))}
+                if hole:
+                    rec["hole"] = hole
+                out.append(rec)
+    return out
+
+
 def read(stem):
     """The geometry dict for `<stem>.kicad_pcb` (see the module docstring for its keys)."""
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
@@ -159,6 +202,9 @@ def read(stem):
         })
         if ways:
             out["footprints"][-1]["pads"] = ways
+        lands = _lands(pads, cx, cy)
+        if lands:
+            out["footprints"][-1]["lands"] = lands
         models = [{"file": str(m.m_Filename).replace("\\", "/"),
                    "offset": [round(m.m_Offset.x, 4), round(m.m_Offset.y, 4), round(m.m_Offset.z, 4)],
                    "rot": [round(m.m_Rotation.x, 4), round(m.m_Rotation.y, 4), round(m.m_Rotation.z, 4)],
