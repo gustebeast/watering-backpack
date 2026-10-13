@@ -89,13 +89,13 @@ UNISEAL_Y = F.TANK_D              # 173 — the tank's +Y face
 # X-runs now clear the shelf entirely rather than resting on its corner.
 PLENUM_Y  = 262.0
 
-# Where the tank line takes its one bend, on the way down from the elbow's
-# barb. Chosen, and the two things it trades off are both measured: at 140 the
-# hose leaves the barb with 49.7 mm of dead-straight vinyl -- about the 50 mm a
-# bend wants on each side, so the fitting is never the thing being bent -- and
-# arrives at the tee 30.3 deg off its axis. Lower buys more straight off the
-# barb and a steeper arrival; higher does the reverse.
-TANK_SLOPE_Z = 140.0
+# ⚠ TANK_SLOPE_Z IS GONE, AND SO IS THE BEND IT PLACED. It used to trade the
+# straight off the elbow's barb (49.7 mm) against the angle the line arrived
+# at the tee (30.3 deg), and both figures only existed because the elbow's
+# corner sat 32.8 mm behind the tee's axis. The stub that holds it out there
+# is CUT TO LENGTH, not bought: tank_outlet.STUB_PROUD is derived now, the
+# corner lands on PLENUM_Y, and the tank line is one straight drop. A trade-off
+# nobody has to make is better than a trade-off well made.
 
 
 def _seg(p0, p1, r):
@@ -275,6 +275,28 @@ def routes():
     # way round is a cycle. The constants belong to the route and the fittings
     # belong to the outlet; this is the one call that needs both.
     from . import tank_outlet as TO
+    from . import tees as TEE
+
+    # ⚠ WHERE A HOSE ENDS IS NOT WHERE THE FITTING IS CENTRED, and until the
+    # tees were drawn every one of these ran to the tee's centre point. That
+    # put both run hoses through the body and out the far side -- visible in
+    # the viewer as tube clipping through fitting -- and it flattered the one
+    # figure this module's own docstring leans on, because the straight each
+    # corner needs was being measured to a point 31 mm inside the fitting.
+    #
+    # Two endings, for two different reasons:
+    #   barb_end  -- the vinyl swallows the barb and stops on the flats.
+    #   branch_end -- the tee's third leg is MALE NPT with a STRAINER on it
+    #                 (DESIGN_V2 section 4), so no hose touches the tee there
+    #                 at all. The hose stops where the strainer's far end will
+    #                 be. ⚠ THE STRAINER IS STILL UNDRAWN AND UNMEASURED --
+    #                 finding 16 -- so this leg is drawn as all hose and some
+    #                 of it is really strainer. check_tank_outlet prints the
+    #                 budget that leaves.
+    TANK_BARB_A,  TANK_BARB_B  = (TEE.barb_end("tee_tank", -1),
+                                  TEE.barb_end("tee_tank", +1))
+    GREEN_BARB_A, GREEN_BARB_B = (TEE.barb_end("tee_green", -1),
+                                  TEE.barb_end("tee_green", +1))
     return [
         # TANK side (+X): the ELBOW'S BARB -> down -> slope into the tee
         #
@@ -285,18 +307,19 @@ def routes():
         # knew a fitting has length, so "both will keep passing either layout".
         # The hose now starts where the hose starts.
         #
-        # The elbow turns the line down AT the tank, so the route leaves its
-        # barb STRAIGHT DOWN -- a barb is the straight part of any hose run --
-        # and takes its one bend 63 mm later, sloping into the tee at 30.3 deg
-        # off its axis. That is less than the 38.9 deg green_from_B already
-        # arrives at and was accepted for, on the same reasoning.
-        ("tank_down",    [TO.hose_start(),
-                          (UNISEAL_X, TO.hose_start()[1], TANK_SLOPE_Z),
-                          TANK_TEE]),
-        ("tank_to_A",    [A_IN,  (A_IN[0],  PLENUM_Y, _ZP), TANK_TEE]),
-        ("tank_to_B",    [B_OUT, (B_OUT[0], PLENUM_Y, _ZP), TANK_TEE]),
+        # ⚠ AND IT HAS NO BEND IN IT. The elbow turns the line down AT the
+        # tank and the tee's branch points straight up at it, on the same x
+        # (UNISEAL_X) and now on the same y as well, because the PVC stub that
+        # holds the elbow out from the wall is cut to the length that puts it
+        # there. So this is a plain vertical drop from the elbow's barb to
+        # where the strainer's far end will be, and the two figures the sloped
+        # version had to trade off -- straight off the barb, angle at the tee
+        # -- are 87.5 mm and 0 degrees.
+        ("tank_down",    [TO.hose_start(), TEE.branch_end("tee_tank")]),
+        ("tank_to_A",    [A_IN,  (A_IN[0],  PLENUM_Y, _ZP), TANK_BARB_A]),
+        ("tank_to_B",    [B_OUT, (B_OUT[0], PLENUM_Y, _ZP), TANK_BARB_B]),
         # GREEN side (-X): both green ports -> tee -> straight down to the wand
-        ("green_from_A", [A_OUT, (A_OUT[0], PLENUM_Y, _ZP), GREEN_TEE]),
+        ("green_from_A", [A_OUT, (A_OUT[0], PLENUM_Y, _ZP), GREEN_BARB_A]),
         # B's inlet cannot go forward -- pump A is in the way -- so it goes UP,
         # over the pumps, and SLOPES down to the tee once it is clear of them.
         #
@@ -311,14 +334,22 @@ def routes():
         # z=128.5 until y=208 to clear the pumps, which leaves 54 mm of Y to
         # lose 50 mm of Z in -- and the turn into the tee alone wants 50 of
         # those. So the descent is a SLOPE: one bend out of the overhead run,
-        # straight down to the barb at 38.9 degrees off the tee's axis. That is
-        # what a vinyl line actually does on a barbed fitting -- the barb is the
-        # straight part -- and it is one R50 bend, not two.
+        # straight down to the barb at 44.4 degrees off the tee's axis. That
+        # is what a vinyl line actually does on a barbed fitting -- the barb is
+        # the straight part -- and it is one R50 bend, not two.
+        #
+        # ⚠ 44.4, AND IT USED TO BE WRITTEN 38.9. Nothing about the route
+        # moved: 38.9 was the angle onto the tee's CENTRE, and the hose does
+        # not reach the centre. Onto the barb it swallows -- 11 mm nearer --
+        # the same descent is steeper. The old figure was not wrong about the
+        # hose, it was measured to a point the hose never gets to.
         ("green_from_B", [B_IN,
                           (B_IN[0], _YB, OVERHEAD_Z),
                           (B_IN[0], PLENUM_Y, OVERHEAD_Z),
-                          GREEN_TEE]),
-        ("green_out",    [GREEN_TEE, GREEN_EXIT]),
+                          GREEN_BARB_B]),
+        # Out of the green tee's branch -- again past a strainer, not off the
+        # tee itself.
+        ("green_out",    [TEE.branch_end("tee_green"), GREEN_EXIT]),
     ]
 
 

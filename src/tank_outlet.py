@@ -70,8 +70,11 @@ TANK_WALL_T  = 3.0                 # ESTIMATE: a blow-moulded can's wall
 # ── The PVC stub ────────────────────────────────────────────────────────────
 STUB_IN    = 25.4                  # ~1" proud INSIDE — the vendor says to clear
                                    # the seal's inner lip by about an inch
-STUB_PROUD = 25.0                  # ESTIMATE (finding 19): enough to seat in
-                                   # the adapter socket
+# ⚠ STUB_PROUD IS NOT AN ESTIMATE ANY MORE, AND IT IS NOT A GUESS EITHER: IT
+# IS THE ONE LENGTH IN THIS STACK THAT IS CUT RATHER THAN BOUGHT. Finding 19
+# wrote 25.0 as "enough to seat in the adapter socket", which is a floor and
+# not a length. Once `src/tees.py` drew the tee it became clear what the right
+# length is -- see the derivation under the elbow's dimensions below.
 
 # ── The PVC female adapter, slip x FNPT ─────────────────────────────────────
 # ⚠ FEMALE. Both hose adapters are male, and nothing in this repo checks a
@@ -81,9 +84,6 @@ ADAPTER_SOCKET_D = 26.7            # ESTIMATE: hub over a 0.840" socket
 ADAPTER_SOCKET_L = 22.2            # 0.875", the standard 1/2" socket depth
 ADAPTER_NET      = 13.0            # ESTIMATE (finding 19): length past the stub
 
-# The face the hose fitting screws against. 173 + 25 + 13 = 211, which is
-# finding 19's own figure for the start of the bottom horizontal leg.
-FNPT_FACE_Y    = WALL_Y + STUB_PROUD + ADAPTER_NET
 THREAD_ENGAGED = 13.0              # finding 19, for the straight; the elbow's
                                    # NPT is the same 1/2"-14 taper
 
@@ -96,6 +96,30 @@ ELBOW_LEG_BARB   = 1.21 * IN       # DIM C, 30.73 — corner to the barb's tip
 ELBOW_BORE       = 0.360 * IN      # DIM B,  9.14
 ELBOW_CREST      = 0.600 * IN      # DIM F, 15.24 — 1/2" vinyl stretches on
 ELBOW_HEX        = 0.86 * IN       # DIM E, 21.84 — taken as the wrench flats
+
+# ── WHAT THE STUB IS CUT TO, AND WHY IT IS THAT AND NOT 25 ──────────────────
+# The elbow turns the line DOWN, so its corner is where the hose's vertical
+# axis is. The tee's branch points UP along the SAME axis -- x 73 either way,
+# by UNISEAL_X -- but at y = PLENUM_Y, and at a 25 mm stub the corner lands at
+# y 229.2 instead. 32.8 mm apart, with 87 mm of z to lose it in and a 50 mm
+# bend radius: the drop could only be a slope, and a slope arrives on the
+# strainer's thread off-axis. That was the shape of the thing, and the reason
+# it was there was a number nobody had chosen on purpose.
+#
+# The stub is a piece of 1/2" PVC pipe cut with a hacksaw. Cut it 57.8 mm
+# proud instead of 25 and the corner lands ON the tee's axis, the tank line
+# becomes ONE DEAD-STRAIGHT DROP with no bend in it at all, and the elbow is
+# unambiguously the right fitting of the two bought (the straight points +Y
+# and would still need a 90 degree turn it has 21 mm for).
+#
+# Derived, not written, so it cannot drift away from the thing it is for:
+# tools/check_tank_outlet.py fails -- in both directions -- if the corner stops
+# landing on PLENUM_Y, or if the cut length stops being the 57.8 the BOM says.
+STUB_PROUD = (P.PLENUM_Y - ELBOW_LEG_THREAD + THREAD_ENGAGED
+              - ADAPTER_NET - WALL_Y)
+
+# The face the hose fitting screws against. 173 + 57.8 + 13 = 243.8.
+FNPT_FACE_Y = WALL_Y + STUB_PROUD + ADAPTER_NET
 
 # Thogus TA1088/P — U.S. Plastic 62017, the STRAIGHT, black HDPE.
 # Measured in finding 19 rather than read off a drawing.
@@ -204,11 +228,31 @@ def straight() -> cq.Workplane:
     return made_of(spud.union(hexc).union(barb), "painted")
 
 
-def hose_start():
-    """The first point of VINYL — where `plumbing.tank_down` has to begin."""
+# How much of the barb the vinyl swallows before it meets the body. Same
+# reasoning as tees.barb_end: the crest is 15.24 and the hose's bore is 12.7.
+BARB_SWALLOW = ELBOW_LEG_BARB - ELBOW_HEX / 2.0        # 19.8 mm
+
+
+def barb_tip():
+    """The barb's TIP — the first millimetre of vinyl that nothing supports.
+
+    This is what "straight off the barb" is measured from, and it is NOT where
+    the hose ends: see `hose_start`. Keeping the two apart is deliberate. If
+    the straight were measured from the hose's own end it would silently gain
+    the 19.8 mm the barb is holding rigid, which would be a figure improving
+    because its definition moved.
+    """
     if FITTING == "elbow":
         return (AXIS_X, ELBOW_CORNER_Y, ELBOW_TIP_Z)
     return (AXIS_X, STRAIGHT_TIP_Y, AXIS_Z)
+
+
+def hose_start():
+    """Where the VINYL's own end is — pushed fully onto the barb, against the
+    elbow's body. `plumbing.tank_down` begins here, not at the tip."""
+    if FITTING == "elbow":
+        return (AXIS_X, ELBOW_CORNER_Y, ELBOW_TIP_Z + BARB_SWALLOW)
+    return (AXIS_X, STRAIGHT_TIP_Y - 20.0, AXIS_Z)
 
 
 def parts():

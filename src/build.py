@@ -603,9 +603,31 @@ def main() -> int:
     # matte. Declared as a diagram aid rather than passed off as the part. To
     # make the model honest instead of legible, set both to the same pale
     # neutral: no gate reads these, only the eye does.
-    TANK_LINE  = "#e8b4ae"
-    GREEN_LINE = "#b4ddc0"
-    HOSE_ALPHA = 0.32
+    #
+    # ⚠ AND THAT IS NOW DONE, BECAUSE THE AID WAS BEING READ AS THE PART. The
+    # owner's words: "I'm confused how the tubes still appear colored green and
+    # red". A diagram aid that gets mistaken for a measurement is not an aid.
+    # The two circuits are still told apart by NAME -- every hose is its own
+    # part in the viewer's list, tank_* and green_* -- which costs nothing and
+    # cannot be misread as a pigment.
+    HOSE_TINT = "#eef1ef"              # what a clear wall casts, not a colour
+    # ⚠ AND THE ALPHA IS DERIVED, BECAUSE THE OLD ONE WAS GUESSED AGAINST THE
+    # WRONG GEOMETRY. 0.32 was chosen when `plumbing.run` swept a SOLID ROD --
+    # two surfaces on a sight line, 0.68^2 = 46% of the background coming
+    # through. The hose is BORED now (it is a hose), so a sight line crosses
+    # four walls: outer front, bore front, bore back, outer back. At 0.32 that
+    # is 0.68^4 = 21%, i.e. four fifths hose, which is exactly what "still
+    # appears opaque" looks like. Boring it made it LESS see-through, not more.
+    # The asserted figure below is the one the eye actually judges.
+    HOSE_ALPHA = 0.13
+    HOSE_WALLS = 4                     # bored tube, seen through
+    _see = (1.0 - HOSE_ALPHA) ** HOSE_WALLS
+    assert 0.50 <= _see <= 0.65, (
+        "a sight line through the hose passes %d walls at alpha %.2f and "
+        "leaves %.0f%% of what is behind it. Under half and it reads as "
+        "coloured pipe; over about two thirds and the tube stops having a "
+        "shape. Change the alpha, not this range."
+        % (HOSE_WALLS, HOSE_ALPHA, 100 * _see))
     # ⚠ SEE-THROUGH IS DECLARED, NOT INFERRED FROM THE NAME. The rule here used
     # to be `0.35 if battery else 0.85 if "_" in nm else 1.0`, and an underscore
     # in a name is not a reason to be able to see through something. It caught
@@ -663,7 +685,7 @@ def main() -> int:
         if nm == "wood":
             continue
         if nm in HOSES:
-            c, a = (TANK_LINE if nm.startswith("tank") else GREEN_LINE), HOSE_ALPHA
+            c, a = HOSE_TINT, HOSE_ALPHA
         elif nm in WIRES:
             c, a = WIRE_TINT, 1.0
         else:

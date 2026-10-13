@@ -3767,3 +3767,89 @@ sheen that is actually along the grain — rather than here, because the
 pantorouter is made of the same stuff, and NOT as `painted` (0.42), which makes
 sawn fir look lacquered. 70 bare parts → 3, and the 3 are the build counter,
 which is a number modelled as a solid and not a part anybody makes.
+
+---
+
+## 67. The hoses ran to the tees' centre points, and the cut length nobody had chosen
+
+**Found by looking at the viewer**, which is where finding 66 said these things get
+found: *"The tubing clips into the tees. Also I'm confused how the tubes still appear
+colored green and red and don't appear translucent."* Two separate faults, and both
+had a figure behind them that had stopped being true.
+
+### 67a. A hose does not end at a fitting's centre
+
+Every route in `src/plumbing.routes` ended at `TANK_TEE` or `GREEN_TEE` — the tee's
+**centre point**. When the tee was only a name that was harmless. Once `src/tees.py`
+drew it, the two run hoses met in the middle of the same body and the vinyl was drawn
+straight through 62 mm of polyethylene.
+
+It was not only a picture. `routes`' own docstring says the tees' x *"is picked so both
+corners keep >= BEND_R of straight on each side"*, and that straight was being measured
+**to a point 31 mm inside the fitting**. Measured to the flats the vinyl actually stops
+on — a hose swallows its barb, it does not stop at the tip — the tightest run keeps
+**1.08 mm** over the 50 mm a bend needs, not the 12 the figure implied. Still legal,
+and now `tools/check_tank_outlet.py` claim 5 is two-sided about it, so it cannot drift
+without saying so.
+
+The same mistake in the other direction on the branch legs: the tee's third leg is male
+NPT with a **strainer** on it (DESIGN_V2 §4), so no vinyl touches the tee there at all.
+`tank_down` and `green_out` now stop at the branch tip, which is where the strainer
+starts. Finding 16 is unchanged and still open — the strainer's length is still a
+tape-measure job — but the budget it has to come in under is drawn at both ends now
+and printed every build: **87.5 mm** on the tank leg, 92.2 inside the pack on the green.
+
+### 67b. The PVC stub is cut, not bought, and it was the free variable
+
+Drawing the branch honestly exposed the real problem. The elbow's corner sat at y 229.2
+and the tee's branch points up at y 262: **32.8 mm apart**, with 87 mm of drop to lose it
+in on a 50 mm bend radius. The drop could only be a slope, and a slope arrives on the
+strainer's thread off-axis. That is what `plumbing.TANK_SLOPE_Z` was placing, and what
+this file's finding 19 spent its length arguing about.
+
+The corner is where it is because `tank_outlet.STUB_PROUD` was **25.0, an estimate** —
+and the stub is a piece of 1/2" PVC **cut with a hacksaw**. It is the one length in the
+whole stack that is free. Derived instead:
+
+```
+STUB_PROUD = PLENUM_Y - ELBOW_LEG_THREAD + THREAD_ENGAGED - ADAPTER_NET - WALL_Y
+           = 57.76 mm
+```
+
+Cut it 57.8 proud instead of 25 and the elbow's corner lands **on** the tee's axis. The
+tank line becomes one dead-straight drop with no bend in it, `TANK_SLOPE_Z` is deleted,
+and both of the figures it traded off (49.7 mm of straight off the barb against 30.3°
+at the tee) stop existing. **A trade-off nobody has to make is better than a trade-off
+well made.** The BOM now states the cut: 83 mm overall, 25 in, 57.8 out.
+
+It also settles the elbow-vs-straight question that finding 19 opened and a later pass
+muddied. With a sloped route and a 25 mm stub the straight 62017 measured *better* than
+the elbow. With the stub cut to put the corner on the tee the straight points +Y and
+would still need a 90° turn in the 8 mm it has. **Fit the elbow.** 62017 stays in the
+drawer at $0.51.
+
+Cost: the elbow's body reaches y 272.9, which is 10.9 mm past the plenum line against
+the 9.5 the hoses on it already stand proud. Overhang in +Y is the one direction this
+project has always said costs moment and nothing else.
+
+### 67c. Boring the hose made it LESS see-through, and the tint was being read as a part
+
+The alpha was 0.32, chosen when `plumbing.run` swept a **solid rod**: two surfaces on a
+sight line, 0.68² = 46% of the background coming through. The previous pass bored the
+hose — correctly, it is a hose — and a sight line then crosses **four** walls. 0.68⁴ =
+21%, four fifths hose. The fix for "it looks opaque" had made it more opaque, and the
+only reason that was not obvious is that nobody had written the exponent down.
+
+`HOSE_ALPHA = 0.13` now, with the arithmetic asserted in `src/build.py` rather than
+left as a number that looked about right:
+
+```python
+assert 0.50 <= (1.0 - HOSE_ALPHA) ** HOSE_WALLS <= 0.65
+```
+
+And the tints are gone. They were declared as a diagram aid — "no gate reads these,
+only the eye does" — but an aid that gets read as the part is not an aid, and the
+owner read it as the part. `bom_consolidated.md` buys clear vinyl; there is no red hose
+and no green hose. One neutral `HOSE_TINT` for both circuits, which are still told
+apart by name in the viewer's own part list.
+

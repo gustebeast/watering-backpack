@@ -132,10 +132,14 @@ bought and are on the shelf, and the reasoning is worth keeping.
     SFFN1-1220-01** (FNPT × 1/2" barb) on the tank side.
   - ⚠ **One thing is still unmeasured, and it is geometric, not a purchase:** each
     strainer now sits inline on its tee's third leg, and nobody has measured the
-    51S01's length. The model says the green leg has **124 mm** of straight (tee at
-    z 84 down to the exit at z −40, and it leaves the pack, so it can also hang
-    outside) and the tank leg has about **100 mm** (z 84 up to the Uniseal at
-    z 234, less the 50 mm bend radius at the top). WORK_V2_PUNCHLIST finding 16.
+    51S01's length. ⚠ **Both figures below were re-measured once the tee itself was
+    drawn, and both were generous**, because neither counted the tee's own 31.8 mm
+    branch and the tank one did not count the outlet stack either. Between the two
+    things now drawn at its ends, the **tank leg is 87.5 mm** (the elbow's barb tip
+    at z 203.3 down to the branch tip at z 115.8) and the **green leg is 92.2 mm**
+    inside the pack (branch tip at z 52.2 down to the exit at z −40) plus whatever
+    hangs outside it. `tools/check_tank_outlet.py` prints the tank budget every
+    build. WORK_V2_PUNCHLIST finding 16.
 
 - [ ] 🎒 **1/2" ID vinyl tubing — UPSIZE from 3/8"** (Ace ProLine or equivalent)
   - v1 ran 3/8" at **8.7 ft/s**; suction lines want 2–3 ft/s. 1/2" brings it to 4.9 ft/s
@@ -175,7 +179,16 @@ bought and are on the shelf, and the reasoning is worth keeping.
   **The chain from tank to hose.** The seal and both hose adapters are bought; what
   is left is the three Ace lines broken out as their own entry below, so a tick on
   this line means the seal and not the whole joint.
-  1. short piece of **1/2" sch-40 PVC** — through the seal, ~1" proud inside the tank.
+  1. short piece of **1/2" sch-40 PVC** — ⚠ **cut it 83 mm long: ~25 mm (1") proud
+     INSIDE the tank, 57.8 mm proud OUTSIDE it.** The outside figure is not slack,
+     it is the number that takes the bend out of the tank line. It holds the hose
+     elbow's corner out to y 262, which is the tee's own axis, so the drop from the
+     elbow to the strainer is dead straight instead of a slope across 33 mm. At the
+     25 mm this line used to imply, the corner lands at y 229 and the hose has to
+     lose that 33 mm inside 87 mm of drop on a 50 mm bend radius. This is the only
+     length in the stack that is cut rather than bought, which is exactly why it was
+     the one nobody had chosen on purpose. `tools/check_tank_outlet.py` derives it
+     and fails in both directions if it drifts.
      Deburr and chamfer the cut end and wet it, or a square burr rolls the seal lip.
   2. **1/2" PVC FEMALE adapter, slip × FNPT**, solvent-welded to the stub outside
      the tank (primer + cement). ⚠ **FEMALE.** This step read "male adapter,
@@ -195,6 +208,14 @@ bought and are on the shelf, and the reasoning is worth keeping.
   3b. **U.S. Plastic item 62043 — PURCHASED** — 1/2" MNPT × 1/2" Hose ID black
       HDPE ELBOW, $0.79 (Thogus TE2088/P) —
       https://www.usplastic.com/catalog/item.aspx?itemid=29593
+      ⚠ **FIT THIS ONE.** With the stub cut to length the choice stops being close:
+      the elbow leaves the fitting straight down the tee's axis, and the straight
+      62017 points +Y and would still need a 90° turn in the 8 mm it has before the
+      branch. (An earlier note here had it the other way about, from a pass where
+      sloped routing was allowed and the stub was still 25 mm — with a square corner
+      at the tank both fittings looked bad, and with a slope the straight looked
+      better. Neither reading survives the stub being cut to put the corner on the
+      tee.) 62017 stays bought and in the drawer at $0.51.
       Not an alternative on style: **the straight stack does not fit the route**,
       measured in WORK_V2_PUNCHLIST finding 19 — it overruns the hose's bend by
       ~29 mm. The elbow turns the line down AT the tank, which moves the fittings
@@ -215,8 +236,10 @@ bought and are on the shelf, and the reasoning is worth keeping.
     prime overnight) but needs no modification to the tank.
 - [ ] 🎒 **Ace, for the Uniseal joint — three lines, none sourced by part number**
   because they are commodity plumbing and the aisle is the catalogue:
-  - **1/2" schedule-40 PVC pipe**, a short piece. Deburr and chamfer the end that
-    passes through the seal, and wet it — a square sawn burr rolls the seal lip.
+  - **1/2" schedule-40 PVC pipe**, a short piece — **cut 83 mm, 25 in / 57.8 out**;
+    see the chain above for why the outside figure is not slack. Deburr and chamfer
+    the end that passes through the seal, and wet it — a square sawn burr rolls the
+    seal lip.
   - **1/2" PVC FEMALE adapter, slip × FNPT.** ⚠ FEMALE — both hose adapters above
     are male, and nothing in this repo checks a thread gender.
   - **PVC primer + cement**, small cans.
