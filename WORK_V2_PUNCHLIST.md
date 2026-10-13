@@ -3853,3 +3853,49 @@ owner read it as the part. `bom_consolidated.md` buys clear vinyl; there is no r
 and no green hose. One neutral `HOSE_TINT` for both circuits, which are still told
 apart by name in the viewer's own part list.
 
+---
+
+## 68. OPEN — the plenum cannot be plumbed as drawn: 162 mm of fitting and bend in 125 mm
+
+**Found by the owner looking at build #560:** *"the tubes don't fit into the tees
+properly still"*. Finding 67a moved the hoses' ends from the tees' centres to their
+flats and called the result legal with 1.08 mm to spare. It is not legal, and the
+viewer was showing why: the tip of each barb stood out of the outside of each bend.
+
+67a's sum asked for 50 mm of straight between the corner and the flats, because a 50 mm
+bend needs 50 mm. But the last 20.1 mm of that straight is **vinyl with a rigid barb
+inside it**. The bend cannot begin until the barb ends. Per side, a run along X needs
+
+    half a body 10.9  +  barb 20.1  +  bend 50  =  81 mm
+
+and each tee joins one inner pump leg and one outer, which stand **125 mm** apart. Two
+sides want 162. Three of the four runs are 18–19 mm short and the fourth
+(`green_from_B`) has the length but arrives 44.4° off the barb's axis, which a hose on
+a barb cannot do either. `tools/check_tank_outlet.py` claim 5 measures all four and is
+**red on purpose**.
+
+This is not a fault in the drawing and no value of any constant fixes it: any path that
+leaves a leg heading +Y and reaches a barb heading ±X moves at least one bend radius in
+X on the way. `routes()` picked the tees' x *"so both corners keep >= BEND_R of
+straight"* while the tee was a point with no length.
+
+**Ways out, none chosen** — each changes what gets built:
+
+1. **Turn each tee 90° so its run lies along Y**, on the inner leg's x. The inner hose
+   goes straight in with no bend at all; the outer one makes a U-turn of exactly
+   125/2 = 62.5 mm radius into the far barb. Legal, no new parts. Costs depth: the
+   U-turn's outside reaches about y 340, against 271 today — ~70 mm more overhang in
+   front of a 250 mm shelf. The Uniseal moves from x 73 to x 11 (it is not drilled yet).
+2. **The same, canted about 24° instead of square.** Same parts, about 20 mm less
+   depth (y ~322), both hoses bend a little instead of one bending a lot. Fiddlier to
+   lay out.
+3. **Two more barbed elbows per tee** (1/2" barb x barb, ~$1 each) in place of the two
+   bends. Stays inside today's depth; adds four fittings, eight clamps and their
+   pressure drop on lines whose whole upsizing was about friction.
+4. **Accept a tighter bend than 50 mm on these four runs.** Needs ~31 mm. The BOM's
+   own note says the line closes below ~50, and on the suction side that starves the
+   pump. Listed so it is not rediscovered as a shortcut.
+
+The viewer keeps drawing today's routes until one is chosen, because a model that
+quietly redrew itself legal would be finding 67 again.
+

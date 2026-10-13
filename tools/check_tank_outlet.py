@@ -31,8 +31,8 @@ FIVE CLAIMS, each FAILING rather than warning:
    the one `bom_consolidated.md` has to say out loud.
 4. The stack's reach past the plenum line is what the elbow's own body is, and
    nothing more.
-5. The four plenum runs keep the straight their bends need, MEASURED TO THE
-   FLATS the vinyl actually stops on rather than to a point inside the fitting.
+5. On the four plenum runs the bend begins PAST the tee's barb and the hose
+   arrives along it. !! THIS ONE IS RED, and is meant to be: finding 68.
 
 !! WHAT IT DOES NOT CHECK is the drawing's dimension letters. `tank_outlet`
 says plainly that TE 2088's A and C are matched to the two legs by value and
@@ -66,8 +66,6 @@ MAX_OFF_AXIS      = 0.5       # deg between the hose's first run and the
 DROP_FREE_VINYL   = 87.5      # mm from the barb's tip to the branch's tip
 DROP_TOL          = 1.0
 STACK_REACH_TOL   = 0.1
-MIN_PLENUM_SLACK  = 1.08      # mm of spare straight on the tightest X run
-SLACK_TOL         = 0.5
 
 
 def _twosided(label, got, want, tol, note=""):
@@ -157,11 +155,25 @@ def main():
     print("     moment and nothing else -- src/plumbing.py's own rule for the "
           "plenum.)")
 
-    # ── 5. the plenum runs, measured to the flats ───────────────────────────
-    print("\n  -- 5. the four plenum runs, measured to the tee's flats --")
-    print("    run             last straight   spare over the %.0f mm a bend "
-          "wants" % P.BEND_R)
-    worst = None
+    # ── 5. the plenum runs: is the bend ON the barb? ────────────────────────
+    # !! THE FIRST VERSION OF THIS CLAIM PASSED A HOSE THAT CANNOT EXIST. It
+    # measured the straight from the corner to the tee's flats and asked for
+    # BEND_R of it -- and got 51.1 against 50, "spare +1.08". But the last
+    # 20 mm of that straight is not free vinyl, it is vinyl with a rigid barb
+    # inside it. A bend that starts 1 mm off the flats is a bend with a
+    # straight barb through it, and the viewer drew exactly that: the barb's
+    # tip standing out of the outside of every curve. The owner's words were
+    # "the tubes don't fit into the tees properly", and they do not.
+    #
+    # What a run needs is the barb's own length of DEAD STRAIGHT hose past the
+    # flats before the bend begins, and to arrive along the barb's axis.
+    barb = TEE.TEE_RUN_HALF - TEE.TEE_HEX / 2.0
+    print("\n  -- 5. the four plenum runs: where the bend begins, against "
+          "the barb --")
+    print("    a run barb is %.1f mm long; the hose over it cannot bend, and "
+          "cannot arrive askew" % barb)
+    print("    run             straight past the flats   needs   short by   "
+          "off the barb's axis")
     for name in ("tank_to_A", "tank_to_B", "green_from_A", "green_from_B"):
         pts = routes[name]
         try:
@@ -170,21 +182,25 @@ def main():
             print("    %-15s NO ROUTE: %s" % (name, str(exc)[:70]))
             bad += 1
             continue
-        last = math.dist(pts[-2], pts[-1])
-        spare = last - sb[-2] - sb[-1]
-        print("    %-15s %7.1f mm     %+6.2f" % (name, last, spare))
-        worst = spare if worst is None else min(worst, spare)
-    if worst is not None:
-        bad += _twosided("the tightest run's spare straight, mm", worst,
-                         MIN_PLENUM_SLACK, SLACK_TOL,
-                         "routes() picks the tees' x so every corner keeps "
-                         "BEND_R of straight. Measured to")
-    print("    !! THIS USED TO READ 12 mm AND IT WAS NEVER TRUE. The tees' x "
-          "was picked so each")
-    print("       corner keeps %.0f mm of straight, measured to the tee's "
-          "CENTRE -- a point %.1f mm" % (P.BEND_R, TEE.TEE_HEX / 2.0))
-    print("       inside the fitting that no vinyl ever reaches. On the flats "
-          "the margin is %.2f mm." % (worst if worst is not None else 0.0))
+        free = math.dist(pts[-2], pts[-1]) - sb[-2] - sb[-1]
+        v = [pts[-1][i] - pts[-2][i] for i in range(3)]
+        off = _angle(v, 0)
+        short = barb - free
+        ok = short <= 0.0 and off <= MAX_OFF_AXIS
+        print("    %-15s %10.1f mm          %5.1f   %7.1f     %5.1f deg   %s"
+              % (name, free, barb, max(short, 0.0), off,
+                 "" if ok else "*** DOES NOT FIT ***"))
+        bad += 0 if ok else 1
+    print("    WHY, IN ONE SUM: the pumps' legs stand 125 mm apart and each "
+          "tee joins one inner")
+    print("    and one outer. A run along X needs, per side, half a body "
+          "(%.1f) + a barb (%.1f)" % (TEE.TEE_HEX / 2.0, barb))
+    print("    + a bend (%.0f) = %.0f mm, twice: %.0f. There are 125. It was "
+          "never a drawing fault;" % (P.BEND_R, TEE.TEE_HEX / 2.0 + barb
+                                      + P.BEND_R,
+                                      2 * (TEE.TEE_HEX / 2.0 + barb + P.BEND_R)))
+    print("    the layout was chosen while the tee was a point. "
+          "WORK_V2_PUNCHLIST finding 68, OPEN.")
 
     # ── what finding 16's strainer has to fit in ────────────────────────────
     print("\n  the tank leg, between the two things now drawn at its ends:")

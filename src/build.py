@@ -619,14 +619,20 @@ def main() -> int:
     # is 0.68^4 = 21%, i.e. four fifths hose, which is exactly what "still
     # appears opaque" looks like. Boring it made it LESS see-through, not more.
     # The asserted figure below is the one the eye actually judges.
-    HOSE_ALPHA = 0.13
+    #
+    # 0.13 WAS TRIED AND THE OWNER'S WORD FOR IT WAS "too transparent": 57% of
+    # the background through, judged in the desktop tracer, which until cadkit
+    # was fixed had ignored this number altogether (it saw through a part only
+    # if its material was NAMED "-clear", so every earlier value here was
+    # tuned against a picture that never moved). A third through is a tube you
+    # can see and see past.
+    HOSE_ALPHA = 0.24
     HOSE_WALLS = 4                     # bored tube, seen through
     _see = (1.0 - HOSE_ALPHA) ** HOSE_WALLS
-    assert 0.50 <= _see <= 0.65, (
+    assert 0.28 <= _see <= 0.42, (
         "a sight line through the hose passes %d walls at alpha %.2f and "
-        "leaves %.0f%% of what is behind it. Under half and it reads as "
-        "coloured pipe; over about two thirds and the tube stops having a "
-        "shape. Change the alpha, not this range."
+        "leaves %.0f%% of what is behind it. Under about a quarter it reads "
+        "as pipe; over about a half the owner called it too transparent. Change the alpha, not this range."
         % (HOSE_WALLS, HOSE_ALPHA, 100 * _see))
     # ⚠ SEE-THROUGH IS DECLARED, NOT INFERRED FROM THE NAME. The rule here used
     # to be `0.35 if battery else 0.85 if "_" in nm else 1.0`, and an underscore
