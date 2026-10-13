@@ -56,7 +56,9 @@ def main():
 
     seat = B._battery_seat()
     term = H.terminal_placed()
-    house = H.housing()
+    # the DOCK is what the pack's rails ride in. It was part of H.housing()
+    # until it became its own print; the question has not changed.
+    house = H._dock_placed()
     if term is None:
         print("FAIL  the 643852-2 contact block is not in the model, so the one "
               "feature that fixes the pack's end has nothing to be checked "

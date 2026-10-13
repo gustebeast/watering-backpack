@@ -391,6 +391,7 @@ it nominally covers. All exit non-zero on failure, so any of them works in CI.
 | gate | written because |
 |---|---|
 | overlap | parts that interpenetrate. The whitelist is three entries and each carries its measured volume; three more were dropped once measuring showed they were whitelisting 0.0 mm³ — i.e. standing ready to hide the first real clash |
+| dock joint | the dock was fused into the housing and the 643852-2 contact block went in from behind, through a window the size of the whole connector — so nothing held it in. The dock is a separate print now; this gate moves it and the block and reads what they hit: drop-on and slide must be clear, every direction but back up the slide must be blocked, and the block must have plate behind its flange |
 | battery access | the pack could not be lifted out. It fits in the dock, and that is not the same thing: it needs 93 mm of lift |
 | install/removal | the same question for the lid and the contact block, both of which can fit where they end up and still be impossible to get there |
 | pump mount | the pumps bolted to nothing at all. Checks all 8 holes are open, land in wood, and that the feet still touch the floor |

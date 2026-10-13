@@ -498,12 +498,13 @@ so the frame contains the 206 mm pumps.
 
 ## 7b. Printed parts  *(🎒)*
 
-Two parts, plus two carried over from v1. `py -3.12 -m
+Three parts, plus two carried over from v1. `py -3.12 -m
 src.build` exports them all and prints the sizes against the 255 mm bed.
 
 | part | volume | note |
 |---|---|---|
-| `v2_housing` | 151 cm³ | battery mount + PCB case, one piece — the bay grew 12 mm in Z with the board (F2, the on-board blade fuse) |
+| `v2_housing` | 130 cm³ | the plate, the PCB case on it, and the four tenons the battery dock drops onto — the bay grew 12 mm in Z with the board (F2, the on-board blade fuse) |
+| `v2_battery_dock` | 46 cm³ | the Makita dock, **its own print again** as in v1. Put the 643852-2 contact block into its pocket from behind, then set the dock on the plate 22 mm above its seat and slide it down onto the stops: the plate is then behind the block's flange and it cannot back out. Its blade tails come through a slot in the plate. No screw — it is driven onto its stops every time a battery goes in |
 | `v2_housing_lid` | 66 cm³ | shoebox cover: 28.0 mm skirt on all four bay walls (F2 is the tallest part now, 21.6 mm, and SKIRT_D is derived from it), 2.4 mm (3 beads) throughout, one wood screw (Ø9.3 head, Ø11 access bore) |
 | `joystick_mount` | 7 cm³ | mounts on the shoulder strap. ✅ **ALREADY PRINTED AND ASSEMBLED** — owned as a finished part (owner, 2026-10-05), so neither it nor its five M2 fasteners is anything to buy. It stays in `printed_parts()` because the gates should keep measuring it; ~8.6 g of the filament figure below is already spent. |
 | `dual_clamp_19` | 16 cm³ | hose → pack-frame pole, one M4 |
@@ -526,7 +527,9 @@ to print it and conclude something. git has both. The filament figure below drop
 DESIGN_V2 is "two pumps, no reversing valve" — there is no valve, and nothing in
 v2 is 23 mm across. It was being exported and billed here at 17 cm³ regardless.
 
-- [ ] 🎒 **PCTG filament — ~294 g** for the set (239 cm³ at 1.23 g/cm³), plus waste.
+- [ ] 🎒 **PCTG filament — ~326 g** for the set (265 cm³ at 1.23 g/cm³), plus waste.
+  (It was 294 g while the dock was fused into the housing: the two shared the
+  3.2 mm of plate behind the dock, and as separate parts each has its own.)
   In shade. Tougher than PETG at the stress risers that matter here and Tg ~85 °C.
   **Not PLA** — sustained load near PLA's 60 °C Tg creeps.
   *The battery dock is no longer printed on its own; it is fused into the housing.*

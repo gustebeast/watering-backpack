@@ -9,11 +9,15 @@ ran none of the gates.
 
 WHAT IS PRINTED NOW
 -------------------
-Two parts. The frame is lumber (`src/lumber_frame.py` prints its cut list) and
-the battery dock is fused into the housing rather than printed separately:
+Three parts. The frame is lumber (`src/lumber_frame.py` prints its cut list).
+The battery dock is its own print, as it was in v1: it was fused into the
+housing for a while, and that left nothing behind the Makita contact block to
+hold it in its pocket (see src/battery_dock.py, "HOW THE DOCK GOES ON THE
+PLATE"):
 
-  v2_housing      battery mount + PCB case, one piece
-  v2_housing_lid  the cover over the board
+  v2_housing       the plate, the PCB case, and the dock's four tenons
+  v2_battery_dock  the Makita dock; drops onto the tenons and slides 22 mm down
+  v2_housing_lid   the cover over the board
 
 `joystick_mount` and the two hose clamps carry over from v1 unchanged.
 
@@ -104,6 +108,70 @@ def _swept(solid, direction, travel, steps=20):
     return sweep
 
 
+def _vol(a, b):
+    i = a.intersect(b)
+    return i.val().Volume() if i.val() is not None else 0.0
+
+
+def dock_joint_gate(housing, by_name):
+    """Can the dock be put on, and once on, is it -- and the terminal -- HELD?
+
+    The overlap gate sees one pose, the seated one, and a joint that is seated
+    and unretained looks exactly like one that is seated and locked: 0.00 mm3
+    either way. So every row here moves something and reads what it hits.
+
+    Returns the number of failures.
+    """
+    from . import battery_dock as DK
+    dock, term = by_name["dock"], by_name.get("terminal")
+    T = DK.JOINT_TRAVEL
+    bad = 0
+
+    def row(what, ok, detail):
+        print("  %-44s %s" % (what, detail if ok else "*** %s ***" % detail))
+        return 0 if ok else 1
+
+    movers = [("dock", dock)] + ([("terminal", term)] if term is not None else [])
+    # 1. going on: straight in at the drop-on position, then down onto the stops
+    for nm, solid in movers:
+        worst = max(_vol(solid.translate((-f, 0.0, T)), housing)
+                    for f in (0.0, 2.0, 5.0, 10.0, 20.0))
+        bad += row("%s drops on, %.0f mm above its seat" % (nm, T),
+                   worst <= 0.5, "clear" if worst <= 0.5
+                   else "HITS THE HOUSING, %.1f mm3" % worst)
+        worst = max(_vol(solid.translate((0.0, 0.0, T * k / 11.0)), housing)
+                    for k in range(12))
+        bad += row("%s slides down %.0f mm to seat" % (nm, T),
+                   worst <= 0.5, "clear" if worst <= 0.5
+                   else "BINDS, %.1f mm3" % worst)
+    # 2. once on: every direction but back up the slide
+    for what, d in (("pulled off the plate", (-0.6, 0.0, 0.0)),
+                    ("pushed toward +Y", (0.0, 0.6, 0.0)),
+                    ("pushed toward -Y", (0.0, -0.6, 0.0)),
+                    ("driven past its stops", (0.0, 0.0, -0.6))):
+        v = _vol(dock.translate(d), housing)
+        bad += row("seated dock, %s" % what, v > 1.0,
+                   "held, %.0f mm3 in the way" % v if v > 1.0
+                   else "NOTHING HOLDS IT")
+    v = _vol(dock.translate((0.0, 0.0, 0.6)), housing)
+    print("  %-44s %s" % ("seated dock, lifted back up the slide",
+                          "free (%.1f mm3) -- by design: friction, its own "
+                          "weight, and every battery pushed in" % v))
+    # 3. the thing this whole joint is FOR
+    if term is None:
+        bad += row("terminal", False, "NOT IN THE MODEL, so nothing was checked")
+    else:
+        v = _vol(term.translate((0.5, 0.0, 0.0)), housing)
+        bad += row("terminal pushed back out of its pocket", v > 50.0,
+                   "held by the plate, %.0f mm3" % v if v > 50.0
+                   else "ONLY %.1f mm3 OF PLATE BEHIND IT" % v)
+        v = _vol(term.translate((-0.5, 0.0, 0.0)), dock)
+        bad += row("terminal pushed on through the dock", v > 1.0,
+                   "held by the dock's lips, %.0f mm3" % v if v > 1.0
+                   else "NOTHING HOLDS IT")
+    return bad
+
+
 def battery_sweep():
     """The corridor the pack travels to come OFF the dock, and how far.
 
@@ -151,6 +219,10 @@ PRINT_ORIENTATION.update({
 
 def printed_parts():
     return (("v2_housing", H.housing(), PRINT_ORIENTATION["v2_housing"]),
+            # the dock in its OWN frame, which is the frame it prints in; the
+            # assembly places it through H._dock_placed()
+            ("v2_battery_dock", H.battery_dock,
+             PRINT_ORIENTATION["v2_battery_dock"]),
             ("v2_housing_lid", H.lid(), PRINT_ORIENTATION["v2_housing_lid"]),
             ("joystick_mount", joystick_mount,
              PRINT_ORIENTATION["joystick_mount"]),
@@ -169,13 +241,15 @@ def components():
     """Everything the overlap gate weighs, in one place so the build and
     `tools/check_overlaps.py` cannot disagree about what the design IS."""
     comps = [("housing", H.housing()), ("housing_lid", H.lid()),
+             ("dock", H._dock_placed()),
              ("pcb", H.pcb_solid()), ("wood", L.frame()),
              ("battery", battery_solid()),
              ("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
              ("fittings", F._elbows())]
-    # The Makita contact block, seated in the pocket the housing reopens for it.
-    # A bought part in a printed pocket is exactly the pair worth weighing: the
-    # pocket came from v1 and the back plate that seals it came from v2.
+    # The Makita contact block, seated in the dock's pocket with the housing's
+    # plate behind it. A bought part trapped between two printed ones is
+    # exactly the set worth weighing, and dock_joint_gate() asks the question
+    # this list cannot: whether it is HELD.
     term = H.terminal_placed()
     if term is not None:
         comps.append(("terminal", term))
@@ -226,7 +300,9 @@ def intended(a, b):
     # with its lead tails in them, because pose_board was centring a bounding
     # box that included the tails. Seated properly it touches and does not
     # interpenetrate, so the entry is gone and the gate watches it instead.
-    if pair == {"battery", "housing"}:
+    if pair == {"battery", "dock"}:
+        # (This pair was battery <-> housing while the dock was unioned into
+        # the housing. Same contact, the part it belongs to has its name back.)
         # The pack's RAILS in the dock's T-slot: 262.4 mm3. It read 12528 while
         # the pack was a prism, because a prism has no rails -- the whole 7 mm
         # of engagement was solid block driven into the dock. The number got
@@ -339,7 +415,7 @@ MATERIAL = {
     "plank_deck": "wood", "plank_floor": "wood",
     "post": "wood", "rail_cross": "wood", "rail_side": "wood",
     # printed: the one spool, named where PRINTED_IN_ASSEMBLY is asserted
-    "housing": "pctg", "housing_lid": "pctg",
+    "housing": "pctg", "housing_lid": "pctg", "dock": "pctg",
     # the board: its mask is a hard gloss lacquer, its lettering is not
     "pcb": "board", "pcb_silk": "ink",
     # ⚠ NYLON, NOT BRASS, AND THE BOM SAYS SO IN BOLD. SEAFLO
@@ -670,6 +746,7 @@ def main() -> int:
     # require_declared above has already failed the build if one is missing),
     # and the left must be something the assembly actually places.
     PRINTED_IN_ASSEMBLY = {"housing": "v2_housing",
+                           "dock": "v2_battery_dock",
                            "housing_lid": "v2_housing_lid"}
     _placed = {n for n, _s in comps}
     for _asm_name, _print_name in PRINTED_IN_ASSEMBLY.items():
@@ -731,7 +808,7 @@ def main() -> int:
     travel, sweep = battery_sweep()
     by_name = dict(comps)
     blocked = 0
-    for nm in ("wood", "housing"):
+    for nm in ("wood", "housing", "dock"):
         i = sweep.intersect(by_name[nm])
         v = i.val().Volume() if i.val() is not None else 0.0
         blocked += 0 if v <= 1.0 else 1
@@ -744,16 +821,16 @@ def main() -> int:
                          "*** BLOCKS THE PACK, %.0f mm3 ***" % v))
     print("  the pack needs %.0f mm of lift to clear its rails" % travel)
 
-    # Same question for the two parts that go in and out along X. The lid is
-    # retained by a tab that reaches 28.5 mm inboard to the wood screw, and the
-    # contact block seats behind flange lips -- both are shapes that can fit
-    # where they end up and still be impossible to get there.
+    # Same question for the lid, which goes on and off along X and is retained
+    # by a tab that reaches 28.5 mm inboard to the wood screw: a shape that can
+    # fit where it ends up and still be impossible to get there. (The contact
+    # block was the other row here, "enters from the rear". It does not enter
+    # from the rear any more -- it goes on WITH the dock -- and what it used to
+    # be asked is now a small part of dock_joint_gate.)
     print("\n=== install/removal gate ===")
     housing_solid = by_name["housing"]
     for nm, solid, direction, travel_mm, what in (
-            ("lid", H.lid(), (-1.0, 0.0, 0.0), 60.0, "lifts off outboard"),
-            ("terminal", H.terminal_placed(), (1.0, 0.0, 0.0), 40.0,
-             "enters from the rear")):
+            ("lid", H.lid(), (-1.0, 0.0, 0.0), 60.0, "lifts off outboard"),):
         if solid is None:
             continue
         seated = housing_solid.intersect(solid)
@@ -768,6 +845,9 @@ def main() -> int:
               % (nm, what, travel_mm,
                  "clear" if extra <= 1.0 else
                  "*** BLOCKED, %.0f mm3 beyond seated ***" % extra))
+
+    print("\n=== dock joint gate ===")
+    blocked += dock_joint_gate(housing_solid, by_name)
 
     # The pumps are the heaviest moving thing on the pack and they hang off
     # eight M4s. Until the floor went in they bolted to nothing at all, so the

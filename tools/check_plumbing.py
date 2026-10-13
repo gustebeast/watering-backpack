@@ -123,6 +123,7 @@ INTENDED = {
 def parts():
     return [("pump_a", F._pump_placed(-1)), ("pump_b", F._pump_placed(+1)),
             ("wood", L.frame()), ("housing", H.housing()),
+            ("dock", H._dock_placed()),
             ("housing_lid", H.lid()), ("pcb", H.pcb_solid()),
             ("elbows", F._elbows()), ("tank", L.tank()),
             ("shelf", P.shelf()), ("pack_frame", P.pack_frame())]

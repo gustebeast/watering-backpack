@@ -3907,3 +3907,53 @@ of them moves. **What to look for with the hoses on:** a flattened or whitened c
 on the inside of a bend within ~30 mm of a tee, most of all on the two suction runs
 (`tank_to_A`, `green_from_B`). If they kink, the four ways out above still stand.
 
+---
+
+## 69. The Makita terminal had nothing behind it, and the dock is its own print again
+
+**Asked for by the owner:** *"It's time to build the retention for the makita terminal
+like we had with the v1 ... make the battery block print separately and mortise and
+tenon into the rest of the plate."*
+
+v1 held the 643852-2 contact block by trimming the dock's back off at the plane of the
+block's flange and mounting the dock flat on the housing wall: the dock's lips stopped
+the block going forward, the wall stopped it going back. v2 unioned the dock into the
+housing, found the block could no longer be put in, and cut the connector's whole plan
+back out through the plate (`_terminal_window`). That solved insertion and deleted
+retention in the same line. The install gate even recorded it as a pass: *"terminal
+enters from the rear over 40 mm: clear"* — it could leave the same way.
+
+**What is built now** (`src/battery_dock.py`, "HOW THE DOCK GOES ON THE PLATE"):
+
+- `v2_battery_dock` is a printed part. It sits ON the plate's outboard face; the plate
+  behind the block's flange is solid except for one 16 x 36 mm slot.
+- The joint is `cadkit.joinery`'s octagon (both halves build off the mating plane), four
+  tenons on the plate, four mortises in two 5.8 mm ears on the dock — a third the width
+  of v1's ears, which is what lets them fit the housing's Y budget at all.
+- **It drops on and slides 22 mm, where v1 slid 76.** The block's blade tails stand 7 mm
+  behind its flange and have to travel with the dock, so the plate needs a slot as long
+  as the slide. At 76 mm that slot runs out past the top of the dock; at 22 it stays
+  entirely under the flange, so the flange bears on plate all the way round.
+- Clearance is the library's `loose` fit, 0.30 a side — the figure v1 reached by
+  printing this joint (`DOVETAIL_CLR`).
+
+**What it cost.** The dock is 83.6 mm across instead of 72. The first layout let that
+slide the PCB bay 3.9 mm toward +Y and `src/wiring.py` stopped the build: J2's lead no
+longer came down inside the wire slot. The bay is now laid out on the dock's 72 mm body
+and does not move; the dock sits 0.8 mm further toward -Y and 3.2 mm further outboard
+(it is on the plate now, not in it). 32 g more filament, because dock and housing each
+have their own 3.2 mm behind the dock where they used to share one.
+
+**The gate** (`dock_joint_gate` in `src/build.py`) moves things and reads what they hit,
+because seated-and-unretained and seated-and-locked both measure 0.00 mm3. Made to fail
+three ways: a slot narrower than the tails (binds, 41 mm3), no tenons (nothing holds the
+dock, four rows), and the old full window (0.0 mm3 of plate behind the block).
+
+**Not solved, and said so on the gate's own line:** nothing but friction and the dock's
+weight stops it sliding back UP its 22 mm. v1 was the same. Every battery pushed in
+drives it down onto its stops; a battery pulled out drags it the other way. If it walks,
+the fix is one screw through the dock's bottom block.
+
+**Finding 56 moved, and is still open:** the pack is 3.2 mm further outboard and 0.8
+toward -Y, and the deck notch now blocks 23 mm3 of its lift-out path instead of 161.
+

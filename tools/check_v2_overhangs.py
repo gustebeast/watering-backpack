@@ -77,6 +77,18 @@ ACCEPTED = {
             "acceptably, and this bore is a grip surface, not a fit. The "
             "remaining 3.8 mm2 is the two teardrop DULL TIPS, which "
             "cadkit/holes.py states bridge without deforming by design."),
+    "v2_battery_dock": dict(
+        mm2=149.0, faces=6,
+        why="the roofs of the joint's cavities, which open on the bed face. "
+            "Four are cadkit.joinery's own: the octagon mortise is capped by a "
+            "flat one bead wide (plus its clearance) and the README calls that "
+            "roof 'the ONE intentionally-minimal segment: it is the bridge' -- "
+            "16 mm2 each, 0.8 mm across. The other two are the drop-on pockets "
+            "the upper tenons enter through, 42 mm2 each: they were boxes with "
+            "a flat 5.8 mm ceiling (136 mm2 each) and were re-cut to follow the "
+            "tenon's 45 deg shoulders, which leaves a strip 1.8 mm across. All "
+            "six are bridges under 2 mm wide, anchored on both sides for their "
+            "whole length."),
     "dual_clamp_19": dict(
         mm2=377.0, faces=4,
         why="the 19 mm hose bore's crown (366 mm2), same reason: its teardrop "

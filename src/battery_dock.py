@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import cadquery as cq
 
+from cadkit.joinery import PrintSpec, joint
+from cadkit.orientation import JointSite, PrintOrientation as PO
+
 from .dimensions import (BOOL_OVERSHOOT, TERMINAL_PLACE, DOCK_BACK_TRIM,
 )
 
@@ -505,12 +508,9 @@ _slot = _plate
 #          .cut(_stem_cutter())
 _slot = _chamfer_slot(_slot)            # no-op while the battery slot is off
 
-# The dovetail ears and mortise grooves lived here. They existed to mate with
-# src/backpack_housing.py's tenon rails, and that model is deleted: v2 unions the
-# dock into the one printed housing, so there is no joint to cut. They were
-# already unreachable -- `battery_dock = dock()` takes joinery=False and nothing
-# ever passed True -- and the ONLY reason they were kept behind a flag was that
-# the v1 model still built the matching tenons. It no longer exists to mismatch.
+# v1's dovetail ears and mortise grooves lived here, mating with rails on a
+# housing that is deleted. The joint that replaced them is further down, beside
+# dock(): "HOW THE DOCK GOES ON THE PLATE".
 
 TERM_CLR = 0.2     # install clearance per face around the connector (X-Y)
 
@@ -550,11 +550,9 @@ def _terminal_t_cutter() -> cq.Workplane:
     return nub.union(crossbar).union(stem)
 
 
-# Shared with src/housing.py, which has to cut the SAME opening through the v2
-# housing's back plate: the plate lands on the dock's mounting face and re-seals
-# the pocket this cuts, so the housing re-cuts it with this exact cutter rather
-# than a second set of numbers.
-terminal_cutter = _terminal_t_cutter
+# src/housing.py used to re-cut this whole opening through its back plate, so
+# the terminal could be put in from behind. It does not any more: the plate is
+# what holds the terminal in, and only tail_slot_cutter() goes through it.
 
 
 # Connector (643852-2) geometry referenced by the chamfers so they track the
@@ -571,6 +569,21 @@ CONN_NUB_PLUS_X       = 5.40    # nub +x edge
 CONN_NUB_MINUS_X      = -9.60   # nub −x edge
 CONN_NUB_TOP_DZ       = 1.80    # nub flange-lip top above TERMINAL_PLACE z
                                 # (the nub tab is ~0.1 lower than the body flange)
+
+
+def _check_tail_slot_is_under_the_flange():
+    """The plate holds the terminal by its flange. A slot that reaches the
+    flange's edge anywhere is a slot the terminal can lean out of."""
+    crossbar_front = 23.63                          # see _terminal_t_cutter
+    assert TAIL_SLOT_HALF_X + 2.0 <= CONN_STEM_HALF_X, (
+        "the tail slot is %.1f mm a side and the flange's stem is only %.1f"
+        % (TAIL_SLOT_HALF_X, CONN_STEM_HALF_X))
+    assert TAIL_SLOT_Y1 + 2.0 <= CONN_STEM_END_Y, (
+        "the tail slot runs to y %.2f; the flange ends at %.2f"
+        % (TAIL_SLOT_Y1, CONN_STEM_END_Y))
+    assert TAIL_SLOT_Y0 - 2.0 >= crossbar_front, (
+        "the tail slot starts at y %.2f, ahead of the flange at %.2f -- "
+        "shorten JOINT_TRAVEL" % (TAIL_SLOT_Y0, crossbar_front))
 
 
 def _plus_x_lips() -> cq.Workplane:
@@ -720,24 +733,190 @@ def _dock_back_trim() -> cq.Workplane:
             .translate((0, PLATE_Y / 2, -10)))
 
 
-# ── THE DOVETAIL JOINERY IS v1-ONLY ────────────────────────────────────────
-# In v1 the dock was a separate print that slid onto two dovetail rails on the
-# housing's outer wall. The ears exist only to host those mortises: they grow
-# the dock 14.3 mm wider on EACH side (x +-36 -> +-50.3) purely so the grooves
-# sit outboard of the battery rails and the contact block.
+# ── HOW THE DOCK GOES ON THE PLATE, AND WHAT HOLDS THE TERMINAL IN ─────────
+# v1 had this right and v2 lost it. In v1 the dock was its own print, trimmed
+# off at the plane of the connector's flange back (DOCK_BACK_TRIM), and slid
+# onto two rails on the housing wall -- so the WALL was the thing behind the
+# flange, and the 643852-2 could not back out of its pocket. v2 unioned the dock
+# into the housing and then had to cut the connector's whole plan back through
+# the plate so the terminal could be put in at all, which left nothing behind
+# it: a contact block held in one direction by four lips and in the other by
+# two soldered wires.
 #
-# v2 does not slide the dock onto anything. src/housing.py unions the dock into
-# the one printed housing, so there is no joint, and the ears are 28.6 mm of
-# plan width carrying nothing. That width is not free: the housing's Y budget
-# is the frame's 210 mm (see housing.py "WHY THE TWO BAYS SIT WHERE THEY DO"),
-# and the ears were spending an eighth of it on a joint that was deleted.
+# So the dock is separate again, sits ON the plate's outboard face, and the
+# plate is solid behind the flange. What is different from v1 is the joint:
 #
-# They were kept behind a flag for exactly one reason -- src/backpack_housing, the
-# v1 model, still built the matching tenons, and a dock whose mortises silently
-# vanished would have printed a housing it could not go on. That model is now
-# deleted, so the flag guards nothing and the ears and grooves are gone with it.
+# * IT IS cadkit.joinery's, NOT A HAND-DRAWN DOVETAIL. v1's arrowhead lived in
+#   this project's helpers; the library's octagon is the same idea with the
+#   print findings behind it (both halves build off the mating plane, so
+#   `up + up`), and AGENTS.md says not to reinvent it.
+#
+# * IT DROPS ON AND SLIDES 22 mm, NOT 76. This is the part v1 did not solve.
+#   The terminal's blade tails stand 7.0 mm behind its flange, the terminal
+#   has to be IN the dock before the dock goes on (afterwards the plate is in
+#   the way -- that is the point), and so the tails travel with the dock
+#   through whatever is cut in the plate for them. A full-length rail means a
+#   full-length slot: 76 mm of it, running out past the top of the dock. Two
+#   short tenons a side instead, each with a pocket to drop into, make the
+#   whole travel JOINT_TRAVEL -- and the slot that travel needs stays entirely
+#   under the connector's own flange, so the flange still bears on plate all
+#   the way round it.
+#
+# * THE EARS ARE BACK, AND A THIRD OF THE SIZE. The mortises need somewhere to
+#   be that is not the battery's rail channel, which is why v1 grew ears. They
+#   were 14.3 mm a side and src/housing.py's Y budget could not carry that
+#   (it is why they were deleted). These are sized from the joint and nothing
+#   else, and housing.py measures DOCK_W off this solid, so the layout absorbs
+#   them without a number being typed twice.
+#
+# THE DIRECTION IS v1's AND FOR v1's REASON: the dock slides DOWN to seat, the
+# same way the pack slides into the dock, so pushing a battery in drives the
+# joint onto its stops. Pulling one out works against friction and the dock's
+# own weight only -- as it did in v1, which had no screw either.
+NOZZLE        = 0.8
+JOINT_W       = 6 * NOZZLE          # 4.8 flat-to-flat
+JOINT_L       = 20.0                # each tenon's engagement
+JOINT_TRAVEL  = JOINT_L + 2.0       # drop-on position to seated
+# "loose" is the library's 2x clearance, 0.30 a side for PCTG -- which is the
+# figure v1 arrived at by printing this exact joint (DOVETAIL_CLR, "looser ...
+# this is a long engagement on big wall surfaces, so it needs the extra room
+# to slide without binding"). Four tenons that all have to enter at once are
+# that case again.
+JOINT_FIT     = "loose"
+# Dock y of each mortise's CLOSED end -- the stop its tenon runs up against.
+# The lower one's open end is the dock's own bottom edge, so its tenon needs
+# no pocket: at the drop-on position it is simply below the dock.
+JOINT_STOPS   = (14.0, PLATE_Y - JOINT_L)
+EAR_STOP_WALL = 6 * NOZZLE          # ear left above the upper stop to push on
+
+# Both halves build straight off the mating plane. The dock prints on its flat
+# back, as it always has; the plate it mounts on is the housing's own bed face
+# (src/housing.py asserts that against the housing's PrintOrientation, in the
+# frame the housing is modelled in -- this one is the dock's).
+DOCK_ORIENTATION = PO(None, "on its flat back, the face that goes against the "
+                            "plate, growing toward the battery: every overhang "
+                            "in it was made a 45 deg ramp for this build in v1")
+_PLATE_BUILDS    = PO(None, "the plate under the dock is the housing's bed face")
+# In the DOCK's frame: the dock travels +Y to go on, and the mating plane's
+# normal -- out of the plate, into the dock -- is +Z.
+JOINT_SITE = JointSite(install_dir=(0, 1, 0), normal=(0, 0, 1))
+
+
+def dock_joint():
+    """The one joint, built once, that both halves are cut and grown from."""
+    spec = dict(nozzle=NOZZLE, material="PCTG")
+    return joint(width=JOINT_W, length=JOINT_L,
+                 tenon=PrintSpec.at(JOINT_SITE, _PLATE_BUILDS, **spec),
+                 mortise=PrintSpec.at(JOINT_SITE, DOCK_ORIENTATION, **spec),
+                 install="+x", fit=JOINT_FIT)
+
+
+_J = dock_joint()
+_CAV = _J.mortise(drop=1.0).val().BoundingBox()
+JOINT_CAV_HALF = _CAV.ymax                      # the cavity's half-width
+JOINT_CAV_TOP  = _CAV.zmax                      # ...and height off the plate
+POCKET_HALF    = JOINT_CAV_HALF + 0.2           # the drop-on pocket is easier
+POCKET_TOP     = JOINT_CAV_TOP + 0.3
+POCKET_ROOF    = NOZZLE + 2 * (JOINT_CAV_HALF - JOINT_W / 2.0) + 0.4   # 1.8
+# The pocket sits two beads IN under the dock's own 4 mm rim wall (x 32..36),
+# which leaves three beads of that wall between it and the battery's cavity,
+# and gets two beads of ear outboard. Tucking it under the rim is what makes
+# the ears fit at all: flush with the rim's outer face they left 0.24 mm
+# between the -Y ear and the edge of the housing's plate.
+JOINT_TUCK = 2 * NOZZLE
+assert POCKET_WALL_X - JOINT_TUCK >= 3 * NOZZLE - 1e-9, "under three beads of rim left"
+JOINT_X   = PLATE_X / 2 - JOINT_TUCK + POCKET_HALF   # each joint's centreline, +-
+EAR_X_OUT = JOINT_X + POCKET_HALF + 2 * NOZZLE
+EAR_Z1    = DOCK_BACK_TRIM + POCKET_TOP + 2 * NOZZLE
+EAR_Y0    = JOINT_STOPS[0] - EAR_STOP_WALL
+
+
+def _on_joint_line(solid, side, stop):
+    """A library solid (prism along local +X, mating plane z=0) put on one of
+    the four joint sites. Local +X is the way the TENON travels relative to the
+    mortise, which is dock -Y; so the closed end x=L lands on `stop`."""
+    return (solid.rotate((0, 0, 0), (0, 0, 1), -90)
+            .translate((side * JOINT_X, stop + JOINT_L, DOCK_BACK_TRIM)))
+
+
+def _ears() -> cq.Workplane:
+    """The two strips that host the mortises, outboard of the battery's rails."""
+    ear = (cq.Workplane("XY").workplane(offset=DOCK_BACK_TRIM - 1.0)
+           .box(EAR_X_OUT - (PLATE_X / 2 - 1.0), PLATE_Y - EAR_Y0,
+                EAR_Z1 - DOCK_BACK_TRIM + 1.0, centered=(False, False, False))
+           .translate((PLATE_X / 2 - 1.0, EAR_Y0, 0.0)))
+    return ear.union(ear.mirror("YZ"))
+
+
+def _mortises() -> cq.Workplane:
+    """Four cavities, and the two pockets the upper tenons drop into."""
+    cut = None
+    for side in (+1, -1):
+        for stop in JOINT_STOPS:
+            m = _on_joint_line(_J.mortise(drop=1.0), side, stop)
+            # run the OPEN end on a little, so it breaks cleanly into the
+            # pocket or out of the dock's bottom edge; the stop does not move
+            m = m.union(m.translate((0.0, 1.0, 0.0)))
+            cut = m if cut is None else cut.union(m)
+        y0 = JOINT_STOPS[0] + JOINT_L - 0.5
+        y1 = JOINT_STOPS[0] + JOINT_L + JOINT_TRAVEL + 1.0
+        # NOT A BOX. A box this wide has a flat 5.8 mm ceiling 23 mm long, on
+        # a part that prints with that ceiling facing the bed: 136 mm2 of
+        # bridge a side, and the overhang gate said so. The tenon that passes
+        # under it is an octagon -- 45 deg shoulders up to a one-bead roof --
+        # so the pocket's ceiling follows it, and what is left flat is a strip
+        # POCKET_ROOF wide, the same kind of bridge the mortise's own roof is.
+        cx, zb, zt = side * JOINT_X, DOCK_BACK_TRIM - 1.0, DOCK_BACK_TRIM + POCKET_TOP
+        zs = zt - (POCKET_HALF - POCKET_ROOF / 2.0)
+        pocket = _xz_prism([(cx - POCKET_HALF, zb), (cx + POCKET_HALF, zb),
+                            (cx + POCKET_HALF, zs), (cx + POCKET_ROOF / 2.0, zt),
+                            (cx - POCKET_ROOF / 2.0, zt), (cx - POCKET_HALF, zs)],
+                           y0, y1)
+        cut = cut.union(pocket)
+    return cut
+
+
+assert (JOINT_STOPS[0] + JOINT_L + JOINT_TRAVEL + 1.0 + 4 * NOZZLE
+        <= JOINT_STOPS[1]), (
+    "the upper tenon's drop-on pocket runs into the lower mortise: the ear "
+    "between them is what the lower tenon stops against")
+
+
+def plate_tenons() -> cq.Workplane:
+    """The four tenons, IN THE DOCK'S FRAME, for src/housing.py to grow on its
+    plate through the same transform that places the dock. They are drawn here
+    so that the two halves of the joint come from one object."""
+    out = None
+    for side in (+1, -1):
+        for stop in JOINT_STOPS:
+            t = _on_joint_line(_J.tenon(root=1.0), side, stop)
+            out = t if out is None else out.union(t)
+    return out
+
+
+# ── THE SLOT THE TERMINAL'S TAILS TRAVEL IN ────────────────────────────────
+# Measured off the 643852-2 as seated (the part behind its flange-back plane):
+# one blade slab at x +-1.00, y 58.33..69.33, standing 7.0 mm proud; and two
+# 0.5 mm pips at x +-3.16..4.84. Nothing else of it is behind the flange.
+TAIL_Y0, TAIL_Y1 = 58.33, 69.33
+TAIL_SLOT_HALF_X = 8.0      # the pips, and room to get a spade connector on
+TAIL_SLOT_MARGIN = 1.5
+TAIL_SLOT_Y0 = TAIL_Y0 - JOINT_TRAVEL - TAIL_SLOT_MARGIN
+TAIL_SLOT_Y1 = TAIL_Y1 + TAIL_SLOT_MARGIN
+
+
+def tail_slot_cutter() -> cq.Workplane:
+    """What src/housing.py cuts through its plate, in the dock's frame: the
+    tails' footprint, run back along the slide by the joint's whole travel."""
+    return (cq.Workplane("XY").workplane(offset=DOCK_BACK_TRIM - 30.0)
+            .box(2 * TAIL_SLOT_HALF_X, TAIL_SLOT_Y1 - TAIL_SLOT_Y0,
+                 30.0 + BOOL_OVERSHOOT, centered=(True, False, False))
+            .translate((0.0, TAIL_SLOT_Y0, 0.0)))
+
+
 def dock() -> cq.Workplane:
-    """The dock, as v2 builds it: no joinery, because there is no joint."""
+    """The dock: its own print, with the four mortises that take it onto the
+    housing's plate (see the note above)."""
     d = (_slot
          .cut(_lightening_cutter())
          .cut(_front_pocket_cutter())
@@ -752,11 +931,14 @@ def dock() -> cq.Workplane:
          .union(_plus_x_lips().mirror("YZ"))  # sides 4 + 5 + 6 (mirror: inner 4/5, outer 5/6)
          .union(_stem_end_lip())            # side 7 (stem end; inner 6/7 & 7/8)
          .union(_nub_lips())                # sides 1 + 2 + 12 (front nub; outer corners)
-         .union(_ribs))
+         .union(_ribs)
+         .union(_ears())                    # the strips that host the joint
+         .cut(_mortises()))                 # four cavities + two drop-on pockets
     return (d.cut(_front_side_relief(+1))   # battery front-shoulder clearance
              .cut(_front_side_relief(-1))   # (after ears, so it clips them too)
              .cut(_catch_top_relief())      # clear battery above the catch
              .cut(_dock_back_trim()))       # flange back -> dock mounting face
 
 
+_check_tail_slot_is_under_the_flange()
 battery_dock = dock()

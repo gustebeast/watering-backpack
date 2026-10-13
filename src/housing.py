@@ -1,8 +1,18 @@
-"""The one printed part: battery mount + PCB case, plus a lid.
+"""The printed housing: a plate with the PCB case on it and the battery dock's
+seat beside it, plus a lid. The dock itself is src/battery_dock.py's part.
 
 Everything else is lumber or bought. This bolts to the outer face of the
 frame's two -X posts and carries the Makita dock and the main board side by
 side along Y.
+
+THE DOCK IS A SEPARATE PRINT AGAIN, as it was in v1, and for v1's reason: the
+643852-2 contact block goes into the dock from BEHIND, so something has to be
+behind it afterwards. For a while v2 unioned the dock into this part and cut
+the connector's whole plan back out of the plate so the block could be put in
+-- which left nothing holding it there. Now the dock drops onto four tenons on
+this plate and slides 22 mm down onto their stops, and the plate is solid
+behind the block's flange except for the slot its blade tails travel in. See
+"HOW THE DOCK GOES ON THE PLATE" in src/battery_dock.py for the joint.
 
 WHY THE TWO BAYS SIT WHERE THEY DO
 ----------------------------------
@@ -22,11 +32,12 @@ and elec/main.py asserts the same arithmetic from the other end so the two
 cannot drift.
 
 28.6 of that 100.6 was never the dock. It was the pair of side EARS that hosted
-v1's dovetail mortises, and v2 unions the dock into this part instead of
-sliding it on, so the joint they served does not exist. The ears, the mortises and
-the `joinery` flag that guarded them are all deleted from src/battery_dock.py now,
-along with the v1 housing that carried the tenons. With them gone the dock is 72
-across. The dock did not
+v1's dovetail mortises. They came off when v2 unioned the dock in, and they are
+back now that it is a separate print -- but at 5.8 mm a side, sized from
+cadkit.joinery's joint rather than from a hand-drawn arrowhead, so the dock is
+83.6 across and not 100.6. (The table below is the 72 mm layout it was written
+for; see "AND THEN THE DOCK GREW EARS AGAIN" below for where the 11.6 went.)
+The dock did not
 MOVE — it is anchored on its centreline at y=53.3, the seat the battery, the
 contact block and the deck notch were all validated against — so the 28.6 came
 out as air on both sides of it, and the bay could then be laid out from the
@@ -76,10 +87,10 @@ bands above and below them, where the heads sit in open air. The posts are
 PRINTING
 --------
 The whole thing stands on its back face — the one that goes against the wood —
-and builds outboard in -X. That is the same orientation v1 printed the dock in,
-which is why the dock's T-slot still prints: its overhangs were already made
-45 deg ramps for exactly this build. The PCB bay's walls and bosses rise from
-the same plane, and the flanges ARE that plane. Nothing is cantilevered.
+and builds outboard in -X. The PCB bay's walls and bosses rise from that plane,
+the flanges ARE that plane, and the dock's four tenons lie along it with 45 deg
+flanks. Nothing is cantilevered. The dock prints the same way up, on its own
+flat back, which is what makes the joint between them `up + up`.
 
 The lid is separate because an integral cover would roof the cavity — the same
 reason the old printed shroud's cover had to be its own part.
@@ -99,7 +110,9 @@ from cadkit.fasteners import M4, ScrewJoint
 
 from . import lumber_frame as L
 from . import pump_frame as F
-from .battery_dock import battery_dock, terminal_cutter
+from cadkit.orientation import JointSite, facing_for
+from . import battery_dock as DOCK
+from .battery_dock import battery_dock
 from . import silk_face as SF
 from . import board_parts as BP
 from .dimensions import BOOL_OVERSHOOT
@@ -230,24 +243,42 @@ BOARD_Y_MINUS = -_BBB.xmin                            # 47.50 — toward world +
 # caught at 3 mm3. Centreline anchoring is what makes a seat move cleanly. The
 # seat itself was validated in v1 and v2 at 53.3 and is now 46.03; what
 # re-validates it is tools/check_overlaps.py, not this comment.
+#
+# ⚠ AND THEN THE DOCK GREW EARS AGAIN, AND THE RULE ABOVE MOVED THE BOARD. The
+# thirds were taken on DOCK_W, so 11.6 mm of joint (two 5.8 mm ears) took 3.9
+# out of each gap and slid the whole PCB bay toward +Y by as much -- far enough
+# that J2's lead no longer came down inside the wire slot, which cannot follow
+# because the post is in the way. src/wiring.py's assert caught it.
+#
+# The ears are joint, not dock: they do not move the battery, the terminal or
+# the notch, and they have no business moving the board. So the thirds are
+# taken on the dock's BODY, which puts the bay exactly where it was, and the
+# dock is then seated against the BAY side of its space -- one bead more than
+# the lid's skirt needs -- with whatever is left over on the plate's -Y edge.
+# That makes the gaps unequal again, on purpose this time, and each one has an
+# owner: the +Y one is the skirt's, the middle one is the skirt's, and the -Y
+# one is the remainder.
 BAY_W = (BOARD_Y_PLUS + BOARD_Y_MINUS) + 2 * PCB_CLR + 2 * WALL
-EDGE_GAP = (L.FRAME_D - BAY_W - DOCK_W) / 3.0
+DOCK_BODY_W = DOCK.PLATE_X                # 72 -- the dock without its ears
+EDGE_GAP = (L.FRAME_D - BAY_W - DOCK_BODY_W) / 3.0
 SKIRT_GAP = EDGE_GAP                      # air outboard of the +Y wall
 Y_PCB1  = L.FRAME_D - SKIRT_GAP - WALL
-DOCK_Y_C = EDGE_GAP + DOCK_W / 2.0        # was 53.3, a v1-validated seat
-Y_DOCK0 = DOCK_Y_C - DOCK_W / 2.0
-Y_DOCK1 = DOCK_Y_C + DOCK_W / 2.0
-
+DOCK_BAY_GAP = SKIRT_CLR + SKIRT_T + BEAD # the -Y skirt, and a bead of air
 PCB_Y_C = Y_PCB1 - PCB_CLR - BOARD_Y_MINUS
 Y_PCB0  = PCB_Y_C - BOARD_Y_PLUS - PCB_CLR
+Y_DOCK1 = (Y_PCB0 - WALL) - DOCK_BAY_GAP
+Y_DOCK0 = Y_DOCK1 - DOCK_W
+DOCK_Y_C = (Y_DOCK0 + Y_DOCK1) / 2.0      # 45.24; was 46.03 on the 72 mm dock
 Y_OUTER = Y_PCB1 + WALL                               # the bay's +Y face
 # The three gaps, measured off the geometry rather than off the arithmetic that
 # produced it: plate edge to bay, bay to dock, dock to plate edge.
 _GAPS = (L.FRAME_D - Y_OUTER, (Y_PCB0 - WALL) - Y_DOCK1, Y_DOCK0)
-assert max(_GAPS) - min(_GAPS) < 1e-6, (
-    "the three plate gaps are %.3f / %.3f / %.3f and are meant to be equal"
-    % _GAPS)
-assert min(_GAPS) > 0, "a plate gap closed: %.3f / %.3f / %.3f" % _GAPS
+assert abs(_GAPS[0] - EDGE_GAP) < 1e-6 and abs(_GAPS[1] - DOCK_BAY_GAP) < 1e-6, (
+    "the plate gaps are %.3f / %.3f / %.3f; the first is meant to be the "
+    "body-width third and the second the skirt's" % _GAPS)
+assert _GAPS[2] >= BEAD, (
+    "the dock's -Y ear is %.2f mm from the plate's edge: the ears no longer "
+    "fit beside the bay" % _GAPS[2])
 assert Y_OUTER + SKIRT_CLR + SKIRT_T <= L.FRAME_D, (
     "the +Y skirt runs %.1f past the frame's %.1f"
     % (Y_OUTER + SKIRT_CLR + SKIRT_T, L.FRAME_D))
@@ -773,7 +804,11 @@ def _dock_to_world(wp: cq.Workplane) -> cq.Workplane:
     w = (wp.rotate((0, 0, 0), (0, 1, 0), -90)
            .rotate((0, 0, 0), (1, 0, 0), -90))
     bb = _dock_oriented().val().BoundingBox()
-    return w.translate((BACK_X - bb.xmax,
+    # ON the plate's outboard face, not flush with its back. While the dock
+    # was unioned into the housing its mounting face sat at BACK_X and the two
+    # simply shared 3.2 mm of plastic; as a separate part that is 2400 mm3 of
+    # two things in one place.
+    return w.translate((FLOOR_X - bb.xmax,
                         DOCK_Y_C - (bb.ymin + bb.ylen / 2.0),
                         PCB_Z_C - (bb.zmin + bb.zlen / 2.0)))
 
@@ -783,27 +818,31 @@ def _dock_placed() -> cq.Workplane:
     return _dock_to_world(_dock_oriented_raw())
 
 
-def _terminal_window() -> cq.Workplane:
-    """The 643852-2 opening, re-cut through the housing's BACK PLATE.
+def _dock_tenons() -> cq.Workplane:
+    """The four tenons the dock drops onto, grown out of the plate.
 
-    v1's dock already carries this pocket -- the lowercase-'t' plan of the
-    connector, with its flange lips -- and the v2 housing unions that whole dock
-    in. But the housing's own 3 mm back plate lands on the dock's mounting face
-    and seals the pocket shut, so in v2 the terminal had nowhere to go in from.
-    The connector is inserted from the REAR, against the wood, and its spade
-    tabs and soldered leads have to come out on that side.
-
-    Cut with battery_dock's OWN cutter through the shared dock transform, so it
-    cannot drift from the pocket it is reopening. Everything that locates the
-    connector -- the flange lips, the 0.2 mm install clearance, the mitred
-    45 degree seats -- stays exactly as v1 measured it.
+    Drawn by src/battery_dock.py in the DOCK's frame and brought here through
+    the transform that places the dock, so the two halves of the joint are one
+    object seen twice and cannot be laid out separately.
     """
-    return _dock_to_world(terminal_cutter())
+    return _dock_to_world(DOCK.plate_tenons())
+
+
+def _tail_slot() -> cq.Workplane:
+    """The ONE opening in the plate behind the dock: where the 643852-2's blade
+    tails stand through it, run back along the slide by the joint's travel.
+
+    This replaces _terminal_window(), which cut the connector's whole plan
+    through the plate so the block could be inserted from the wood side -- and
+    in doing so removed the only thing that could have held it in. Everything
+    of the plate outside this slot is behind the connector's flange now.
+    """
+    return _dock_to_world(DOCK.tail_slot_cutter())
 
 
 def terminal_placed():
-    """The 643852-2 contact block, seated in the pocket _terminal_window()
-    reopens. Same seat v1 validated (TERMINAL_PLACE/ROT in the dock frame, via
+    """The 643852-2 contact block, seated in the dock's pocket with the plate
+    behind it. Same seat v1 validated (TERMINAL_PLACE/ROT in the dock frame, via
     the shared place_terminal helper), carried over by the shared dock
     transform. Returns None if the reference STEP is absent.
 
@@ -1047,10 +1086,10 @@ def housing() -> cq.Workplane:
                     BAY_Z0 - BOOL_OVERSHOOT, BAY_Z0 + WALL + BOOL_OVERSHOOT))
     # ...and the battery leads' way through the plate, under that same chase
     h = h.cut(_wire_slot())
-    h = h.union(_dock_placed())
-    # ...and reopen the connector pocket the back plate just sealed. AFTER the
-    # union, necessarily: the plate is what closes it.
-    h = h.cut(_terminal_window())
+    # the dock's seat: four tenons, and the slot its terminal's tails ride in.
+    # The dock is NOT unioned in -- see the docstring.
+    h = h.union(_dock_tenons())
+    h = h.cut(_tail_slot())
     # wood screws, in the flange bands clear of both bays
     for sy in SCREW_YS:
         for sz in SCREW_ZS:
@@ -1295,6 +1334,9 @@ PRINT_ORIENTATION = {
         "the back face at the LEAST negative x ends up lowest. At -90 it is "
         "the lid side that lands on the plate and the whole part prints "
         "upside down, cantilevered on its bay walls"),
+    # Declared where the dock is drawn, because its joint is derived from it
+    # there; listed here so export and the overhang gate find it.
+    "v2_battery_dock": DOCK.DOCK_ORIENTATION,
     "v2_housing_lid": PO(
         ((0, 1, 0), -90),
         "the LID goes the other way: -90 maps world +X to build UP, so the "
@@ -1315,6 +1357,15 @@ def _axis(v):
     return tuple(round(c, 9) for c in v)
 
 assert _axis(PRINT_ORIENTATION["v2_housing"].build_dir) == (-1.0, 0.0, 0.0),     "the housing is documented as building -X (outboard, off the back face)"
+# The dock's joint was specified in the DOCK's frame, with the plate assumed to
+# build straight off the mating plane (battery_dock._PLATE_BUILDS). That is a
+# claim about THIS part, so it is checked here, in this part's frame: the dock
+# goes on travelling -Z, and the mating plane's normal is -X, out of the plate.
+_DOCK_SITE = JointSite(install_dir=_DOCK_AXES["+Y"], normal=_DOCK_AXES["+Z"])
+assert (facing_for(PRINT_ORIENTATION["v2_housing"], _DOCK_SITE)
+        == facing_for(DOCK._PLATE_BUILDS, DOCK.JOINT_SITE) == "up"), (
+    "the dock's tenons were drawn for a plate that builds off the mating "
+    "plane, and the housing no longer does")
 assert _axis(PRINT_ORIENTATION["v2_housing_lid"].build_dir) == LID_UP,     "the lid's rotation must build along LID_UP, the vector its geometry uses"
 
 
