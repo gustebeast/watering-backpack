@@ -37,7 +37,6 @@ const SUN_COS_MAX = 0.99988750; // cos(0.015)
 const SUN_INV_OMEGA = 1414.7;   // 1 / (2 pi (1 - SUN_COS_MAX)): the sun's radiance for unit strength
 const ROOM_BELOW = vec3f(0.888, 0.913, 0.956);
 const ROOM_ABOVE = vec3f(0.102, 0.117, 0.138);
-const CLEAR_OPACITY = 0.38;
 const INDIRECT_CLAMP = 10.0;
 const FILTER_SD = 0.45;
 const EPS = 0.004;
@@ -73,7 +72,7 @@ fn trace(o: vec3f, d: vec3f, tmin: f32, tmax: f32) -> Hit {
     if (clip && dot(G.clip.xyz, o + d * c.t) + G.clip.w < 0.0) { continue; }
     if ((parts[c.instance_custom_data].flags & F_CLEAR) != 0u) {
       if (see_through) { veiled = true; continue; }
-      if (rand() >= CLEAR_OPACITY) { continue; }
+      if (rand() >= parts[c.instance_custom_data].color.a) { continue; }   // its own opacity (scene.rs)
     }
     rayQueryConfirmIntersection(&rq);
   }
@@ -92,7 +91,7 @@ fn occluded(o: vec3f, d: vec3f) -> bool {
   while (rayQueryProceed(&rq)) {
     let c = rayQueryGetCandidateIntersection(&rq);
     if (clip && dot(G.clip.xyz, o + d * c.t) + G.clip.w < 0.0) { continue; }
-    if ((parts[c.instance_custom_data].flags & F_CLEAR) != 0u && rand() >= CLEAR_OPACITY) { continue; }
+    if ((parts[c.instance_custom_data].flags & F_CLEAR) != 0u && rand() >= parts[c.instance_custom_data].color.a) { continue; }
     rayQueryConfirmIntersection(&rq);
   }
   let i = rayQueryGetCommittedIntersection(&rq);

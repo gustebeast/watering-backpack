@@ -23,6 +23,7 @@ pub struct GpuPart {
 
 pub const FLAG_VCOL: u32 = 1;
 pub const FLAG_CLEAR: u32 = 2;
+pub const CLEAR_OPACITY: f32 = 0.38;   // a "-clear" filament: index.html's CLEAR, trace_blender.py's CLEAR
 pub const FLAG_SEL: u32 = 4;
 
 pub struct Part {
@@ -140,7 +141,14 @@ pub fn load(d: &[u8]) -> Result<Scene, String> {
         let bc = &j["materials"][prim["material"].as_u64().unwrap_or(0) as usize]["pbrMetallicRoughness"]["baseColorFactor"];
         let mut color = if bc.is_array() { [0, 1, 2, 3].map(|k| bc[k].as_f64().unwrap_or(1.0) as f32) } else { [1.0; 4] };
         let (mut metal, mut rough) = mat.and_then(|m| finishes.get(m).copied()).unwrap_or((0.0, 0.65));
-        let mut clear = mat.map(|m| m.ends_with("-clear")).unwrap_or(false);
+        // SEEN THROUGH, AND HOW MUCH: a clear filament at the one opacity the page and Blender give it,
+        // and any other part at the opacity its own colour carries. The page (index.html partMaterial)
+        // and Blender (trace_blender.py, Principled Alpha) have always honoured that fourth number; this
+        // read only the NAME, so a part drawn at 0.13 was a solid here and a project could change the
+        // number all day without the picture moving. The opacity rides in the colour's alpha, which the
+        // shader reads nowhere else.
+        if mat.map(|m| m.ends_with("-clear")).unwrap_or(false) { color[3] = CLEAR_OPACITY; }
+        let mut clear = color[3] < 0.999;
         if vcol.is_some() {
             (color, metal, rough, clear) = ([1.0; 4], 0.0, 0.6, false);
         }
