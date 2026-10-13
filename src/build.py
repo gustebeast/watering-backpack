@@ -358,8 +358,15 @@ def material_of(name, hoses=(), wires=()):
     for n in (name, name.rsplit("_", 1)[0]):
         if n in MATERIAL:
             return MATERIAL[n]
-        if n in hoses or n in wires:
-            return "pvc"          # vinyl tube, and wire insulation
+        if n in wires:
+            return "pvc"          # filled, matte, opaque: wire insulation
+        if n in hoses:
+            # ⚠ THESE TWO WERE ONE NAME AND SHOULD NOT HAVE BEEN. The hose
+            # was "pvc" as well -- the right polymer and the wrong surface, 0.55
+            # diffuse, which is matte and opaque, so it rendered as coloured
+            # plastic pipe however low its alpha went. Transparency is not what
+            # makes a tube look like a tube; GLOSS is. cadkit has "vinyl" now.
+            return "vinyl"
     return None
 
 
@@ -558,12 +565,25 @@ def main() -> int:
     # reports by name, so nothing is lost by drawing the thing as it looks.
     WIRE_TINT = "#17191c"
     # ...and the hoses are TRANSLUCENT, because the hose is. 1/2" vinyl is a
-    # clear tube with a tint, and drawn opaque it hides every line behind it --
-    # which on the green side is most of the plenum. The tints stay (tank red,
-    # green line green) because they are how the two circuits are told apart in
-    # CIRCUIT.md and on the bench, but they are now washes over a see-through
-    # wall rather than paint.
-    HOSE_ALPHA = 0.45
+    # clear tube, and drawn opaque it hides every line behind it -- which on
+    # the green side is most of the plenum.
+    #
+    # ⚠ AND IT IS CLEAR, NOT TINTED. "the red line" is THIS REPO'S name for
+    # a circuit, not a description of a part: bom_consolidated.md buys 1/2" ID
+    # vinyl tubing, Ace ProLine or equivalent, and that is water-clear. There is
+    # no red hose and no green hose to buy. The previous note here said "the
+    # tints stay ... because they are how the two circuits are told apart", and
+    # that reason is still good -- a model in which both lines are the same
+    # clear tube is one you cannot read -- but the tints were #b03030 and
+    # #30a050, which are PIGMENTS: the colour of a thing that is coloured.
+    # These are tints in the other sense, the cast a clear wall takes from what
+    # is behind it, and they sit under cadkit's "vinyl" gloss instead of "pvc"'s
+    # matte. Declared as a diagram aid rather than passed off as the part. To
+    # make the model honest instead of legible, set both to the same pale
+    # neutral: no gate reads these, only the eye does.
+    TANK_LINE  = "#e8b4ae"
+    GREEN_LINE = "#b4ddc0"
+    HOSE_ALPHA = 0.32
     # ⚠ SEE-THROUGH IS DECLARED, NOT INFERRED FROM THE NAME. The rule here used
     # to be `0.35 if battery else 0.85 if "_" in nm else 1.0`, and an underscore
     # in a name is not a reason to be able to see through something. It caught
@@ -621,7 +641,7 @@ def main() -> int:
         if nm == "wood":
             continue
         if nm in HOSES:
-            c, a = ("#b03030" if nm.startswith("tank") else "#30a050"), HOSE_ALPHA
+            c, a = (TANK_LINE if nm.startswith("tank") else GREEN_LINE), HOSE_ALPHA
         elif nm in WIRES:
             c, a = WIRE_TINT, 1.0
         else:
