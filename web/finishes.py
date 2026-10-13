@@ -40,6 +40,13 @@ FINISHES = {
     "rubber":    (0.0, 0.95),     # belts
     "nylon":     (0.0, 0.50),     # connector housings
     "pvc":       (0.0, 0.55),     # wire insulation
+    "vinyl":     (0.0, 0.20),     # clear flexible tube: the SAME polymer as "pvc" and
+                                  # not the same surface. Insulation is filled, matte
+                                  # and opaque; tube is unfilled, wet-looking and
+                                  # see-through, and a project that reaches for "pvc"
+                                  # to draw a hose gets a 0.55 diffuse pipe that reads
+                                  # as coloured plastic however low its alpha goes.
+                                  # Gloss is what makes a tube look like a tube.
     "board":     (0.0, 0.36),     # a circuit board's solder mask: a hard gloss lacquer
     "ink":       (0.0, 0.90),     # silkscreen
     "glass":     (0.0, 0.06),     # a window: it mirrors the room
