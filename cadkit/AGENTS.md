@@ -575,6 +575,16 @@ printed part, brass / steel / gold / rubber for a bought one. The names are the 
   `assembly.add(part, name=..., metadata={"material": "pctg"})`.
 - The export lists every part that ends up with no material. That list should be empty.
 
+## Bought parts — draw once, then read (`cadkit.kept`)
+
+A solid that costs seconds to draw and is the same in every build (a toothed belt, a
+threaded rod) goes through `kept(make, *args)`: drawn the first time, read from `.kept/`
+(git-ignored) after that. Its file is named by a hash of the arguments and of the source of
+the drawing module and everything it imports in the project, so a changed dimension is a
+miss, never a stale part. Arguments must be plain numbers/strings/tuples; a function that
+reads the environment or a file must not be kept. Worth it only where the drawing is slow:
+time it first. `CADKIT_KEPT=0` draws everything.
+
 ## Don't
 - Don't re-add Onshape (push scripts, credentials, `_push_onshape`) — removed on
   purpose.
