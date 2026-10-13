@@ -411,7 +411,9 @@ class ScratchView:
     # ── render ──────────────────────────────────────────────────────────────
     def render(self, live=True, rig=False):
         """The page (cadkit.web). An open page reloads itself. live=False builds
-        nothing; rig=True rewrites the animation rig as well."""
+        nothing. The animation rig is rewritten whenever parts were built (it is read
+        off the same source, and a rig left from an older build moves the wrong parts
+        on the wrong keys); rig=True rewrites it for a cache-only view too."""
         from cadkit.web import scratch_show
         mine = []
         if live:
@@ -422,7 +424,7 @@ class ScratchView:
             return 1
         d = self.describe(mine)
         self._banner("SCRATCH VIEW", d)
-        scratch_show(self, describe=d, refresh_rig=rig, **self.web)
+        scratch_show(self, describe=d, refresh_rig=rig or bool(live), **self.web)
         return 0
 
 
@@ -431,7 +433,8 @@ def main(view: ScratchView, argv=None) -> int:
     ap.add_argument("--cache-only", action="store_true",
                     help="build nothing: show the model as it was last built")
     ap.add_argument("--rig", action="store_true",
-                    help="rewrite the page's animation rig as well")
+                    help="rewrite the page's animation rig (a view that builds parts "
+                         "always does; this is for --cache-only)")
     ap.add_argument("--gate", action="store_true",
                     help="run the project's gates over the scratch model (seconds) -- "
                          "the scoped gate; the FULL gate runs in the lead's build")
