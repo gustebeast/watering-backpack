@@ -616,12 +616,15 @@ def main() -> int:
     # 0.35 because it was a brick standing in for a can, and see-through is
     # reserved for fits you cannot otherwise see (SEE_THROUGH above).
     add_part(asm, "tank_viz", L.tank(), TK.BODY, 0.9)
-    try:
-        counter = (cq.Workplane("XZ").center(0, L.DECK_Z + 520)
-                   .text(str(build_n), 30, 6))
-        add_part(asm, "build_counter", counter, "#F0A878")
-    except Exception:                                              # noqa: BLE001
-        pass
+    # ⚠ THE BUILD NUMBER IS NOT MODELLED. It used to be three glyphs of 3D
+    # text floated 520 mm above the deck, so that a stale viewer page was
+    # obvious -- the number was right but the mechanism was wrong, and it cost
+    # the assembly three solids that nobody prints, buys or measures. The
+    # viewer is given the number instead (`show(..., build=build_n)`, which
+    # lands in the glb's asset.extras.build and the page displays it), so the
+    # page still says which build it is showing and the model holds only parts.
+    # It was also the last thing in this assembly with no material, for the
+    # good reason that a number is not made of anything.
 
     out = str(OUT / "assembly.step")
     asm.save(out, mode="default")
