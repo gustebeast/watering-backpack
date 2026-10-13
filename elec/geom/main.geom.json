@@ -28,6 +28,26 @@
     37.8,
     -21.0,
     -19.0
+   ],
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Buzzer_Beeper.3dshapes/Buzzer_12x9.5RM7.6.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
    ]
   },
   {
@@ -48,7 +68,27 @@
     -6.9
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/CP_Elec_10x10.5.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C10",
@@ -68,7 +108,27 @@
     0.45
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C11",
@@ -88,7 +148,27 @@
     34.35
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C12",
@@ -108,7 +188,27 @@
     34.35
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C13",
@@ -128,7 +228,27 @@
     0.675
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C14",
@@ -148,7 +268,27 @@
     26.25
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C15",
@@ -168,7 +308,27 @@
     35.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C16",
@@ -188,7 +348,27 @@
     -33.825
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C17",
@@ -208,7 +388,27 @@
     -38.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C18",
@@ -228,7 +428,27 @@
     -37.65
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C19",
@@ -248,7 +468,27 @@
     29.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C2",
@@ -268,7 +508,27 @@
     -6.9
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/CP_Elec_10x10.5.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C20",
@@ -288,7 +548,27 @@
     -37.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C21",
@@ -308,7 +588,27 @@
     -37.8
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C22",
@@ -328,7 +628,27 @@
     31.65
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C23",
@@ -348,7 +668,27 @@
     36.76
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C24",
@@ -368,7 +708,27 @@
     25.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C3",
@@ -388,7 +748,27 @@
     36.95
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C4",
@@ -408,7 +788,27 @@
     32.76
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C5",
@@ -428,7 +828,27 @@
     34.675
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C6",
@@ -448,7 +868,27 @@
     37.675
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C7",
@@ -468,7 +908,27 @@
     35.95
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C8",
@@ -488,7 +948,27 @@
     30.45
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "C9",
@@ -508,7 +988,27 @@
     0.45
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D1",
@@ -528,7 +1028,27 @@
     0.15
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SMC.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D2",
@@ -548,7 +1068,27 @@
     -18.45
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/TO-263-2.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D3",
@@ -568,7 +1108,27 @@
     -18.45
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/TO-263-2.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D4",
@@ -588,7 +1148,27 @@
     1.95
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D5",
@@ -608,7 +1188,27 @@
     -3.05
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D6",
@@ -628,7 +1228,27 @@
     33.35
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SMA.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "D7",
@@ -648,7 +1268,27 @@
     33.1
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "F1",
@@ -668,7 +1308,27 @@
     -37.65
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Fuse.3dshapes/Fuse_1206_3216Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "F2",
@@ -693,6 +1353,26 @@
     12.425,
     -35.675,
     -30.725
+   ],
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Fuse.3dshapes/FuseHolder_Blade_ATO_Littelfuse_FLR_178.6165.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
    ]
   },
   {
@@ -728,7 +1408,27 @@
      6.54,
      -47.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/TerminalBlock_Phoenix.3dshapes/TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "J2",
@@ -763,7 +1463,27 @@
      -16.96,
      -47.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/TerminalBlock_Phoenix.3dshapes/TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "J3",
@@ -798,7 +1518,27 @@
      -5.21,
      -47.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/TerminalBlock_Phoenix.3dshapes/TerminalBlock_Phoenix_MKDS-3-2-5.08_1x02_P5.08mm_Horizontal.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "J4",
@@ -845,7 +1585,27 @@
      38.56,
      -47.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/TerminalBlock_Phoenix.3dshapes/TerminalBlock_Phoenix_MKDS-3-5-5.08_1x05_P5.08mm_Horizontal.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "J5",
@@ -888,7 +1648,27 @@
      -28.68,
      -47.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/TerminalBlock_Phoenix.3dshapes/TerminalBlock_Phoenix_MKDS-3-4-5.08_1x04_P5.08mm_Horizontal.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "J6",
@@ -939,7 +1719,27 @@
      18.35,
      45.0
     ]
-   }
+   },
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x06_P2.54mm_Vertical.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "L1",
@@ -959,7 +1759,27 @@
     34.96
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Inductor_SMD.3dshapes/L_Bourns_SRN6045TA.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "Q1",
@@ -979,7 +1799,27 @@
     -18.743
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/TO-252-3_TabPin2.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "Q2",
@@ -999,7 +1839,27 @@
     -18.743
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/TO-252-3_TabPin2.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "Q3",
@@ -1019,7 +1879,27 @@
     -8.5
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "Q4",
@@ -1039,7 +1919,27 @@
     -33.5
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R1",
@@ -1059,7 +1959,27 @@
     26.35
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R2",
@@ -1079,7 +1999,27 @@
     26.35
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R20",
@@ -1099,7 +2039,27 @@
     10.463
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R21",
@@ -1119,7 +2079,27 @@
     34.362
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R22",
@@ -1139,7 +2119,27 @@
     -17.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R23",
@@ -1159,7 +2159,27 @@
     28.463
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R24",
@@ -1179,7 +2199,27 @@
     -3.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R25",
@@ -1199,7 +2239,27 @@
     40.962
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R26",
@@ -1219,7 +2279,27 @@
     28.463
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R27",
@@ -1239,7 +2319,27 @@
     28.463
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R28",
@@ -1259,7 +2359,27 @@
     28.463
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R29",
@@ -1279,7 +2399,27 @@
     -34.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R3",
@@ -1299,7 +2439,27 @@
     36.462
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R30",
@@ -1319,7 +2479,27 @@
     -34.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R31",
@@ -1339,7 +2519,27 @@
     37.462
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R4",
@@ -1359,7 +2559,27 @@
     -3.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R5",
@@ -1379,7 +2599,27 @@
     -3.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R6",
@@ -1399,7 +2639,27 @@
     -0.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R7",
@@ -1419,7 +2679,27 @@
     -0.537
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R8",
@@ -1439,7 +2719,27 @@
     28.552
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "R9",
@@ -1459,7 +2759,27 @@
     -7.825
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0805_2012Metric.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "TP1",
@@ -1634,6 +2954,26 @@
     -34.47,
     27.65,
     32.35
+   ],
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8-1EP_3.9x4.9mm_P1.27mm_EP2.29x3mm.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
    ]
   },
   {
@@ -1659,6 +2999,26 @@
     40.23,
     22.716,
     26.216
+   ],
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/RF_Module.3dshapes/ESP32-WROOM-32E.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
    ]
   },
   {
@@ -1679,7 +3039,27 @@
     -2.5
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-5.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   },
   {
    "ref": "U4",
@@ -1699,7 +3079,27 @@
     -2.5
    ],
    "crtyd": null,
-   "tht": null
+   "tht": null,
+   "models": [
+    {
+     "file": "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-5.step",
+     "offset": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rot": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
   }
  ],
  "outline_poly": [

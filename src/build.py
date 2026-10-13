@@ -305,12 +305,14 @@ COLOUR_EXCEPTIONS = {
 # or metal colour is used ONLY where a part has no colour of its own, so
 # nothing here overrides the tints above.
 #
-# ⚠ WOOD IS DELIBERATELY ABSENT. cadkit has no wood, and the planks, posts
-# and rails are the parts the build still reports as plain plastic -- said out
-# loud rather than papered over with "painted", which would make sawn fir
-# gloss. A wood finish belongs in cadkit/web/finishes.py, for the pantorouter
-# as much as for this.
+# The lumber's "wood" is cadkit's now (web/finishes.py, 0.78: matte with the
+# sheen that is along the grain). It was missing, and this frame is what
+# noticed -- every plank, post and rail was shaded plain plastic. It went
+# there rather than here because the pantorouter is made of the same stuff.
 MATERIAL = {
+    # sawn fir, from L.pieces(): the names are the cut list's
+    "plank_deck": "wood", "plank_floor": "wood",
+    "post": "wood", "rail_cross": "wood", "rail_side": "wood",
     # printed: the one spool, named where PRINTED_IN_ASSEMBLY is asserted
     "housing": "pctg", "housing_lid": "pctg",
     # the board: its mask is a hard gloss lacquer, its lettering is not
