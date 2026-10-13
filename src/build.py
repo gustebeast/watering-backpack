@@ -276,7 +276,7 @@ def add_part(asm, name, solid, tint, alpha=1.0):
 # entry here is a claim that this part CANNOT carry its colour, with the cost
 # of that stated, and the gate still catches everything else.
 #
-# The board's silkscreen is 359 (front) and 120 (back) flat FACES — cadkit
+# The board's silkscreen is 479 flat FACES (359 front, 120 back) — cadkit
 # draws ink as faces standing SILK_T = 0.02 mm off the laminate, not as bodies
 # — and a STEP carries a colour on a solid. One face loses its colour exactly
 # as a nine-solid compound does.
@@ -291,10 +291,52 @@ def add_part(asm, name, solid, tint, alpha=1.0):
 # written so a face can keep one — and by this project's rule that means
 # canonical ../cadkit and `propagate.py`, not a hand-edit of the vendored copy.
 COLOUR_EXCEPTIONS = {
-    "pcb_silk_F": "flat ink: 359 faces, and a STEP colours solids",
-    "pcb_silk_B": "flat ink: 120 faces, and a STEP colours solids",
+    "pcb_silk": "flat ink: 479 faces, and a STEP colours solids",
 }
 
+
+
+# ── WHAT EACH PART IS MADE OF ───────────────────────────────────────────────
+# A colour says what a part looks like; a MATERIAL says how light leaves it,
+# and the viewer wants both. Without this every part was shaded "plain
+# plastic" -- which made the brass fittings and the steel screw as matte as a
+# printed wall, and the board's mask as dead as sawn pine. The names are
+# cadkit's own (`cadkit.web.finishes`: a filament or a finish), and a filament
+# or metal colour is used ONLY where a part has no colour of its own, so
+# nothing here overrides the tints above.
+#
+# ⚠ WOOD IS DELIBERATELY ABSENT. cadkit has no wood, and the planks, posts
+# and rails are the parts the build still reports as plain plastic -- said out
+# loud rather than papered over with "painted", which would make sawn fir
+# gloss. A wood finish belongs in cadkit/web/finishes.py, for the pantorouter
+# as much as for this.
+MATERIAL = {
+    # printed: the one spool, named where PRINTED_IN_ASSEMBLY is asserted
+    "housing": "pctg", "housing_lid": "pctg",
+    # the board: its mask is a hard gloss lacquer, its lettering is not
+    "pcb": "board", "pcb_silk": "ink",
+    "pcb_screw": "steel", "pcb_insert": "brass",
+    "fittings": "brass",
+    # moulded plastic cases -- a Makita pack, its contact block, the pump
+    # bodies, the Scepter can. "painted" is cadkit's non-metal semi-gloss; it
+    # is the closest name it has for moulded ABS and HDPE, and that is an
+    # approximation, not a measurement.
+    "battery": "painted", "terminal": "painted",
+    "pump_a": "painted", "pump_b": "painted", "tank_viz": "painted",
+}
+
+
+def material_of(name, hoses=(), wires=()):
+    """`name` -> what it is made of, or None. Called with the names the export
+    uses, which for a multi-solid part are `<part>_0 .. _N`, so a trailing
+    index is dropped when dropping it finds a part. Hose and wire names come
+    from the modules that make them (see HOSES / WIRES), not from spelling."""
+    for n in (name, name.rsplit("_", 1)[0]):
+        if n in MATERIAL:
+            return MATERIAL[n]
+        if n in hoses or n in wires:
+            return "pvc"          # vinyl tube, and wire insulation
+    return None
 
 def colour_check(step_path):
     """Every part in the written STEP must come back WITH ITS COLOUR.
@@ -472,16 +514,6 @@ def main() -> int:
     for nm, solid in comps:
         if nm == "wood":
             continue
-        if nm == "pcb":
-            # ⚠ THE BOARD GOES IN AS ITS MATERIALS, NOT AS ONE PART. Added as
-            # one component it took one colour, and that colour was the solder
-            # mask -- so a steel-canned ESP32, two black electrolytics and five
-            # green terminal blocks all rendered as laminate. The overlap gate
-            # still weighs `solid` (the union of exactly these pieces), so the
-            # two cannot describe different boards.
-            for pnm, ptint, psolid in H.pcb_parts():
-                add_part(asm, pnm, psolid, ptint)
-            continue
         if nm in HOSES:
             c, a = ("#b03030" if nm.startswith("tank") else "#30a050"), HOSE_ALPHA
         elif nm in WIRES:
@@ -489,12 +521,12 @@ def main() -> int:
         else:
             c, a = tints[nm], SEE_THROUGH.get(nm, 1.0)
         add_part(asm, nm, solid, c, a)
-    # The board's own silkscreen, ink-white on the front and back. Not in
-    # components(): see housing.pcb_silk() for why ink is not an interference.
-    for _side, _tint in (("F", "#f2f2f2"), ("B", "#f2f2f2")):
-        _ink = H.pcb_silk(_side)
-        if _ink is not None:
-            add_part(asm, "pcb_silk_%s" % _side, _ink, _tint)
+    # The board's own silkscreen, both faces as ONE part. Not in components():
+    # see housing.pcb_silk() for why ink is not an interference -- and
+    # housing.pcb_ink() for why the two faces may not go in separately.
+    _ink = H.pcb_ink()
+    if _ink is not None:
+        add_part(asm, "pcb_silk", _ink, "#f2f2f2")
     # The can in the colour it is sold in, and opaque: it was pale blue at
     # 0.35 because it was a brick standing in for a can, and see-through is
     # reserved for fits you cannot otherwise see (SEE_THROUGH above).
@@ -685,7 +717,17 @@ def main() -> int:
         "the STEP path was overwritten before show(): got %r. Some gate above "
         "reused the name `out` as a scratch solid." % (out,))
     print("Wrote %s  [build #%d]" % (out, build_n))
-    if not show(out):
+    # ⚠ `boards=` IS WHAT PUTS REAL COMPONENTS ON THE BOARD, and leaving it
+    # off is why this model showed a green brick with green bumps on it for as
+    # long as it had a board. The CAD draws one box per footprint, which is
+    # right for the clearance gates and wrong to look at; the viewer swaps each
+    # box for KiCad's own model of that footprint (drawn by cadkit.web.parts
+    # where the library has none), seats a crimp housing in every JST and puts
+    # the lettering on. None of that is this project's to draw -- see
+    # cadkit/PCB_README.md s6, and read the "web boards:" line below for any
+    # footprint that kept its box, with WEB_BOARDS_WHY=1 to have it named.
+    if not show(out, root=OUT, build=build_n, boards=H.BOARDS,
+                materials=lambda n: material_of(n, HOSES, WIRES)):
         print("*** THE VIEWER DID NOT REFRESH *** see the [web view] line above")
     return bad + oversize + blocked + board_bad + lost_colour
 

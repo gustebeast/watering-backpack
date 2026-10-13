@@ -585,41 +585,25 @@ def pose_board(solid):
     return r.translate((BOARD_X0, PCB_Y_C, PCB_Z_C))
 
 
-def pcb_parts():
-    """[(name, tint, solid)] -- the board SPLIT BY WHAT ITS PARTS ARE MADE OF.
-
-    The assembly draws these, not `pcb_solid()`. A board added as one component
-    gets one colour, and that colour was the solder mask, so the ESP32's steel
-    can, the electrolytics' black sleeves and the screw terminals all came out
-    green -- shaped correctly (finding 62) and still unreadable.
-
-    The pedal steel does it this way: `BG.bodies(board, refs)` against
-    `solid(skip=refs)` for its LEDs, and a named `_COLORS` entry for every
-    board's silkscreen, plugs, screws and inserts. cadkit's docstring says the
-    pair exists for exactly this.
-    """
-    return [("pcb_" + g, t, pose_board(s)) for g, t, s in BP.parts(_BOARDS, "main")]
-
-
 def pcb_solid():
-    """The board as it will be in the hand.
+    """The board as it will be in the hand: laminate, one box per footprint,
+    tails under it, a panel part's nose and nut.
 
-    ⚠ IT IS NOT ALL BOXES ANY MORE. Everything cadkit can answer from the
-    routed F.Fab box still comes from there; the parts whose box is a poor
-    likeness -- the five screw terminals, the two electrolytic cans, the buzzer
-    -- are drawn by src/board_parts.py and SKIPPED here, so nothing is drawn
-    twice. See that file for what is still a box on purpose.
+    ⚠ A BOX IS THE RIGHT ANSWER HERE AND A POOR ONE TO LOOK AT, and those
+    are two different jobs. A box is the footprint's own F.Fab outline extruded
+    to its height -- conservative, which is what every clearance gate reading
+    this wants. The PICTURE is not this function's problem: the viewer swaps
+    each box for KiCad's real model of that part (cadkit/PCB_README.md s6,
+    `show(..., boards=)`), and on this board it does so for 67 footprints out
+    of 67 with no box left over.
 
-    ⚠ IT IS BUILT FROM pcb_parts(), not beside it. The overlap gate weighs
-    this one solid and the viewer colours those pieces; if the two were built
-    by separate code paths they could disagree about what the board IS, which
-    is the mistake this repo has already paid for with two pcb_solid()s (see
-    src/pump_frame.py). One is the union of the other, so they cannot.
+    This file DREW five screw terminals, two electrolytic cans and a buzzer for
+    a while, to make the render honest. That was the wrong side of the problem.
+    It made one project's board look right, cost a material table and a skip
+    list to keep two descriptions of the board from diverging, and the models
+    it was approximating were on this machine the whole time.
     """
-    out = None
-    for _n, _t, part in pcb_parts():
-        out = part if out is None else out.union(part)
-    return out
+    return pose_board(_BOARDS.solid("main"))
 
 
 def pcb_silk(side: str = "F"):
@@ -1368,3 +1352,24 @@ def _build() -> None:
 
 if __name__ == "__main__":
     _build()
+
+
+def pcb_ink():
+    """ALL the board's lettering, both faces, as ONE part -- or None.
+
+    ⚠ THIS IS THE PART THE VIEWER FINDS THE BOARD BY, and that is why it exists
+    beside pcb_silk(). Nothing in the assembly records where this module put the
+    board; cadkit.web.boards fits the pose by registering a part whose corner
+    count matches the board's reference lettering (cadkit/PCB_README.md s6).
+    Two parts of one face each match nothing, so the board keeps its boxes.
+    Placed by pose_board() and otherwise untouched, for the same reason.
+    """
+    s = _BOARDS.ink("main")
+    return None if s is None else pose_board(s)
+
+
+# The one Boards for this project, by its public name: build.py hands it to the
+# viewer (`show(..., boards=H.BOARDS)`), which is how the board gets its real
+# components instead of boxes. One object, so the picture and the clearance
+# gates cannot be reading different geometry.
+BOARDS = _BOARDS
