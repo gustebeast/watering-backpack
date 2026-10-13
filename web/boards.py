@@ -661,7 +661,18 @@ def detail(meshed, shape_of, boards, cache_dir=None, log=print):
 
         for f in g["footprints"]:
             ms = _models(f)
-            if not f.get("fab") or not (ms or WP.knows(f["fpid"].split(":")[-1])):
+            if not f.get("fab"):
+                continue            # nothing to draw: a test pad, a fiducial, a logo
+            if not (ms or WP.knows(f["fpid"].split(":")[-1])):
+                # ⚠ SAID, NOT SKIPPED. This used to `continue` with the line above,
+                # before the report counts anything -- so a part with a BODY and no
+                # model anywhere kept its box and the run still said "boxes kept:
+                # none". On one board that silently covered an ESP32 module, a fuse
+                # holder and a SOIC-8: the three most visible things on it, reported
+                # as a clean sweep. A box a project cannot see is a box nobody fixes.
+                keep("the footprint names no model, and none is drawn in web_parts")
+                if why:
+                    log("  box: %s %s names no 3D model" % (solid_name, f["ref"]))
                 continue
             x0, x1, y0, y1 = f["fab"]
             back = f["side"] == "B"
